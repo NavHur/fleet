@@ -15,8 +15,9 @@ docstrings, GDScript `##`), comments after code on the same line, and license
 headers are exempt. More than 2 prose lines is over the cap.
 
 Each long comment is tagged with the repository rule that caps it, read from
-the file's .oxlintrc.json (any `*/no-long-comment` rule that is on), or
-`[not lint-checked]`. Comments above a file's first line of code are marked
+the file's .oxlintrc.json (any `*/no-long-comment` rule that is on) or, for
+GDScript, a `.godot-guard.yml` whose `long-comment` rule is on (`, baselined`
+when the ratchet baseline allows the file's count), or `[not lint-checked]`. Comments above a file's first line of code are marked
 `(file header)`, since some repositories exempt them.
 """
 
@@ -31,6 +32,7 @@ import tokenize
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+import godot_guard
 from measure_complexity import (changed_files, changed_lines, git, is_off, language_of, owning_config,
                                 read_file, strip_jsonc)
 
@@ -183,7 +185,21 @@ def lint_rules(root: Path, head: str | None, files: list[str]) -> dict[str, str]
     owners = {path: owning_config(path, configs) for path in files if language_of(path) == "js"}
     rules = {config: enabled_rule(json.loads(strip_jsonc(read_file(root, head, config) or "{}")))
              for config in set(owners.values()) if config}
-    return {path: rules[config] for path, config in owners.items() if rules.get(config)}
+    found = {path: rules[config] for path, config in owners.items() if rules.get(config)}
+    return {**found, **guard_rules(root, head, [p for p in files if language_of(p) == "gdscript"])}
+
+
+def guard_rules(root: Path, head: str | None, files: list[str]) -> dict[str, str]:
+    """Map each GDScript file to godot-guard's long-comment rule when the repository turns it on."""
+    guard = godot_guard.load(lambda path: read_file(root, head, path)) if files else None
+    if guard is None or guard.severity("long-comment") is None:
+        return {}
+    rules = {}
+    for path in files:
+        count = len(long_comments(path, read_file(root, head, path) or ""))
+        baselined = count <= guard.allowance("long-comment", path)
+        rules[path] = "godot-guard/long-comment" + (", baselined" if baselined else "")
+    return rules
 
 
 def touches(comment: Comment, lines: dict[str, set[int] | None]) -> bool:

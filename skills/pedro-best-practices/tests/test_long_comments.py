@@ -141,3 +141,15 @@ class Script(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_godot_guard_rule_and_baseline_tag_gdscript(self):
+        (self.repo / ".godot-guard.yml").write_text("rules:\n  long-comment: error\n")
+        (self.repo / ".godot-guard-baseline.json").write_text('{"long-comment": {"old.gd": 1}}\n')
+        body = "extends Node\nvar a := 1\n# one\n# two\n# three\nvar b := 2\n"
+        (self.repo / "old.gd").write_text(body)
+        (self.repo / "new.gd").write_text(body)
+        output = self.scan()
+        self.assertIn("old.gd:3-5: 3 prose lines [lint: godot-guard/long-comment, baselined]", output)
+        self.assertIn("new.gd:3-5: 3 prose lines [lint: godot-guard/long-comment]", output)
+        (self.repo / ".godot-guard.yml").write_text("rules:\n  long-comment: off\n")
+        self.assertIn("new.gd:3-5: 3 prose lines [not lint-checked]", self.scan())

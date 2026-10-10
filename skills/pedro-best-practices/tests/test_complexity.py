@@ -26,6 +26,7 @@ SCRIPTS = SKILL / "scripts"
 FIXTURES = HERE / "fixtures"
 sys.path.insert(0, str(SCRIPTS))
 
+import godot_guard  # noqa: E402
 import measure_complexity  # noqa: E402
 
 OXLINT = SKILL / "node_modules" / ".bin" / "oxlint"
@@ -179,6 +180,33 @@ class GodotInterface(unittest.TestCase):
         self.assertFalse(godot_interface.is_resource(node, by_class, surfaces))
 
 
+class GodotGuardConfig(unittest.TestCase):
+    CONFIG = """\
+        paths: [scripts]
+        limits:
+          cognitive: 6   # stricter than Pedro's
+          cyclomatic: 12
+        rules: {nested-ternary: warn, long-comment: off}
+        """
+
+    def load(self, files: dict[str, str]):
+        return godot_guard.load(files.get)
+
+    def test_reads_limits_rules_and_baseline_without_pyyaml(self):
+        sections = godot_guard.read_sections(textwrap.dedent(self.CONFIG))
+        self.assertEqual(sections["limits"], {"cognitive": 6, "cyclomatic": 12})
+        self.assertEqual(sections["rules"], {"nested-ternary": "warn", "long-comment": "off"})
+
+    def test_load(self):
+        guard = self.load({godot_guard.CONFIG: textwrap.dedent(self.CONFIG),
+                           godot_guard.BASELINE: '{"version": 1, "cognitive-complexity": {"a.gd::f": 9}}'})
+        self.assertEqual((guard.limits["cognitive"], guard.limits["cyclomatic"]), (6, 12))
+        self.assertIsNone(guard.severity("long-comment"))
+        self.assertEqual(guard.severity("cognitive-complexity"), "error")
+        self.assertEqual(guard.allowance("cognitive-complexity", "a.gd::f"), 9)
+        self.assertIsNone(self.load({}))
+
+
 class MeasureScript(unittest.TestCase):
     """measure_complexity.py against a throwaway git repository."""
 
@@ -266,3 +294,25 @@ class MeasureScript(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_godot_guard_limits_and_baseline_tag_gdscript(self):
+        if measure_complexity.pick_gdtoolkit_python(self.repo) is None:
+            self.skipTest("no Python with gdtoolkit")
+        self.write(".godot-guard.yml", "limits:\n  cognitive: 2\n")
+        self.write(".godot-guard-baseline.json", '{"cognitive-complexity": {"old.gd::pick": 3}}')
+        body = """\
+            extends Node
+
+
+            func pick(a: bool, b: bool) -> int:
+            \tif a:
+            \t\tif b:
+            \t\t\treturn 1
+            \treturn 0
+            """
+        self.write("old.gd", body)
+        self.write("new.gd", body)
+        output = self.measure()
+        self.assertIn(".godot-guard.yml: repository cognitive max 2, cyclomatic max 16", output)
+        self.assertIn("old.gd:5 pick: cognitive 3 > 2 [lint passes]", output)
+        self.assertIn("new.gd:5 pick: cognitive 3 > 2 [lint: error]", output)

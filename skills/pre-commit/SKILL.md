@@ -33,6 +33,8 @@ Run deterministic repository checks directly. Do not spawn subagents or launch e
 - typecheck: package script `typecheck`, then `type-check`; Make target `typecheck`; Python `mypy .`, then `pyright .`
 - tests: package script `test`, or `test:run` when `test` starts a watcher (bare `vitest`); Make target `test`; Python `pytest`
 
+Godot repositories with a `.godot-guard.yml` use godot-guard from the repository's `.venv` (`tools/setup_lint_tools.sh` creates it): format is `.venv/bin/godot-guard format`, and lint, typecheck (the GDScript analyzer), and tests are all inside `.venv/bin/godot-guard gate`. The gate is `host-check bash -lc '.venv/bin/godot-guard format && .venv/bin/godot-guard gate'`. When the gate's check step fails only because the ratchet baseline has stale or loose entries, run `.venv/bin/godot-guard baseline`, which only removes or lowers entries, and rerun the gate. Never raise or add an entry by hand.
+
 For Node projects, detect the package manager by lockfile. Run Make targets only when they exist. Use existing Python environments and tools only.
 
 ## nj-homes-choice-next

@@ -32,6 +32,8 @@ Languages and how each is measured:
   repository's virtualenv, PBP_GDTOOLKIT_PYTHON, or the venv the coverage
   note names. Python limits in ruff/flake8 (`max-complexity`) or
   complexipy (`max-complexity-allowed`) config count as repository limits.
+  A Godot repository's `.godot-guard.yml` limits count too, and its
+  godot-guard lint tags each GDScript excess, honoring the ratchet baseline.
 The script never edits the repository: files are copied (or extracted from
 HEAD) into a temporary tree. Exit status is 0 whenever measurement succeeds,
 over or not; 2 means the measurement itself failed.
@@ -49,6 +51,8 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+
+import godot_guard
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 SCRIPTS = SKILL_DIR / "scripts"
@@ -527,7 +531,8 @@ def measure_external(language: str, root: Path, head: str | None, files: list[st
 # Report
 
 
-def effective_limits(args, root: Path, head: str | None, has_python: bool, notes: list[str]) -> dict[str, dict[str, int]]:
+def effective_limits(args, root: Path, head: str | None, has_python: bool, notes: list[str],
+                     guard: godot_guard.GodotGuard | None = None) -> dict[str, dict[str, int]]:
     """Limits per language: Pedro's, tightened by flags and repository config."""
     base = dict(PEDRO_LIMITS)
     for metric in base:
@@ -545,7 +550,49 @@ def effective_limits(args, root: Path, head: str | None, has_python: bool, notes
         notes += repo_notes
         for metric, value in repo.items():
             limits["python"][metric] = min(limits["python"][metric], value)
+    tighten_for_guard(limits["gdscript"], guard, notes)
     return limits
+
+
+def tighten_for_guard(limits: dict[str, int], guard: godot_guard.GodotGuard | None, notes: list[str]) -> None:
+    if guard is None:
+        return
+    for metric in PEDRO_LIMITS:
+        limits[metric] = min(limits[metric], guard.limits[metric])
+    notes.append(f"{godot_guard.CONFIG}: repository cognitive max {guard.limits['cognitive']}, "
+                 f"cyclomatic max {guard.limits['cyclomatic']}, with the godot-guard baseline")
+
+
+def load_guard(root: Path, head: str | None, by_language: dict[str, list[str]]) -> godot_guard.GodotGuard | None:
+    if "gdscript" not in by_language:
+        return None
+    return godot_guard.load(lambda path: read_file(root, head, path))
+
+
+GUARD_RULES = {"cognitive": "cognitive-complexity", "cyclomatic": "cyclomatic-complexity"}
+
+
+def guard_lint(function: Function, guard: godot_guard.GodotGuard) -> dict[str, tuple[str, int | None]]:
+    """The metrics godot-guard fails for this function, after its baseline allowance."""
+    flagged = {}
+    for metric, rule in GUARD_RULES.items():
+        severity, score = guard.severity(rule), function.score(metric)
+        key = f"{function.path}::{function.name}"
+        if severity and score is not None and score > max(guard.limits[metric], guard.allowance(rule, key)):
+            flagged[metric] = (severity, guard.limits[metric])
+    return flagged
+
+
+def tag_with_guard(functions: list[Function], guard: godot_guard.GodotGuard | None) -> None:
+    """Lambdas, accessors, and repeated names have keys this skill's names can't match: left untagged."""
+    if guard is None:
+        return
+    functions = [f for f in functions if language_of(f.path) == "gdscript"]
+    names = [(f.path, f.name) for f in functions]
+    for function in functions:
+        unique = names.count((function.path, function.name)) == 1
+        if unique and function.name.split(".")[-1] not in ("<lambda>", "set", "get"):
+            function.lint = guard_lint(function, guard)
 
 
 def main() -> int:
@@ -570,7 +617,8 @@ def main() -> int:
     for path in files:
         by_language.setdefault(language_of(path), []).append(path)
     notes: list[str] = []
-    limits = effective_limits(args, root, args.head, "python" in by_language, notes)
+    guard = load_guard(root, args.head, by_language)
+    limits = effective_limits(args, root, args.head, "python" in by_language, notes, guard)
     print(f"Complexity of {root} {args.base}..{args.head or 'working tree'} (merge-base {merge_base[:10]})")
     print(f"Pedro's limits: cognitive > {PEDRO_LIMITS['cognitive']}, cyclomatic > {PEDRO_LIMITS['cyclomatic']} "
           "(equal passes; a stricter repository limit wins)")
@@ -591,6 +639,7 @@ def main() -> int:
             for function in found:
                 function.limits = dict(limits[language])
             functions += found
+    tag_with_guard(functions, guard)
 
     def is_changed(function: Function) -> bool:
         touched = lines.get(function.path)
