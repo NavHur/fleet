@@ -32,8 +32,9 @@ Languages and how each is measured:
   repository's virtualenv, PBP_GDTOOLKIT_PYTHON, or the venv the coverage
   note names. Python limits in ruff/flake8 (`max-complexity`) or
   complexipy (`max-complexity-allowed`) config count as repository limits.
-  A Godot repository's `.godot-guard.yml` limits count too, and its
-  godot-guard lint tags each GDScript excess, honoring the ratchet baseline.
+  In a Godot repository with a `.godot-guard.yml`, godot-guard 0.2+
+  (PBP_GODOT_GUARD, the repository's .venv, or PATH) reports its limits,
+  which count too, and its verdict on each GDScript function it checks.
 The script never edits the repository: files are copied (or extracted from
 HEAD) into a temporary tree. Exit status is 0 whenever measurement succeeds,
 over or not; 2 means the measurement itself failed.
@@ -532,7 +533,7 @@ def measure_external(language: str, root: Path, head: str | None, files: list[st
 
 
 def effective_limits(args, root: Path, head: str | None, has_python: bool, notes: list[str],
-                     guard: godot_guard.GodotGuard | None = None) -> dict[str, dict[str, int]]:
+                     guard: godot_guard.Verdicts | None = None) -> dict[str, dict[str, int]]:
     """Limits per language: Pedro's, tightened by flags and repository config."""
     base = dict(PEDRO_LIMITS)
     for metric in base:
@@ -554,44 +555,40 @@ def effective_limits(args, root: Path, head: str | None, has_python: bool, notes
     return limits
 
 
-def tighten_for_guard(limits: dict[str, int], guard: godot_guard.GodotGuard | None, notes: list[str]) -> None:
+GUARD_RULES = {"cognitive": "cognitive-complexity", "cyclomatic": "cyclomatic-complexity"}
+
+
+def tighten_for_guard(limits: dict[str, int], guard: godot_guard.Verdicts | None, notes: list[str]) -> None:
     if guard is None:
         return
     for metric in PEDRO_LIMITS:
         limits[metric] = min(limits[metric], guard.limits[metric])
     notes.append(f"{godot_guard.CONFIG}: repository cognitive max {guard.limits['cognitive']}, "
-                 f"cyclomatic max {guard.limits['cyclomatic']}, with the godot-guard baseline")
+                 f"cyclomatic max {guard.limits['cyclomatic']}; GDScript tagged by {guard.binary} check")
+    for rule in GUARD_RULES.values():
+        if guard.severity(rule) != "error":
+            notes.append(f"{godot_guard.CONFIG}: `{rule}` is {guard.levels.get(rule)}; lint does not fail it")
 
 
-def load_guard(root: Path, head: str | None, by_language: dict[str, list[str]]) -> godot_guard.GodotGuard | None:
-    if "gdscript" not in by_language:
-        return None
-    return godot_guard.load(lambda path: read_file(root, head, path))
+def guard_lint(function: Function, guard: godot_guard.Verdicts) -> dict[str, tuple[str, int | None]]:
+    """The metrics godot-guard reports at the function's first line, where it puts every complexity problem.
 
-
-GUARD_RULES = {"cognitive": "cognitive-complexity", "cyclomatic": "cyclomatic-complexity"}
-
-
-def guard_lint(function: Function, guard: godot_guard.GodotGuard) -> dict[str, tuple[str, int | None]]:
-    """The metrics godot-guard fails for this function, after its baseline allowance."""
+    A stale baseline entry for a function now within the limit is a baseline problem, not an excess.
+    """
     flagged = {}
     for metric, rule in GUARD_RULES.items():
-        severity, score = guard.severity(rule), function.score(metric)
-        key = f"{function.path}::{function.name}"
-        if severity and score is not None and score > max(guard.limits[metric], guard.allowance(rule, key)):
+        severity, score = guard.at(rule, function.path, function.line), function.score(metric)
+        if severity and score is not None and score > guard.limits[metric]:
             flagged[metric] = (severity, guard.limits[metric])
     return flagged
 
 
-def tag_with_guard(functions: list[Function], guard: godot_guard.GodotGuard | None) -> None:
-    """Lambdas, accessors, and repeated names have keys this skill's names can't match: left untagged."""
+def tag_with_guard(functions: list[Function], guard: godot_guard.Verdicts | None) -> None:
+    """Functions in files godot-guard checked; the rest (excluded, hidden, outside its paths) stay untagged."""
     if guard is None:
         return
-    functions = [f for f in functions if language_of(f.path) == "gdscript"]
-    names = [(f.path, f.name) for f in functions]
     for function in functions:
-        unique = names.count((function.path, function.name)) == 1
-        if unique and function.name.split(".")[-1] not in ("<lambda>", "set", "get"):
+        if function.path in guard.files:
             function.lint = guard_lint(function, guard)
 
 
@@ -617,7 +614,7 @@ def main() -> int:
     for path in files:
         by_language.setdefault(language_of(path), []).append(path)
     notes: list[str] = []
-    guard = load_guard(root, args.head, by_language)
+    guard = godot_guard.check(root, args.head, by_language.get("gdscript", []), notes)
     limits = effective_limits(args, root, args.head, "python" in by_language, notes, guard)
     print(f"Complexity of {root} {args.base}..{args.head or 'working tree'} (merge-base {merge_base[:10]})")
     print(f"Pedro's limits: cognitive > {PEDRO_LIMITS['cognitive']}, cyclomatic > {PEDRO_LIMITS['cyclomatic']} "

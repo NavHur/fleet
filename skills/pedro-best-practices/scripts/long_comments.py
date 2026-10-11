@@ -15,10 +15,15 @@ docstrings, GDScript `##`), comments after code on the same line, and license
 headers are exempt. More than 2 prose lines is over the cap.
 
 Each long comment is tagged with the repository rule that caps it, read from
-the file's .oxlintrc.json (any `*/no-long-comment` rule that is on) or, for
-GDScript, a `.godot-guard.yml` whose `long-comment` rule is on (`, baselined`
-when the ratchet baseline allows the file's count), or `[not lint-checked]`. Comments above a file's first line of code are marked
-`(file header)`, since some repositories exempt them.
+the file's .oxlintrc.json (any `*/no-long-comment` rule that is on), or
+`[not lint-checked]`. In a Godot repository with a `.godot-guard.yml`,
+godot-guard 0.2+ judges each GDScript comment in the files it checks:
+`[lint: godot-guard/long-comment]` when its `check` reports the comment
+(`[lint: godot-guard/long-comment, warning]` at warn level), and
+`[lint passes: godot-guard/long-comment]` when it does not (a file header,
+its `comment-lines` cap, or the ratchet baseline).
+Comments above a file's first line of code are marked `(file header)`, since
+some repositories exempt them.
 """
 
 from __future__ import annotations
@@ -37,6 +42,7 @@ from measure_complexity import (changed_files, changed_lines, git, is_off, langu
                                 read_file, strip_jsonc)
 
 CAP = 2
+GUARD_RULE = "long-comment"
 LINE_MARKERS = {"js": ("//",), "python": ("#",), "gdscript": ("#",), "php": ("//", "#")}
 BLOCKS = {"js": (("/*", "*/"),), "php": (("/*", "*/"), ("{{--", "--}}"))}
 MARKUP = {".svelte", ".vue", ".astro", ".php"}  # files that can hold <!-- --> comments
@@ -185,21 +191,32 @@ def lint_rules(root: Path, head: str | None, files: list[str]) -> dict[str, str]
     owners = {path: owning_config(path, configs) for path in files if language_of(path) == "js"}
     rules = {config: enabled_rule(json.loads(strip_jsonc(read_file(root, head, config) or "{}")))
              for config in set(owners.values()) if config}
-    found = {path: rules[config] for path, config in owners.items() if rules.get(config)}
-    return {**found, **guard_rules(root, head, [p for p in files if language_of(p) == "gdscript"])}
+    return {path: rules[config] for path, config in owners.items() if rules.get(config)}
 
 
-def guard_rules(root: Path, head: str | None, files: list[str]) -> dict[str, str]:
-    """Map each GDScript file to godot-guard's long-comment rule when the repository turns it on."""
-    guard = godot_guard.load(lambda path: read_file(root, head, path)) if files else None
-    if guard is None or guard.severity("long-comment") is None:
+def lint_tags(root: Path, head: str | None, found: list[Comment], notes: list[str]) -> dict[tuple[str, int], str]:
+    """Tags by (path, line) for comments under a repository lint rule; the rest are not lint-checked."""
+    rules = lint_rules(root, head, sorted({c.path for c in found}))
+    tags = {(c.path, c.line): f"[lint: {rules[c.path]}]" for c in found if c.path in rules}
+    tags.update(guard_tags(root, head, found, notes))
+    return tags
+
+
+def guard_tags(root: Path, head: str | None, found: list[Comment], notes: list[str]) -> dict[tuple[str, int], str]:
+    """godot-guard's verdict on each GDScript comment in a file it checks with `long-comment` on."""
+    paths = sorted({c.path for c in found if language_of(c.path) == "gdscript"})
+    guard = godot_guard.check(root, head, paths, notes)
+    if guard is None or guard.severity(GUARD_RULE) is None:
         return {}
-    rules = {}
-    for path in files:
-        count = len(long_comments(path, read_file(root, head, path) or ""))
-        baselined = count <= guard.allowance("long-comment", path)
-        rules[path] = "godot-guard/long-comment" + (", baselined" if baselined else "")
-    return rules
+    return {(c.path, c.line): guard_tag(guard, c) for c in found if c.path in guard.files}
+
+
+def guard_tag(guard: godot_guard.Verdicts, comment: Comment) -> str:
+    severity = guard.at(GUARD_RULE, comment.path, comment.line)
+    if severity is None:
+        return f"[lint passes: godot-guard/{GUARD_RULE}]"
+    suffix = ", warning" if severity == "warning" else ""
+    return f"[lint: godot-guard/{GUARD_RULE}{suffix}]"
 
 
 def touches(comment: Comment, lines: dict[str, set[int] | None]) -> bool:
@@ -207,14 +224,20 @@ def touches(comment: Comment, lines: dict[str, set[int] | None]) -> bool:
     return touched is None or any(comment.line <= n <= comment.end_line for n in touched)
 
 
-def report(found: list[Comment], rules: dict[str, str], file_count: int) -> None:
-    for comment in found:
-        tag = f"[lint: {rules[comment.path]}]" if comment.path in rules else "[not lint-checked]"
+def report(found: list[Comment], tags: dict[tuple[str, int], str], file_count: int, notes: list[str]) -> None:
+    shown = [tags.get((c.path, c.line), "[not lint-checked]") for c in found]
+    for comment, tag in zip(found, shown):
         header = " (file header)" if comment.header else ""
         print(f"{comment.path}:{comment.line}-{comment.end_line}: {comment.prose} prose lines{header} {tag}")
-    enforced = sum(c.path in rules for c in found)
+    if notes:
+        print("\nCoverage notes:")
+        for note in notes:
+            print(f"  {note}")
+    enforced = sum(tag.startswith("[lint:") for tag in shown)
+    passing = sum(tag.startswith("[lint passes") for tag in shown)
     print(f"\nResult: {len(found)} comment{'s' if len(found) != 1 else ''} over the cap in {file_count} changed "
-          f"source files: {enforced} under a repository lint rule, {len(found) - enforced} not lint-checked.")
+          f"source files: {enforced} under a repository lint rule, {passing} that lint passes, "
+          f"{len(found) - enforced - passing} not lint-checked.")
 
 
 def resolve_base(root: Path, base: str, head: str | None) -> str:
@@ -239,7 +262,8 @@ def main() -> int:
     print(f"Pedro's cap: {CAP} lines of prose per comment\n")
     found = [comment for path in files for comment in long_comments(path, read_file(root, args.head, path) or "")
              if args.all or touches(comment, lines)]
-    report(found, lint_rules(root, args.head, files), len(files))
+    notes: list[str] = []
+    report(found, lint_tags(root, args.head, found, notes), len(files), notes)
     return 0
 
 

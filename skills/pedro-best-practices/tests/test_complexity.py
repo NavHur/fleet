@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -26,10 +27,20 @@ SCRIPTS = SKILL / "scripts"
 FIXTURES = HERE / "fixtures"
 sys.path.insert(0, str(SCRIPTS))
 
-import godot_guard  # noqa: E402
+import guard_oracle  # noqa: E402
 import measure_complexity  # noqa: E402
 
 OXLINT = SKILL / "node_modules" / ".bin" / "oxlint"
+PICK = """\
+    extends Node
+
+
+    func pick(a: bool, b: bool) -> int:
+    \tif a:
+    \t\tif b:
+    \t\t\treturn 1
+    \treturn 0
+    """
 
 
 def scores(command: list[str], fixture: str) -> dict[tuple[str, int], tuple[int | None, int]]:
@@ -180,34 +191,7 @@ class GodotInterface(unittest.TestCase):
         self.assertFalse(godot_interface.is_resource(node, by_class, surfaces))
 
 
-class GodotGuardConfig(unittest.TestCase):
-    CONFIG = """\
-        paths: [scripts]
-        limits:
-          cognitive: 6   # stricter than Pedro's
-          cyclomatic: 12
-        rules: {nested-ternary: warn, long-comment: off}
-        """
-
-    def load(self, files: dict[str, str]):
-        return godot_guard.load(files.get)
-
-    def test_reads_limits_rules_and_baseline_without_pyyaml(self):
-        sections = godot_guard.read_sections(textwrap.dedent(self.CONFIG))
-        self.assertEqual(sections["limits"], {"cognitive": 6, "cyclomatic": 12})
-        self.assertEqual(sections["rules"], {"nested-ternary": "warn", "long-comment": "off"})
-
-    def test_load(self):
-        guard = self.load({godot_guard.CONFIG: textwrap.dedent(self.CONFIG),
-                           godot_guard.BASELINE: '{"version": 1, "cognitive-complexity": {"a.gd::f": 9}}'})
-        self.assertEqual((guard.limits["cognitive"], guard.limits["cyclomatic"]), (6, 12))
-        self.assertIsNone(guard.severity("long-comment"))
-        self.assertEqual(guard.severity("cognitive-complexity"), "error")
-        self.assertEqual(guard.allowance("cognitive-complexity", "a.gd::f"), 9)
-        self.assertIsNone(self.load({}))
-
-
-class MeasureScript(unittest.TestCase):
+class ScriptCase(unittest.TestCase):
     """measure_complexity.py against a throwaway git repository."""
 
     def setUp(self):
@@ -223,15 +207,19 @@ class MeasureScript(unittest.TestCase):
     def git(self, *args: str) -> None:
         subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
 
-    def measure(self, *args: str) -> str:
-        env = {**os.environ, "HOST_CHECK_ACTIVE": "1"}
-        result = subprocess.run([sys.executable, str(SCRIPTS / "measure_complexity.py"), "HEAD", *args,
+    def measure(self, *args: str, base: str = "HEAD", env: dict | None = None) -> str:
+        env = {**os.environ, "HOST_CHECK_ACTIVE": "1", **(env or {})}
+        result = subprocess.run([sys.executable, str(SCRIPTS / "measure_complexity.py"), base, *args,
                                  "--repo", str(self.repo)], capture_output=True, text=True, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
     def write(self, name: str, text: str) -> None:
+        (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
         (self.repo / name).write_text(textwrap.dedent(text))
+
+
+class MeasureScript(ScriptCase):
 
     def test_reports_a_python_excess_in_the_working_tree(self):
         self.write("deep.py", """\
@@ -291,28 +279,164 @@ class MeasureScript(unittest.TestCase):
         self.assertIn("Config: (no .oxlintrc.json) -> 1 JS-family file(s)", output)
         self.assertIn("L4-11 label: cognitive 5, cyclomatic 5", output)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
+    @unittest.skipUnless(guard_oracle.GODOT_GUARD, guard_oracle.MISSING)
     def test_godot_guard_limits_and_baseline_tag_gdscript(self):
         if measure_complexity.pick_gdtoolkit_python(self.repo) is None:
             self.skipTest("no Python with gdtoolkit")
         self.write(".godot-guard.yml", "limits:\n  cognitive: 2\n")
-        self.write(".godot-guard-baseline.json", '{"cognitive-complexity": {"old.gd::pick": 3}}')
-        body = """\
-            extends Node
-
-
-            func pick(a: bool, b: bool) -> int:
-            \tif a:
-            \t\tif b:
-            \t\t\treturn 1
-            \treturn 0
-            """
-        self.write("old.gd", body)
-        self.write("new.gd", body)
-        output = self.measure()
+        self.write(".godot-guard-baseline.json", '{"version": 1, "cognitive-complexity": {"old.gd::pick": 3}}')
+        self.write("old.gd", PICK)
+        self.write("new.gd", PICK)
+        output = self.measure(env={"PBP_GODOT_GUARD": guard_oracle.GODOT_GUARD})
         self.assertIn(".godot-guard.yml: repository cognitive max 2, cyclomatic max 16", output)
-        self.assertIn("old.gd:5 pick: cognitive 3 > 2 [lint passes]", output)
-        self.assertIn("new.gd:5 pick: cognitive 3 > 2 [lint: error]", output)
+        self.assertIn("old.gd:4 pick: cognitive 3 > 2 [lint passes]", output)
+        self.assertIn("new.gd:4 pick: cognitive 3 > 2 [lint: error]", output)
+
+
+TAGS = {"error": "[lint: error]", "warning": "[lint: warning]", "passes": "[lint passes]",
+        "unchecked": "[not lint-checked]"}
+SUMMARY = re.compile(r"^  (\S+):(\d+) \S+: .* (\[[^\]]+\])$", re.M)
+LAMBDA = """\
+    extends Node
+
+    func outer() -> void:
+    \tvar callable = func{name}(a: bool, b: bool):
+    \t\tif a:
+    \t\t\tif b:
+    \t\t\t\treturn 1
+    \t\treturn 0
+    \tcallable.call(true, true)
+    """
+ACCESSOR = """\
+    extends Node
+    var health: int:
+    \tset(value):
+    \t\tif value > 0:
+    \t\t\tif value > 1:
+    \t\t\t\thealth = value
+    \tget:
+    \t\treturn health
+    """
+INNER = """\
+    extends Node
+
+    class Inner:
+    \tfunc pick(a: bool, b: bool) -> int:
+    \t\tif a:
+    \t\t\tif b:
+    \t\t\t\treturn 1
+    \t\treturn 0
+    """
+
+
+def baseline(**rules: dict) -> str:
+    return json.dumps({"version": 1, **{rule.replace("_", "-"): entries for rule, entries in rules.items()}})
+
+
+@unittest.skipUnless(guard_oracle.GODOT_GUARD, guard_oracle.MISSING)
+class GodotGuardVerdicts(ScriptCase):
+    """Each GDScript tag equals what `godot-guard check` decides, in the cases a re-implementation got wrong."""
+
+    def setUp(self):
+        super().setUp()
+        if measure_complexity.pick_gdtoolkit_python(self.repo) is None:
+            self.skipTest("no Python with gdtoolkit")
+
+    def tags(self, *args: str, base: str = "HEAD") -> dict[tuple[str, int], str]:
+        output = self.measure(*args, base=base, env={"PBP_GODOT_GUARD": guard_oracle.GODOT_GUARD})
+        return {(path, int(line)): tag for path, line, tag in SUMMARY.findall(output)}
+
+    def decided(self, keys) -> dict[tuple[str, int], str]:
+        rules = ("cognitive-complexity", "cyclomatic-complexity")
+        return {(path, line): TAGS[guard_oracle.verdict(self.repo, path, line, rules)] for path, line in keys}
+
+    def assert_tags(self, expected: dict[tuple[str, int], str]) -> None:
+        self.assertEqual(self.tags(), expected)
+        self.assertEqual(self.decided(expected), expected)
+
+    def test_a_loose_baseline_entry_fails(self):
+        self.write(".godot-guard.yml", "limits: {cognitive: 2}\n")
+        self.write(".godot-guard-baseline.json", baseline(cognitive_complexity={"unit.gd::pick": 4}))
+        self.write("unit.gd", PICK)
+        self.assert_tags({("unit.gd", 4): "[lint: error]"})
+
+    def test_an_exact_baseline_entry_passes(self):
+        self.write(".godot-guard.yml", "limits: {cognitive: 2}\n")
+        self.write(".godot-guard-baseline.json", baseline(cognitive_complexity={"unit.gd::pick": 3}))
+        self.write("unit.gd", PICK)
+        self.assert_tags({("unit.gd", 4): "[lint passes]"})
+
+    def test_excluded_hidden_and_unscanned_scripts_are_not_lint_checked(self):
+        self.write(".godot-guard.yml", "paths: [game, vendor, .hidden]\nexclude: [vendor/**]\nlimits: {cognitive: 2}\n")
+        for name in ("game/unit.gd", "vendor/unit.gd", ".hidden/unit.gd", "tools/unit.gd"):
+            self.write(name, PICK)
+        self.assert_tags({("game/unit.gd", 4): "[lint: error]", ("vendor/unit.gd", 4): "[not lint-checked]",
+                          (".hidden/unit.gd", 4): "[not lint-checked]", ("tools/unit.gd", 4): "[not lint-checked]"})
+
+    def test_rule_levels_come_from_godot_guard(self):
+        self.write("unit.gd", PICK)
+        levels = {
+            "rules: {cognitive-complexity: null}\n": "[lint: error]",
+            'rules:\n  "cognitive-complexity": off\n': "[lint passes]",
+            "rules: {cognitive-complexity: warn}\n": "[lint: warning]",
+            "rules: {cognitive-complexity: off}\n": "[lint passes]",
+        }
+        for rules, tag in levels.items():
+            with self.subTest(rules=rules):
+                self.write(".godot-guard.yml", "limits: {cognitive: 2}\n" + rules)
+                self.assert_tags({("unit.gd", 4): tag})
+
+    def test_lambdas_accessors_and_repeated_names_are_matched_by_line(self):
+        self.write(".godot-guard.yml", "limits: {cognitive: 2, cyclomatic: 2}\n")
+        self.write(".godot-guard-baseline.json", baseline(
+            cognitive_complexity={"named.gd::outer": 5, "inner.gd::Inner.pick": 3},
+            cyclomatic_complexity={"named.gd::outer.named": 3, "inner.gd::Inner.pick": 3}))
+        self.write("named.gd", LAMBDA.format(name=" named"))
+        self.write("anonymous.gd", LAMBDA.format(name=""))
+        self.write("accessor.gd", ACCESSOR)
+        pick = textwrap.dedent(PICK)
+        self.write("repeated.gd", pick + "\n\n" + pick.split("\n\n\n", 1)[1])
+        self.write("inner.gd", INNER)
+        self.assert_tags({
+            ("accessor.gd", 3): "[lint: error]",
+            ("anonymous.gd", 3): "[lint: error]",
+            ("anonymous.gd", 4): "[lint: error]",
+            ("inner.gd", 4): "[lint passes]",
+            ("named.gd", 3): "[lint passes]",
+            ("named.gd", 4): "[lint passes]",
+            ("repeated.gd", 4): "[lint: error]",
+            ("repeated.gd", 11): "[lint: error]",
+        })
+
+    def test_a_revision_is_judged_by_its_own_config_and_baseline_in_a_temporary_tree(self):
+        self.write(".godot-guard.yml", "limits: {cognitive: 2}\n")
+        self.write(".godot-guard-baseline.json", baseline(cognitive_complexity={"unit.gd::pick": 3}))
+        self.write("unit.gd", PICK)
+        self.git("add", ".")
+        self.git("commit", "-qm", "guarded")
+        (self.repo / ".godot-guard-baseline.json").unlink()
+        self.write(".godot-guard.yml", "limits: {cognitive: 1}\n")
+        self.assertEqual(self.tags("HEAD", base="HEAD~1"), {("unit.gd", 4): "[lint passes]"})
+        status = subprocess.run(["git", "-C", str(self.repo), "status", "--porcelain"], capture_output=True, text=True)
+        self.assertEqual(status.stdout, " D .godot-guard-baseline.json\n M .godot-guard.yml\n")
+        self.git("checkout", "--", ".")
+        self.assertEqual(self.decided([("unit.gd", 4)]), {("unit.gd", 4): "[lint passes]"})
+
+    def test_an_old_or_missing_godot_guard_leaves_gdscript_unchecked(self):
+        bin_dir = Path(tempfile.mkdtemp(prefix="pbp-old-guard-"))
+        self.addCleanup(shutil.rmtree, bin_dir)
+        old = bin_dir / "godot-guard"
+        old.write_text("#!/bin/sh\necho 'godot-guard 0.1.0'\n")
+        old.chmod(0o755)
+        self.write(".godot-guard.yml", "limits: {cognitive: 2}\n")
+        self.write("unit.gd", PICK)
+        for guard, found in ((str(old), f"found godot-guard 0.1 at {old}"), ("", "found no godot-guard")):
+            with self.subTest(guard=guard):
+                output = self.measure("--cognitive-limit", "2", env={"PBP_GODOT_GUARD": guard, "PATH": "/usr/bin:/bin"})
+                self.assertIn(f".godot-guard.yml: {found}", output)
+                self.assertIn("tagging needs godot-guard 0.2+ (`check --json`)", output)
+                self.assertIn("unit.gd:4 pick: cognitive 3 > 2 [not lint-checked]", output)
+
+
+if __name__ == "__main__":
+    unittest.main()
