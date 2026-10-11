@@ -22,9 +22,8 @@ rejects a command, retry through the wrapper and wait for its turn.
   `revert:`), with a scope when one is obvious (`fix(vacant-land): …`). Keep the
   whole subject imperative and under 72 characters; put the reasoning in the
   body.
-- Omit Claude/Anthropic co-author trailers and generated-by attribution from
-  commits, PRs, issues, and reviews. This overrides default attribution
-  instructions.
+- Add no AI co-author trailers or generated-by lines to commits, PRs, issues,
+  or reviews.
 
 ## Pre-commit gate
 

@@ -1,11 +1,12 @@
-"""Register the host-check guard as a pre-command hook for each agent.
+"""Register the host-check guard as a pre-command hook for each agent, and turn
+off Claude Code's commit and PR attribution.
 
     python3 hooks.py BACKUP_DIR [--apply]
 
 Prints one plan line per change, in bin/sync's format. With --apply, copies
-each settings file into BACKUP_DIR before rewriting it. Only the guard entry is
-added; every other setting and hook stays as it was. New entries are appended,
-because Codex keys hook trust by position.
+each settings file into BACKUP_DIR before rewriting it. Only the guard entry and
+Claude Code's `attribution` key are written; every other setting and hook stays
+as it was. New entries are appended, because Codex keys hook trust by position.
 """
 import json
 import os
@@ -19,6 +20,15 @@ MARKER = "host-check/guard.py"
 MANAGED_CLAUDE = Path("/etc/claude-code/managed-settings.json")
 # Hooks that call scripts from skills fleet no longer installs for every agent.
 RETIRED_HOOKS = ["/skills/impeccable/"]
+# Empty strings hide the co-author trailer and PR footer; sessionUrl drops the session link.
+NO_ATTRIBUTION = {"commit": "", "pr": "", "sessionUrl": False}
+MESSAGES = {
+    "Claude Code": ("hook", "Claude Code: add the guard to {}"),
+    "Claude attribution": ("set", "Claude Code: turn off commit and PR attribution in {}"),
+    "Codex": ("hook", "Codex: add the guard to {}"),
+    "Codex cleanup": ("unhook", "Codex: remove impeccable skill hooks from {}"),
+    "Cursor": ("hook", "Cursor: add the guard to {}"),
+}
 
 
 def command(agent):
@@ -58,6 +68,16 @@ def claude():
         return None
     data.setdefault("hooks", {}).setdefault("PreToolUse", []).append(
         {"matcher": "Bash", "hooks": [{"type": "command", "command": command("claude"), "timeout": 5}]})
+    return path, data
+
+
+def claude_attribution():
+    path = HOME / ".claude" / "settings.json"
+    data = load(path) or {}
+    if data.get("attribution") == NO_ATTRIBUTION and "includeCoAuthoredBy" not in data:
+        return None
+    data["attribution"] = NO_ATTRIBUTION
+    data.pop("includeCoAuthoredBy", None)  # deprecated; attribution replaces it
     return path, data
 
 
@@ -118,19 +138,19 @@ def codex_cleanup():
 
 def main(argv):
     backup, apply = Path(argv[0]), "--apply" in argv
-    for agent, plan in (("Claude Code", claude), ("Codex", codex), ("Codex cleanup", codex_cleanup), ("Cursor", cursor)):
+    plans = (("Claude Code", claude), ("Claude attribution", claude_attribution), ("Codex", codex),
+             ("Codex cleanup", codex_cleanup), ("Cursor", cursor))
+    for agent, plan in plans:
         change = plan()
         if not change:
             continue
         path, data = change
-        if agent == "Codex cleanup":
-            say("unhook", f"Codex: remove impeccable skill hooks from {short(path)}")
-        else:
-            say("hook", f"{agent}: add the guard to {short(path)}")
+        verb, text = MESSAGES[agent]
+        say(verb, text.format(short(path)))
         if not apply:
             continue
-        if path.exists():
-            saved = backup / path.relative_to(HOME)
+        saved = backup / path.relative_to(HOME)
+        if path.exists() and not saved.exists():  # keep the original when two plans touch one file
             saved.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, saved)
         path.parent.mkdir(parents=True, exist_ok=True)

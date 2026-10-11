@@ -182,13 +182,13 @@ if [ -L "$validation" ] || ! cmp -s "$generated" "$validation"; then
 fi
 rm -f "$generated"
 
-echo "== Agent hooks"
+echo "== Agent hooks and settings"
 hook_args=("$BACKUP")
 [ "$APPLY" = 1 ] && hook_args+=(--apply)
 hook_plan=$(python3 "$FLEET/lib/fleet/hooks.py" "${hook_args[@]}")
 if [ -n "$hook_plan" ]; then
   echo "$hook_plan"
-  PLANNED=$((PLANNED + $(echo "$hook_plan" | grep -cE '^  (un)?hook ' || true)))
+  PLANNED=$((PLANNED + $(echo "$hook_plan" | grep -cE '^  ((un)?hook|set) ' || true)))
 fi
 
 echo "== Claude Code plugins"
