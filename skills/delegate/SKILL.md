@@ -40,6 +40,8 @@ in the bound checkout; serialize tasks that need the same files. Continue other
 work, or end the turn while waiting for automatic completion.
 
 After delivery, inspect the diff or research artifact against the brief.
+Reword any worker commit carrying an AI co-author trailer or generated-by
+line before it is pushed.
 Verify the meaningful completion criterion through host-check when it matters.
 Report actual changes, validation results, and unfinished work. For another
 attempt, create a fresh delegated task carrying the full prior context.
