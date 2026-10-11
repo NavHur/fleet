@@ -15,7 +15,7 @@ Run deterministic repository checks directly. Do not spawn subagents or launch e
 
 ## Run sequence
 
-1. From the repository root, run all four checks as one job, in order, stopping at the first failure. When `~/.local/bin/host-check` exists (workbox, devbox), queue the job through it and follow `~/.config/host-validation.md`:
+1. From the repository root, run all four checks as one job, in order, stopping at the first failure. When `~/.local/bin/host-check` exists (workbox, devbox, homebox), queue the job through it and follow `~/.config/host-validation.md`:
 
    ```sh
    ~/.local/bin/host-check bash -lc '<format> && <lint> && <typecheck> && <tests>'

@@ -1,0 +1,10 @@
+{
+  "hostnames": ["homebox"],
+  "slots": 6,
+  "heavy_slots": 6,
+  "build_slots": 6,
+  "vitest_max_workers": 3,
+  "nice": 10,
+  "slice": "builds.slice",
+  "deny_dev_servers": true
+}

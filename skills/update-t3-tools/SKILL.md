@@ -12,7 +12,7 @@ For T3 agent dispatch and lifecycle, read
 
 First identify the host type:
 
-- **Server host** (Linux with a systemd user unit `t3code.service`, such as workbox or devbox): follow this whole workflow.
+- **Server host** (Linux with a systemd user unit `t3code.service`, such as workbox, devbox, or homebox): follow this whole workflow.
 - **Desktop host** (macOS running T3 Code Desktop): update only `codex`, `claude`, `opencode`, and `cursor-agent`, then restart their standalone running instances. Keep T3 Desktop running. Skip the service, duplicate-server, and T3 Connect sections; desktop app updates are outside this workflow.
 
 A full maintenance request covers all five CLIs, duplicate-server cleanup, and loading the updated runtime into the persistent T3 service. For a narrower request, perform only the requested operations. Existing restart authorization covers the brief interruption; announce it without asking again. Editing this skill does not itself authorize running updates.
@@ -41,7 +41,7 @@ Filter process output to T3 and its ancestors/children. For every T3 server, ide
 Check the service's effective PATH against the CLI paths above. An interactive shell finding a new CLI does not prove the service can find it. Preserve existing service configuration and drop-ins, including:
 
 - `Linger=yes`, an enabled unit, and `Restart=always` with its existing delay. Linger allows startup at boot and operation after logout. Keep systemd's crash-loop limits.
-- `~/.config/systemd/user/t3code.service.d/listen.conf`, which pins `T3CODE_HOST=127.0.0.1` and the host's fixed `T3CODE_PORT` (3773 on workbox, 3776 on devbox). Read the drop-in rather than assuming the port.
+- `~/.config/systemd/user/t3code.service.d/listen.conf`, which pins `T3CODE_HOST=127.0.0.1` and the host's fixed `T3CODE_PORT` (3773 on workbox, 3776 on devbox and homebox). Read the drop-in rather than assuming the port.
 
 The provisioned relay forwards to that fixed origin. A random service port previously let the homepage respond locally while T3 Connect failed with `endpoint_request_failed`. Preserve agreement between the service listener and relay origin; do not select a fallback port to bypass a conflict.
 

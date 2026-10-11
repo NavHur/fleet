@@ -1,0 +1,8 @@
+[Unit]
+Description=Queued agent validation jobs
+
+[Slice]
+CPUWeight=20
+CPUQuota=900%
+MemoryHigh=10G
+MemoryMax=12G

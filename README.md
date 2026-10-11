@@ -1,6 +1,6 @@
 # fleet
 
-Agent skills shared by my machines: the MacBook, `workbox`, and `devbox`.
+Agent skills shared by my machines: the MacBook, `workbox`, `devbox`, and `homebox`.
 
 ## Layout
 
@@ -23,7 +23,7 @@ Skills in this repo cite principles by path (`~/.agents/skills/principle-x/SKILL
 ## Sync a machine
 
 ```sh
-git clone https://github.com/PedroNavHur/fleet   # once: ~/dev on the Mac, ~/code on workbox, ~/src on devbox
+git clone https://github.com/PedroNavHur/fleet   # once: ~/dev on the Mac, ~/code on workbox, ~/src on devbox and homebox
 fleet/bin/sync            # show the plan
 fleet/bin/sync --apply    # pull, link own skills, install and update third-party skills
 ```
