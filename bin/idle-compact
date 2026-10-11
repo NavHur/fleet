@@ -9,11 +9,11 @@ a large thread inside that hour reads its context from cache at a tenth of the
 input price; compacting it after the hour writes the whole context again.
 
 A thread is due when it is a top-level Claude thread that is active or snoozed
-(not settled, archived, or deleted), its Claude process is still live, nothing
-in it or its subagent threads is running, it holds at least MIN_TOKENS of
-context, and its last API request was 48 to 56 minutes ago with no compaction
-since. A stopped session resumes with a rebuilt system prompt that may miss the
-cache, so the janitor leaves it alone.
+(not settled, archived, or deleted), nothing in it or its subagent threads is
+running, it holds at least MIN_TOKENS of context, and its last API request was
+48 to 56 minutes ago with no compaction since. T3 stops an idle Claude process
+after 30 minutes, but a session resumed within the hour still reads its context
+from cache, so a stopped session qualifies too.
 
 A janitor thread scheduled every five minutes runs `due`, sends each thread
 `/compact`, and snoozes a snoozed one again, since a completed turn wakes it.
@@ -47,8 +47,6 @@ def iso(moment):
 
 def threads(db):
     """Each live thread with its newest provider thread and whether anything in it is running."""
-    live = {row[0] for row in db.execute(
-        "select provider_session_id from orchestration_v2_projection_provider_sessions where status = 'ready'")}
     running = {row[0] for row in db.execute(
         f"select distinct thread_id from orchestration_v2_projection_runs "
         f"where status not in ({','.join('?' * len(DONE_RUNS))})", DONE_RUNS)}
@@ -62,10 +60,10 @@ def threads(db):
             "select thread_id, title, payload_json from orchestration_v2_projection_threads "
             "where deleted_at is null and archived_at is null"):
         provider, status, native = providers.get(thread_id, (None, None, {}))
-        busy = thread_id in running or status != "idle" or bool(native.get("pendingBackgroundTasks"))
+        # a native subagent's child thread has no provider thread; its parent's run covers it
+        busy = thread_id in running or status not in (None, "idle") or bool(native.get("pendingBackgroundTasks"))
         found.append({"id": thread_id, "title": title, "thread": json.loads(payload), "provider": provider,
-                      "session": (native.get("nativeThreadRef") or {}).get("nativeId"), "busy": busy,
-                      "live": native.get("providerSessionId") in live})
+                      "session": (native.get("nativeThreadRef") or {}).get("nativeId"), "busy": busy})
     return found
 
 
@@ -81,7 +79,7 @@ def snoozed_until(thread, now):
 
 def eligible(t, parents, now):
     thread = t["thread"]
-    if t["provider"] != "claudeAgent" or not t["live"] or t["busy"] or t["id"] in parents:
+    if t["provider"] != "claudeAgent" or t["busy"] or t["id"] in parents:
         return False
     if (thread.get("lineage") or {}).get("parentThreadId"):
         return False
