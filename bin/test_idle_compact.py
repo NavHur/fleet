@@ -1,10 +1,14 @@
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import importlib.machinery
 import importlib.util
 import json
 from pathlib import Path
 import sqlite3
+import tempfile
+import threading
 import unittest
+from unittest import mock
 
 loader = importlib.machinery.SourceFileLoader("idle_compact", str(Path(__file__).parent / "idle-compact"))
 idle_compact = importlib.util.module_from_spec(importlib.util.spec_from_loader("idle_compact", loader))
@@ -67,6 +71,69 @@ class Eligible(unittest.TestCase):
     def test_a_settled_thread_is_left_alone(self):
         db = state([("parent", {"settledOverride": "settled"})], [("parent", "idle", IDLE)])
         self.assertEqual(eligible_ids(db), set())
+
+
+class Hooks(BaseHTTPRequestHandler):
+    """Records each request, answering like T3's webhook route."""
+    received = []
+
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["content-length"]))
+        Hooks.received.append((self.path, json.loads(body)))
+        self.send_response(202)
+        self.send_header("x-t3-hook-outcome", "accepted")
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+class Wake(unittest.TestCase):
+    """`wake` against a T3 state directory on disk and a local stand-in for T3's server."""
+
+    def setUp(self):
+        Hooks.received = []
+        self.server = HTTPServer(("127.0.0.1", 0), Hooks)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        (root / "server-runtime.json").write_text(json.dumps({"origin": f"http://127.0.0.1:{self.server.server_port}"}))
+        self.db = sqlite3.connect(root / "statev2.sqlite")
+        self.db.execute("create table scheduled_tasks (task_id text, title text, enabled integer, webhook_token text)")
+        patch = mock.patch.object(idle_compact, "STATE", root / "statev2.sqlite")
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def task(self, title="Idle compaction", enabled=1, token="tok123"):
+        self.db.execute("insert into scheduled_tasks values ('scheduled-task:abc', ?, ?, ?)", (title, enabled, token))
+        self.db.commit()
+
+    def wake(self, due):
+        with mock.patch.object(idle_compact, "pick", return_value=due):
+            return idle_compact.wake()
+
+    def test_a_due_thread_posts_to_the_janitor_webhook(self):
+        self.task()
+        self.assertEqual(self.wake([{"threadId": "a"}, {"threadId": "b"}]), 0)
+        self.assertEqual(Hooks.received, [("/api/hooks/scheduled-task%3Aabc/tok123", {"due": 2})])
+
+    def test_nothing_due_posts_nothing(self):
+        self.task()
+        self.assertEqual(self.wake([]), 0)
+        self.assertEqual(Hooks.received, [])
+
+    def test_an_interval_task_is_not_a_webhook(self):
+        self.task(token=None)
+        self.assertEqual(self.wake([{"threadId": "a"}]), 1)
+        self.assertEqual(Hooks.received, [])
+
+    def test_a_disabled_task_is_skipped(self):
+        self.task(enabled=0)
+        self.assertEqual(self.wake([{"threadId": "a"}]), 1)
+        self.assertEqual(Hooks.received, [])
 
 
 if __name__ == "__main__":

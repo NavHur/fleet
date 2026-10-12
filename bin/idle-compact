@@ -2,6 +2,7 @@
 """Find idle Claude threads in T3 Code to compact before their prompt cache expires.
 
   idle-compact due [--json]    threads to send /compact now; each is listed once
+  idle-compact wake            trigger the janitor's webhook if any thread is due
   idle-compact report [DAYS]   what the compactions listed in the last DAYS (default 7) did
 
 Claude Code caches a conversation for an hour after each API request. Compacting
@@ -15,10 +16,12 @@ running, it holds at least MIN_TOKENS of context, and its last API request was
 after 30 minutes, but a session resumed within the hour still reads its context
 from cache, so a stopped session qualifies too.
 
-A janitor thread scheduled every five minutes runs `due`, sends each thread
-`/compact`, and snoozes a snoozed one again, since a completed turn wakes it.
-`due` records each thread it lists in ~/.cache/idle-compact/log.jsonl so the
-next run skips it; `report` reads that log.
+A timer runs `wake` every five minutes. When a thread is due, it posts to the
+local webhook of the T3 scheduled task titled "Idle compaction", which runs a
+janitor thread. The janitor runs `due`, sends each thread `/compact`, and
+snoozes a snoozed one again, since a completed turn wakes it. `due` records each
+thread it lists in ~/.cache/idle-compact/log.jsonl so the next run skips it;
+`wake` leaves the log alone. `report` reads that log.
 """
 import json
 import os
@@ -26,6 +29,9 @@ from pathlib import Path
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
+from urllib.error import URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 MIN_TOKENS = int(os.environ.get("IDLE_COMPACT_MIN_TOKENS", 150_000))
 WINDOW = (timedelta(minutes=48), timedelta(minutes=56))
@@ -35,6 +41,7 @@ DONE_RUNS = ("completed", "cancelled", "interrupted", "failed", "rolled_back")
 STATE = Path(os.environ.get("T3_HOME") or Path.home() / ".t3") / "userdata" / "statev2.sqlite"
 PROJECTS = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "projects"
 LOG = Path.home() / ".cache" / "idle-compact" / "log.jsonl"
+TASK_TITLE = "Idle compaction"
 
 
 def parse_time(text):
@@ -147,13 +154,16 @@ def due_thread(t, now, listed):
             "snoozedUntil": t["thread"]["snoozedUntil"] if until else None}
 
 
-def due(as_json):
-    now = datetime.now(timezone.utc)
-    db = sqlite3.connect(f"file:{STATE}?mode=ro", uri=True)
+def pick(db, now):
     found = threads(db)
     parents = busy_parents(found)
     listed = {(e["threadId"], e["lastRequestAt"]) for e in logged()}
-    picked = [d for d in (due_thread(t, now, listed) for t in found if eligible(t, parents, now)) if d]
+    return [d for d in (due_thread(t, now, listed) for t in found if eligible(t, parents, now)) if d]
+
+
+def due(as_json):
+    now = datetime.now(timezone.utc)
+    picked = pick(sqlite3.connect(f"file:{STATE}?mode=ro", uri=True), now)
     LOG.parent.mkdir(parents=True, exist_ok=True)
     with LOG.open("a") as log:
         for item in picked:
@@ -166,6 +176,37 @@ def due(as_json):
         print(f"{item['threadId']}  {item['tokens'] // 1000}k  idle {item['idleMinutes']}m{snooze}  {item['title']}")
     print(f"{len(picked)} thread{'s' if len(picked) != 1 else ''} due (at least {MIN_TOKENS // 1000}k tokens, "
           f"{WINDOW[0].seconds // 60}-{WINDOW[1].seconds // 60} minutes idle)")
+
+
+def webhook(db):
+    """The local URL of the janitor's webhook task, or None when it has none."""
+    row = db.execute("select task_id, webhook_token from scheduled_tasks "
+                     "where title = ? and enabled = 1 and webhook_token is not null", (TASK_TITLE,)).fetchone()
+    if row is None:
+        return None
+    origin = json.loads((STATE.parent / "server-runtime.json").read_text())["origin"]
+    return f"{origin}/api/hooks/{quote(row[0], safe='')}/{row[1]}"
+
+
+def wake():
+    db = sqlite3.connect(f"file:{STATE}?mode=ro", uri=True)
+    picked = pick(db, datetime.now(timezone.utc))
+    if not picked:
+        return 0
+    url = webhook(db)
+    if url is None:
+        print(f'{len(picked)} due, but no enabled webhook task is titled "{TASK_TITLE}"', file=sys.stderr)
+        return 1
+    request = Request(url, data=json.dumps({"due": len(picked)}).encode(), method="POST",
+                      headers={"content-type": "application/json"})
+    try:
+        with urlopen(request, timeout=10) as response:
+            outcome = response.headers.get("x-t3-hook-outcome")
+    except URLError as error:
+        print(f"{iso(datetime.now(timezone.utc))}  could not reach T3: {error}", file=sys.stderr)
+        return 1
+    print(f"{iso(datetime.now(timezone.utc))}  woke the janitor for {len(picked)} thread(s): {outcome}")
+    return 0
 
 
 def boundary_after(path, since):
@@ -203,6 +244,8 @@ def report(days):
 def main(argv):
     if argv[:1] == ["due"] and set(argv[1:]) <= {"--json"}:
         due("--json" in argv)
+    elif argv == ["wake"]:
+        return wake()
     elif argv[:1] == ["report"] and len(argv) <= 2 and (len(argv) == 1 or argv[1].isdigit()):
         report(int(argv[1]) if len(argv) == 2 else 7)
     else:

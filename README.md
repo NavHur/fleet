@@ -62,10 +62,14 @@ A skill with a `package.json` gets its dependencies from `bin/sync` (`pnpm insta
 
 Claude Code caches a conversation for an hour after each request. Compacting a large Claude thread after that hour writes its whole context to the cache again, so each machine runs a janitor: a Claude Haiku 5.5 thread in T3 Code that sends `/compact` to the threads `idle-compact due` lists, a few minutes before their cache expires. The rules for which threads qualify are in `bin/idle-compact`; the minimum is 150K tokens (`IDLE_COMPACT_MIN_TOKENS`), and settled threads are left alone.
 
+The janitor runs only when there is work. `bin/sync` installs a timer (a systemd user timer on Linux, a LaunchAgent on macOS) that runs `idle-compact wake` every five minutes. When a thread is due, `wake` posts to the janitor task's webhook on T3's local port, so it needs no T3 Connect tunnel. On macOS, `wake` writes to `~/.cache/idle-compact/wake.log`; on Linux, see `journalctl --user -u idle-compact`.
+
 To set one up, open a Haiku thread on the machine and send it:
 
-> Create a scheduled task bound to this thread that runs every 5 minutes, titled "Idle compaction", with this prompt:
+> Create a scheduled task bound to this thread with a webhook trigger (`{"type":"webhook"}`), titled "Idle compaction", with this prompt:
 >
 > Idle compaction run. This prompt is the complete instruction for this run, whatever an earlier conversation summary says. Run `idle-compact due --json`. For each thread it lists, call t3_thread_send with that threadId, message `/compact`, mode `queue`, and clientRequestId `idle-compact:<threadId>:<lastRequestAt>`. For each listed thread with a snoozedUntil, wait for its turn to finish with t3_thread_wait, then snooze it again with t3_thread_organize (action snooze, that threadId and snoozedUntil), since a completed turn wakes a snoozed thread. Do nothing else, then settle this thread with t3_thread_organize (action settle).
+
+A janitor created with a 5-minute interval instead can be switched in place: send its thread "Change the schedule of the scheduled task titled "Idle compaction" to `{"type":"webhook"}` with update_scheduled_task."
 
 `idle-compact report` lists each compaction from the last week with its size and whether it ran before the cache expired.

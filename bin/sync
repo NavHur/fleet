@@ -158,7 +158,7 @@ while read -r home_path repo_path condition; do
   before=$(readlink "$HOME/$home_path" 2>/dev/null || true)
   ensure_link "$FLEET/$repo_path" "$HOME/$home_path"
   case "$home_path" in
-    *.slice) [ "$before" = "$FLEET/$repo_path" ] || SLICE_CHANGED=1 ;;
+    *.slice|*.service|*.timer) [ "$before" = "$FLEET/$repo_path" ] || SLICE_CHANGED=1 ;;
   esac
 done < "$FLEET/links"
 
@@ -201,6 +201,23 @@ if [ -n "$plugin_plan" ]; then
 fi
 if [ "$APPLY" = 1 ] && [ "$SLICE_CHANGED" = 1 ] && command -v systemctl >/dev/null; then
   systemctl --user daemon-reload
+fi
+
+# Wakes the idle-compaction janitor (bin/idle-compact). launchd gets a copy, not
+# a link, so it never has to follow one into the repo.
+echo "== Idle-compaction timer"
+if [ "$(uname)" = Darwin ]; then
+  agent="$HOME/Library/LaunchAgents/dev.pnav.fleet.idle-compact.plist"
+  if ! cmp -s "$FLEET/config/idle-compact/dev.pnav.fleet.idle-compact.plist" "$agent" \
+    && step load "$(short "$agent")"; then
+    launchctl bootout "gui/$(id -u)" "$agent" 2>/dev/null || true
+    mkdir -p "$(dirname "$agent")"
+    cp "$FLEET/config/idle-compact/dev.pnav.fleet.idle-compact.plist" "$agent"
+    launchctl bootstrap "gui/$(id -u)" "$agent"
+  fi
+elif command -v systemctl >/dev/null && ! systemctl --user is-enabled --quiet idle-compact.timer 2>/dev/null \
+  && step enable "idle-compact.timer"; then
+  systemctl --user enable --now idle-compact.timer
 fi
 
 echo "== Skill dependencies"

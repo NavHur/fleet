@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.pnav.fleet.idle-compact</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>mkdir -p "$HOME/.cache/idle-compact" &amp;&amp; exec "$HOME/.local/bin/idle-compact" wake &gt;&gt;"$HOME/.cache/idle-compact/wake.log" 2&gt;&amp;1</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

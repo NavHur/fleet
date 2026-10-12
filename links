@@ -9,4 +9,6 @@
 .config/fleet/host.json                 hosts/{host}/host.json
 .config/t3-orchestration.md             config/t3-orchestration.md
 .config/systemd/user/builds.slice       hosts/{host}/builds.slice
+.config/systemd/user/idle-compact.service  config/idle-compact/idle-compact.service  if:.config/systemd
+.config/systemd/user/idle-compact.timer    config/idle-compact/idle-compact.timer    if:.config/systemd
 .config/opencode/plugins/host-check.js  lib/host-check/opencode-plugin.js  if:.config/opencode

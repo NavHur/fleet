@@ -1,0 +1,6 @@
+[Unit]
+Description=Wake the idle-compaction janitor when a Claude thread is due
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/idle-compact wake
