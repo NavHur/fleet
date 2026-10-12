@@ -8,8 +8,9 @@
 # Cursor, and OpenCode read, and into ~/.claude/skills for Claude Code.
 # Third-party skills (third-party.json) are installed and updated with
 # `npx skills`. The files listed in `links` are symlinked into place,
-# ~/.config/host-validation.md is generated, and the host-check guard is
-# registered as a hook for each agent. NAME picks hosts/NAME; it is needed
+# ~/.config/host-validation.md is generated, the host-check guard is
+# registered as a hook for each agent, and OpenCode servers older than their
+# plugins are restarted when idle. NAME picks hosts/NAME; it is needed
 # only when this machine's hostname is not listed in a hosts/*/host.json.
 # Anything replaced is moved to ~/.skills-backups/fleet-<timestamp>/.
 # Written for bash 3.2 so it runs on stock macOS.
@@ -26,7 +27,7 @@ while [ $# -gt 0 ]; do
     --apply) APPLY=1 ;;
     --host) HOST=${2:-}; shift ;;
     --host=*) HOST=${1#--host=} ;;
-    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -189,6 +190,15 @@ hook_plan=$(python3 "$FLEET/lib/fleet/hooks.py" "${hook_args[@]}")
 if [ -n "$hook_plan" ]; then
   echo "$hook_plan"
   PLANNED=$((PLANNED + $(echo "$hook_plan" | grep -cE '^  ((un)?hook|set) ' || true)))
+fi
+
+echo "== OpenCode servers"
+server_args=()
+[ "$APPLY" = 1 ] && server_args+=(--apply)
+server_plan=$(python3 "$FLEET/lib/fleet/opencode_servers.py" ${server_args[@]+"${server_args[@]}"})
+if [ -n "$server_plan" ]; then
+  echo "$server_plan"
+  PLANNED=$((PLANNED + $(echo "$server_plan" | grep -cE '^  restart ' || true)))
 fi
 
 echo "== Claude Code plugins"

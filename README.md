@@ -52,6 +52,7 @@ Run the tests on any machine with:
 ```sh
 cd lib/host-check && python3 -m unittest test_guard test_scheduler test_bg_job
 cd bin && python3 -m unittest test_idle_compact
+cd lib/fleet && python3 -m unittest test_opencode_servers
 cd skills/pedro-best-practices/tests && python3 -m unittest test_complexity test_long_comments
 cd skills/review-loop/scripts && python3 -m unittest test_loop
 ```
