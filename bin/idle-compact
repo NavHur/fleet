@@ -33,7 +33,7 @@ from urllib.error import URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-MIN_TOKENS = int(os.environ.get("IDLE_COMPACT_MIN_TOKENS", 150_000))
+MIN_TOKENS = int(os.environ.get("IDLE_COMPACT_MIN_TOKENS", 100_000))
 WINDOW = (timedelta(minutes=48), timedelta(minutes=56))
 CACHE_TTL = timedelta(hours=1)
 TAIL_BYTES = 4 << 20

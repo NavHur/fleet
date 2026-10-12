@@ -61,7 +61,7 @@ A skill with a `package.json` gets its dependencies from `bin/sync` (`pnpm insta
 
 ## Idle compaction
 
-Claude Code caches a conversation for an hour after each request. Compacting a large Claude thread after that hour writes its whole context to the cache again, so each machine runs a janitor: a Claude Haiku 5.5 thread in T3 Code that sends `/compact` to the threads `idle-compact due` lists, a few minutes before their cache expires. The rules for which threads qualify are in `bin/idle-compact`; the minimum is 150K tokens (`IDLE_COMPACT_MIN_TOKENS`), and settled threads are left alone.
+Claude Code caches a conversation for an hour after each request. Compacting a large Claude thread after that hour writes its whole context to the cache again, so each machine runs a janitor: a Claude Haiku 5.5 thread in T3 Code that sends `/compact` to the threads `idle-compact due` lists, a few minutes before their cache expires. The rules for which threads qualify are in `bin/idle-compact`; the minimum is 100K tokens (`IDLE_COMPACT_MIN_TOKENS`), the size at which T3 compacts a thread you resume after its cache has expired, and settled threads are left alone.
 
 The janitor runs only when there is work. `bin/sync` installs a timer (a systemd user timer on Linux, a LaunchAgent on macOS) that runs `idle-compact wake` every five minutes. When a thread is due, `wake` posts to the janitor task's webhook on T3's local port, so it needs no T3 Connect tunnel. On macOS, `wake` writes to `~/.cache/idle-compact/wake.log`; on Linux, see `journalctl --user -u idle-compact`.
 
