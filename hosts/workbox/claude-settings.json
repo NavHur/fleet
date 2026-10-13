@@ -1,0 +1,11 @@
+{
+  "$comment": "Workbox keeps the claude.ai Linear connector, its only Linear MCP.",
+  "deniedMcpServers": [
+    {
+      "serverName": "claude.ai Expedia"
+    },
+    {
+      "serverName": "claude.ai Claude Docs"
+    }
+  ]
+}

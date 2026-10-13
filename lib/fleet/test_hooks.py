@@ -17,7 +17,11 @@ class ClaudeSettings(unittest.TestCase):
         self.config = self.home / "claude-settings.json"
         self.config.write_text(json.dumps({"$comment": "ignored", "syncClaudeAiSkills": False,
                                            "skillOverrides": {"dataviz": "user-invocable-only"}}))
-        patches = (mock.patch.object(hooks, "HOME", self.home), mock.patch.object(hooks, "CLAUDE_SETTINGS", self.config))
+        self.host = self.home / "host"
+        self.host.mkdir()
+        (self.host / "host.json").write_text("{}")
+        patches = (mock.patch.object(hooks, "HOME", self.home), mock.patch.object(hooks, "CLAUDE_SETTINGS", self.config),
+                   mock.patch.object(hooks, "HOST_CONF", self.host / "host.json"))
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -36,9 +40,17 @@ class ClaudeSettings(unittest.TestCase):
                                              "skillOverrides": {"dataviz": "user-invocable-only"}}))
         self.assertIsNone(hooks.claude_settings())
 
+    def test_host_file_replaces_keys(self):
+        (self.host / "claude-settings.json").write_text(json.dumps({"$comment": "ignored", "syncClaudeAiSkills": True}))
+        self.settings.write_text("{}")
+        _, data, _ = hooks.claude_settings()
+        self.assertEqual(data, {"syncClaudeAiSkills": True, "skillOverrides": {"dataviz": "user-invocable-only"}})
+
     def test_shipped_config_is_valid(self):
         managed = json.loads((Path(__file__).resolve().parents[2] / "config" / "claude-settings.json").read_text())
         self.assertEqual(managed["attribution"], {"commit": "", "pr": "", "sessionUrl": False})
+        for host in (Path(__file__).resolve().parents[2] / "hosts").glob("*/claude-settings.json"):
+            self.assertIsInstance(json.loads(host.read_text()), dict, host)
 
 
 if __name__ == "__main__":

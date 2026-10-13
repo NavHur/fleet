@@ -1,5 +1,5 @@
 {
-  "$comment": "Keys bin/sync writes into ~/.claude/settings.json on every host, replacing each key's whole value. Other settings stay as they are. The skill keys keep the skill listing in every Claude session, subagents included, short. claude.ai connectors stay on, because Linear reaches workbox, devbox and homebox only as the claude.ai Linear connector; deniedMcpServers drops the other connectors by name.",
+  "$comment": "Keys bin/sync writes into ~/.claude/settings.json on every host, replacing each key's whole value; hosts/<host>/claude-settings.json replaces keys for one host. Other settings stay as they are. The skill keys keep the skill listing in every Claude session, subagents included, short. claude.ai connectors stay on so workbox keeps the claude.ai Linear connector; deniedMcpServers drops the connectors each host doesn't use. The Mac reaches Linear through a local-scope `linear` server on ~/dca and its repos.",
   "attribution": {
     "commit": "",
     "pr": "",
@@ -13,6 +13,9 @@
     },
     {
       "serverName": "claude.ai Claude Docs"
+    },
+    {
+      "serverName": "claude.ai Linear"
     }
   ],
   "skillOverrides": {

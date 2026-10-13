@@ -1,5 +1,6 @@
 """Register the host-check guard as a pre-command hook for each agent, and write
-the Claude Code settings fleet manages (config/claude-settings.json).
+the Claude Code settings fleet manages (config/claude-settings.json, overridden
+per key by hosts/<host>/claude-settings.json).
 
     python3 hooks.py BACKUP_DIR [--apply]
 
@@ -19,6 +20,7 @@ GUARD_PATH = HOME / ".local" / "lib" / "host-check" / "guard.py"
 MARKER = "host-check/guard.py"
 MANAGED_CLAUDE = Path("/etc/claude-code/managed-settings.json")
 CLAUDE_SETTINGS = Path(__file__).resolve().parents[2] / "config" / "claude-settings.json"
+HOST_CONF = HOME / ".config" / "fleet" / "host.json"  # bin/sync links it to hosts/<host>/host.json
 # Hooks that call scripts from skills fleet no longer installs for every agent.
 RETIRED_HOOKS = ["/skills/impeccable/"]
 MESSAGES = {
@@ -70,10 +72,19 @@ def claude():
     return path, data
 
 
+def managed_claude_settings():
+    """config/claude-settings.json, with keys from hosts/<host>/claude-settings.json replacing it."""
+    managed = json.loads(CLAUDE_SETTINGS.read_text())
+    host = HOST_CONF.resolve().parent / "claude-settings.json" if HOST_CONF.exists() else None
+    if host and host.is_file():
+        managed.update(json.loads(host.read_text()))
+    return {k: v for k, v in managed.items() if not k.startswith("$")}
+
+
 def claude_settings():
     path = HOME / ".claude" / "settings.json"
     data = load(path) or {}
-    managed = {k: v for k, v in json.loads(CLAUDE_SETTINGS.read_text()).items() if not k.startswith("$")}
+    managed = managed_claude_settings()
     changed = [k for k, v in managed.items() if data.get(k) != v]
     if "includeCoAuthoredBy" in data:  # deprecated; attribution replaces it
         changed.append("includeCoAuthoredBy")
