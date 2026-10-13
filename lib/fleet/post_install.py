@@ -40,11 +40,10 @@ BLOCK_START = "<!-- fleet:instructions (managed by fleet bin/sync from config/in
 BLOCK_END = "<!-- /fleet:instructions -->"
 PRINCIPLES = """## Engineering principles
 
-Before nontrivial code work (design, implementation, debugging, review), read
-`~/.config/principles.md` and apply the principles that fit. Read a
-principle's SKILL.md in full before applying it. When running `code-review`,
-add the principles that match the diff to the Standards sources, ranked below
-the repo's documented standards.
+Before nontrivial design, implementation, debugging, or review, read
+`~/.config/principles.md` and apply the principles that fit, reading each one's
+SKILL.md in full first. In `code-review`, add the matching principles to the
+Standards sources, ranked below the repo's documented standards.
 """
 # The block's earlier name; its contents now live in the instructions block.
 RETIRED_BLOCK = re.compile(r"<!-- fleet:principles .*?<!-- /fleet:principles -->\n?", re.S)
