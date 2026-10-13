@@ -15,9 +15,9 @@ and the hook contract are in the header of `scripts/lib.sh`.
 
 ## Enforce the contract
 
-Read `~/.codex/AGENTS.md`, section "PR and stack size", for the
-canonical personal policy: test-file classification, generated-data
-exemptions, retirement exceptions, the five-layer limit, whole-file splits.
+Read `references/size-policy.md` for the canonical personal policy: test-file
+classification, generated-data exemptions, retirement exceptions, the
+five-layer limit, whole-file splits.
 Apply it only to Pedro's pull requests.
 
 - Measure each layer against its direct parent: weighted size at most 1000,

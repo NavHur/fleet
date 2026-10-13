@@ -1,6 +1,6 @@
 ---
 name: pedro-best-practices
-description: Manually audit repositories or PRs in React, Svelte, Godot (GDScript), Python, or PHP against Pedro's eight-input interface cap, component ownership, complexity limits, two-line comment cap, readability preferences, and each language's performance guidance. Report evidence-backed findings and coverage gaps in the conversation and on the matching GitHub pull request.
+description: "Audit a repo or PR (React, Svelte, Godot, Python, PHP) against Pedro's interface cap, ownership, complexity, comment-length, readability, and performance rules, and post the report on the PR."
 ---
 
 # Pedro best practices
@@ -9,9 +9,9 @@ Audit code without modifying it, combining Pedro's interface, ownership, complex
 
 ## PR size requests
 
-For an audit or explanation of Pedro's PR or layer size rule, read the "PR and
-stack size" section in `~/.codex/AGENTS.md` and the installed
-`split-stacked-prs` skill and its `scripts/diff_budget.py`. This is a separate
+For an audit or explanation of Pedro's PR or layer size rule, read the
+installed `split-stacked-prs` skill, its `references/size-policy.md`, and its
+`scripts/diff_budget.py`. This is a separate
 personal policy from the code audit below. For a policy-only request, return
 findings in the conversation without running the audit or posting a PR
 comment. Claude's installed wrapper reads this same canonical skill.
