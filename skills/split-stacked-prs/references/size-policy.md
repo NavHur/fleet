@@ -20,7 +20,7 @@ repository root before pushing:
 
 ```sh
 python3 ~/.agents/skills/split-stacked-prs/scripts/diff_budget.py \
-  "$(git merge-base <base> HEAD)" HEAD \
+  <base> HEAD \
   --generated 'data/*.json' --generated '*/data/*.json' \
   --generated 'prisma/municipalities.json' --generated '*/prisma/municipalities.json' \
   --generated 'prisma/migrations/*' --generated '*/prisma/migrations/*' \

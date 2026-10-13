@@ -90,11 +90,15 @@ ownership, or serialize overlapping work. Independent design candidates can
 return sketches as text or write separate artifact directories outside the
 repository; keep source read-only. When independent worktrees are essential,
 use a native tool that actually supports isolated child worktrees, or obtain
-the user's request for separate top-level work. For that requested top-level
-work, use `t3_thread_launch` with `workspaceStrategy` before the agent starts.
-Omitting workspaceStrategy selects the project root, not the caller's worktree.
-Retain the returned threadId; inspect thread_list after a lost launch response
-before retrying because launch has no idempotency key.
+the user's request for separate top-level work. A native worktree's isolation
+guard refuses any Bash it can't prove stays in the worktree: heredocs, loops,
+`cd` chains, and `$(…)`. Brief those workers to write files with Write or Edit
+and run one plain command per Bash call, and give them commands in that form.
+For that requested top-level work, use `t3_thread_launch` with
+`workspaceStrategy` before the agent starts. Omitting workspaceStrategy selects
+the project root, not the caller's worktree. Retain the returned threadId;
+inspect thread_list after a lost launch response before retrying because launch
+has no idempotency key.
 
 ## Completion and follow-up
 

@@ -243,7 +243,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Measure weighted size and raw churn between two Git revisions."
     )
-    parser.add_argument("base", help="parent/base revision")
+    parser.add_argument(
+        "base", help="parent/base revision; commits measure from merge-base(base, head)",
+    )
     parser.add_argument("head", help="child/head revision")
     parser.add_argument(
         "--test",
@@ -282,6 +284,12 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+def diff_start(base: str, head: str) -> str:
+    """merge-base(base, head) for commits, as a PR diff shows it; a tree is compared directly."""
+    kinds = {git("cat-file", "-t", revision).strip() for revision in (base, head)}
+    return git("merge-base", base, head).strip() if kinds == {"commit"} else base
+
+
 def retirement_only(base: str, head: str) -> bool:
     fields = git(
         "diff", "--name-status", "-z", "--find-renames", base, head, "--", text=False,
@@ -301,13 +309,14 @@ def retirement_only(base: str, head: str) -> bool:
 def main() -> int:
     args = parse_args()
     try:
+        start = diff_start(args.base, args.head)
         raw = git(
             "diff",
             "--numstat",
             "-z",
             "--find-renames",
             "--find-copies",
-            args.base,
+            start,
             args.head,
             "--",
             text=False,
@@ -315,7 +324,7 @@ def main() -> int:
         entries = classify(parse_numstat(raw), args.generated, args.test)
         summary = summarize(
             entries, args.target, args.cap, args.raw_cap,
-            retirement_only(args.base, args.head),
+            retirement_only(start, args.head),
         )
     except (RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)

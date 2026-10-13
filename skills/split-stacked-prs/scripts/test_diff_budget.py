@@ -143,6 +143,23 @@ class DiffBudgetTests(unittest.TestCase):
         report = self.run_budget({"new.ts": "new content\n"}, expected=2)
         self.assertEqual(report["status"], "cap-violation")
 
+    def commit(self, files, *parents):
+        tree = self.tree(files)
+        flags = [flag for parent in parents for flag in ("-p", parent)]
+        return self.git("commit-tree", tree, *flags, "-m", "commit")
+
+    def test_commits_measure_from_their_merge_base(self):
+        """A branch name works as BASE: work landed on it after the fork doesn't count."""
+        fork = self.commit({"app.ts": "a\n"})
+        head = self.commit({"app.ts": "a\n", "feature.ts": self.lines(10)}, fork)
+        self.base = self.commit({"app.ts": "a\n", "landed.ts": self.lines(1500)}, fork)
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), self.base, head, "--json"],
+            cwd=self.root, text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["raw_churn"], 10)
+
 
 if __name__ == "__main__":
     unittest.main()

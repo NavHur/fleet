@@ -28,11 +28,12 @@ Apply it only to Pedro's pull requests.
 - Every layer builds and passes its checks alone, is independently
   understandable and revertible, and the top reproduces the source exactly.
 
-`scripts/diff_budget.py BASE HEAD` measures one pair (exit 2: a ceiling is
-exceeded). It recognizes JS/TS `*.test.*`/`*.spec.*`, Python and Go test names,
-lockfiles and `linguist-generated` files; add `--test GLOB` for other verified
-test files and `--generated GLOB` for verified generated paths, including the
-data exemptions in the policy's command. Both paths of a rename must qualify.
+`scripts/diff_budget.py BASE HEAD` measures one pair from their merge-base, so
+BASE can be a branch name (exit 2: a ceiling is exceeded). It recognizes JS/TS
+`*.test.*`/`*.spec.*`, Python and Go test names, lockfiles and
+`linguist-generated` files; add `--test GLOB` for other verified test files and
+`--generated GLOB` for verified generated paths, including the data exemptions
+in the policy's command. Both paths of a rename must qualify.
 
 ## 1. Establish the source and recovery points
 
