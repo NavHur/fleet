@@ -1,6 +1,6 @@
 ---
 name: split-stacked-prs
-description: Native GitHub stacked PRs within Pedro's weighted and raw churn ceilings. Use to split a large branch into dependency-ordered layers, or to carry review fixes through, gate, or re-measure an existing stack. Not for code review.
+description: Native GitHub stacked PRs within Pedro's weighted and raw churn ceilings. Use to split a large branch into dependency-ordered layers, to carry review fixes through, gate, or re-measure an existing stack, or to restack one that fell behind its base. Not for code review.
 ---
 
 # Split Stacked PRs
@@ -208,7 +208,24 @@ each round costs 25 to 75 minutes on this host, even for a three-line fix.
 For a single later fix, change and push only the layer that owns the code;
 restack descendants only when their dependency changed or the user asks.
 
-## 8. Report the result
+## 8. Restack onto a moved base
+
+When the base moved ("we fell behind nightly"), restack every open layer at
+once, chained stacks included, bottom to top:
+
+```bash
+python3 "$SKILL_DIR/scripts/restack.py" start --base origin/nightly "$branch_1" "$branch_2" "$branch_3" --push
+```
+
+It rebases each layer onto the new tip of the one below in a scratch worktree,
+which also moves seams `gh stack rebase` skips, reports any layer whose own
+diff changed, runs `layer_gates.sh` (add `--tests` for tests), and pushes
+every branch in one atomic leased push only when the gates pass. Exit 3 is a
+conflict: resolve it in the printed worktree, `git rebase --continue`, then
+`restack.py resume STATE_DIR --push`. Pass `--old-base` when a lower layer was
+squash-merged into the base. Finish with `restack.py clean STATE_DIR`.
+
+## 9. Report the result
 
 Return the stack bottom to top with PR links, parents, weighted size, raw
 churn, test churn, excluded churn, validation status and any justification for
