@@ -1,8 +1,12 @@
 {
-  "$comment": "Keys bin/sync writes into ~/.claude/settings.json on every host, replacing each key's whole value. Other settings stay as they are. The skill keys keep the skill listing in every Claude session, subagents included, short.",
-  "attribution": {"commit": "", "pr": "", "sessionUrl": false},
+  "$comment": "Keys bin/sync writes into ~/.claude/settings.json on every host, replacing each key's whole value. Other settings stay as they are. The skill keys keep the skill listing in every Claude session, subagents included, short. claude.ai connectors stay on: Linear reaches workbox, devbox and homebox only as the claude.ai Linear connector.",
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
   "syncClaudeAiSkills": false,
-  "disableClaudeAiConnectors": true,
+  "disableClaudeAiConnectors": false,
   "skillOverrides": {
     "dataviz": "user-invocable-only",
     "fewer-permission-prompts": "user-invocable-only",
