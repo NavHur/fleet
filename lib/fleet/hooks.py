@@ -1,11 +1,11 @@
-"""Register the host-check guard as a pre-command hook for each agent, and turn
-off Claude Code's commit and PR attribution.
+"""Register the host-check guard as a pre-command hook for each agent, and write
+the Claude Code settings fleet manages (config/claude-settings.json).
 
     python3 hooks.py BACKUP_DIR [--apply]
 
 Prints one plan line per change, in bin/sync's format. With --apply, copies
 each settings file into BACKUP_DIR before rewriting it. Only the guard entry and
-Claude Code's `attribution` key are written; every other setting and hook stays
+the managed Claude Code keys are written; every other setting and hook stays
 as it was. New entries are appended, because Codex keys hook trust by position.
 """
 import json
@@ -18,13 +18,12 @@ HOME = Path.home()
 GUARD_PATH = HOME / ".local" / "lib" / "host-check" / "guard.py"
 MARKER = "host-check/guard.py"
 MANAGED_CLAUDE = Path("/etc/claude-code/managed-settings.json")
+CLAUDE_SETTINGS = Path(__file__).resolve().parents[2] / "config" / "claude-settings.json"
 # Hooks that call scripts from skills fleet no longer installs for every agent.
 RETIRED_HOOKS = ["/skills/impeccable/"]
-# Empty strings hide the co-author trailer and PR footer; sessionUrl drops the session link.
-NO_ATTRIBUTION = {"commit": "", "pr": "", "sessionUrl": False}
 MESSAGES = {
     "Claude Code": ("hook", "Claude Code: add the guard to {}"),
-    "Claude attribution": ("set", "Claude Code: turn off commit and PR attribution in {}"),
+    "Claude settings": ("set", "Claude Code: write {keys} in {path}"),
     "Codex": ("hook", "Codex: add the guard to {}"),
     "Codex cleanup": ("unhook", "Codex: remove impeccable skill hooks from {}"),
     "Cursor": ("hook", "Cursor: add the guard to {}"),
@@ -71,14 +70,18 @@ def claude():
     return path, data
 
 
-def claude_attribution():
+def claude_settings():
     path = HOME / ".claude" / "settings.json"
     data = load(path) or {}
-    if data.get("attribution") == NO_ATTRIBUTION and "includeCoAuthoredBy" not in data:
+    managed = {k: v for k, v in json.loads(CLAUDE_SETTINGS.read_text()).items() if not k.startswith("$")}
+    changed = [k for k, v in managed.items() if data.get(k) != v]
+    if "includeCoAuthoredBy" in data:  # deprecated; attribution replaces it
+        changed.append("includeCoAuthoredBy")
+    if not changed:
         return None
-    data["attribution"] = NO_ATTRIBUTION
-    data.pop("includeCoAuthoredBy", None)  # deprecated; attribution replaces it
-    return path, data
+    data.update(managed)
+    data.pop("includeCoAuthoredBy", None)
+    return path, data, {"keys": ", ".join(changed)}
 
 
 def codex():
@@ -138,15 +141,15 @@ def codex_cleanup():
 
 def main(argv):
     backup, apply = Path(argv[0]), "--apply" in argv
-    plans = (("Claude Code", claude), ("Claude attribution", claude_attribution), ("Codex", codex),
+    plans = (("Claude Code", claude), ("Claude settings", claude_settings), ("Codex", codex),
              ("Codex cleanup", codex_cleanup), ("Cursor", cursor))
     for agent, plan in plans:
         change = plan()
         if not change:
             continue
-        path, data = change
+        path, data, *details = change
         verb, text = MESSAGES[agent]
-        say(verb, text.format(short(path)))
+        say(verb, text.format(short(path), path=short(path), **(details[0] if details else {})))
         if not apply:
             continue
         saved = backup / path.relative_to(HOME)
