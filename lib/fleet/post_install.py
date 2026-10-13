@@ -11,7 +11,9 @@
    or from this repo, saying when it applies and where its SKILL.md is.
 3. Write config/instructions.md and a pointer to that index into each
    agent's global instructions, inside a marked block this script owns.
-   Instructions outside the block are the host's own.
+   When this host has hosts/<host>/instructions.md or
+   instructions.<agent>.md, they become the text above the block, in that
+   order; otherwise the text outside the block is left as the host's own.
 
 Prints one plan line per change, in bin/sync's format. With --apply, copies
 each instruction file into BACKUP_DIR before changing it.
@@ -24,11 +26,12 @@ import sys
 HOME = Path.home()
 SKILLS = HOME / ".agents" / "skills"
 INDEX = HOME / ".config" / "principles.md"
-INSTRUCTIONS = [
-    HOME / ".claude" / "CLAUDE.md",
-    HOME / ".codex" / "AGENTS.md",
-    HOME / ".config" / "opencode" / "AGENTS.md",
-]
+INSTRUCTIONS = {
+    "claude": HOME / ".claude" / "CLAUDE.md",
+    "codex": HOME / ".codex" / "AGENTS.md",
+    "opencode": HOME / ".config" / "opencode" / "AGENTS.md",
+}
+HOST_CONF = HOME / ".config" / "fleet" / "host.json"  # bin/sync links it to hosts/<host>/host.json
 CODEX_META = """\
 # Written by fleet bin/sync: SKILL.md sets disable-model-invocation, which
 # Codex ignores. This keeps Codex from invoking the skill on its own.
@@ -139,16 +142,34 @@ def with_block(text, block):
     return text + ("\n" if text.endswith("\n") else "\n\n") + block
 
 
+def host_text(host_dir, agent):
+    """This host's text for the agent, or None when the host leaves it unmanaged."""
+    parts = [f.read_text().strip() for f in (host_dir / "instructions.md", host_dir / f"instructions.{agent}.md")
+             if f.is_file()]
+    return "\n\n".join(parts) + "\n\n" if parts else None
+
+
+def with_host(text, host):
+    """The text with everything above the managed block replaced by the host's text."""
+    start = text.find(BLOCK_START)
+    return host + text[start:] if start >= 0 else host + text
+
+
 def instructions(apply, backup_dir):
     block = f"{BLOCK_START}\n{SHARED.read_text().rstrip()}\n\n{PRINCIPLES}{BLOCK_END}\n"
-    for path in INSTRUCTIONS:
+    host_dir = HOST_CONF.resolve().parent if HOST_CONF.exists() else None
+    for agent, path in INSTRUCTIONS.items():
         if not path.parent.is_dir():
             continue
         text = path.read_text() if path.exists() else ""
         updated = with_block(text, block)
+        host = host_text(host_dir, agent) if host_dir else None
+        if host is not None:
+            updated = with_host(updated, host)
         if updated == text:
             continue
-        say("instruct", f"{short(path)}: shared instructions from config/instructions.md")
+        source = f"hosts/{host_dir.name} and config/instructions.md" if host is not None else "config/instructions.md"
+        say("instruct", f"{short(path)}: instructions from {source}")
         if apply:
             backup(path, backup_dir)
             path.write_text(updated)
