@@ -185,9 +185,70 @@ def without_redirects(words):
     return kept
 
 
+class Substituted(list):
+    """A command's words from inside `$(...)`, which runs in a subshell."""
+
+
+# The quote state after a quote character, keyed by (state before, character).
+QUOTE_TOGGLES = {(None, "'"): "'", (None, '"'): '"', ("'", "'"): None, ('"', '"'): None}
+PAREN_DEPTH = {"(": 1, ")": -1}
+
+
+def shell_step(command, i, quote):
+    """Read one unit at i: a character, an escape, or a whole `$(...)`. Return (end, quote after it)."""
+    char = command[i]
+    if (quote, char) in QUOTE_TOGGLES:
+        return i + 1, QUOTE_TOGGLES[quote, char]
+    if quote == "'":
+        return i + 1, quote
+    if char == "\\":
+        return i + 2, quote
+    if command.startswith("$(", i):
+        return closing_paren(command, i + 1) + 1, quote
+    return i + 1, quote
+
+
+def closing_paren(command, start):
+    """The index of the `)` closing the `(` at start; quotes inside open a new shell context."""
+    depth, quote, i = 0, None, start
+    while i < len(command):
+        if quote is None:
+            depth += PAREN_DEPTH.get(command[i], 0)
+        if depth == 0:
+            return i
+        i, quote = shell_step(command, i, quote)
+    raise ValueError("No closing parenthesis")
+
+
+def split_substitutions(command):
+    """The command with each `$(...)` replaced by a placeholder word, and the substituted bodies.
+
+    shlex reads a quote inside `"$(...)"` as the end of the outer string; the
+    shell starts a new quoting context there instead.
+    """
+    out, bodies, quote, i = [], [], None, 0
+    while i < len(command):
+        end, after = shell_step(command, i, quote)
+        if command.startswith("$(", i) and end > i + 1:
+            bodies.append(command[i + 2:end - 1])
+            out.append("__substitution__")
+        else:
+            out.append(command[i:end])
+        i, quote = end, after
+    return "".join(out), bodies
+
+
 def segments(command):
+    """Each simple command's words; commands inside `$(...)` come first, as Substituted lists."""
+    command, bodies = split_substitutions(strip_comments(strip_heredocs(command)))
+    for body in bodies:
+        yield from (Substituted(words) for words in segments(body))
+    yield from simple_commands(command)
+
+
+def simple_commands(command):
     """Each simple command's words, without redirections or `NAME=(...)` array elements."""
-    lexer = shlex.shlex(strip_comments(strip_heredocs(command)), posix=True, punctuation_chars=";&|()\n")
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
     lexer.commenters = ""
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
@@ -217,6 +278,11 @@ def segments(command):
 VARIABLE = re.compile(r"^\$\{?([A-Za-z_][A-Za-z_0-9]*)\}?(.*)$")
 
 
+def changes_directory(words):
+    """`cd` and `pushd` do, except inside `$(...)`, which runs in a subshell."""
+    return words[:1] in (["cd"], ["pushd"]) and not isinstance(words, Substituted)
+
+
 def walk(command, cwd):
     """Each command's words with the directory it runs in.
 
@@ -239,7 +305,7 @@ def walk(command, cwd):
             except ValueError:
                 pass
         yield words, cwd
-        if words[:1] in (["cd"], ["pushd"]):
+        if changes_directory(words):
             target = next((word for word in words[1:] if not word.startswith("-")), "~")
             if "$" not in target:
                 cwd = os.path.normpath(os.path.join(cwd, os.path.expanduser(target)))

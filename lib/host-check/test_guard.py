@@ -86,6 +86,9 @@ class GuardTests(Fixtures):
             "pnpm exec tsx debug-eng1903.ts", "tsx --expose-gc scripts/bench-tiles.ts",
             "node perf-shards.mjs", "node --import tsx --test 'tests/**/*.test.ts'",
             "bg-job start g -- pnpm check", "bg-job start g pnpm test && bg-job wait g",
+            # Command substitutions are commands too, quotes and all.
+            "echo \"$(pnpm test)\"", "n=$(pnpm lint | wc -l)",
+            "echo \"a: $(curl -s x | grep -oE 'href=\"/e[^\"]*\"')\"; pnpm test",
         ]:
             with self.subTest(command=command):
                 self.assertTrue(needs_queue(command))
@@ -104,6 +107,11 @@ class GuardTests(Fixtures):
             "H=" + HOST_CHECK + "; \"$H\" pnpm lint",
             "bg-job start g -- host-check pnpm check && bg-job wait g",
             "bg-job status g", "bg-job log g 80", "bg-job wait g",
+            # A quote inside `$(...)` opens a new quoting context, not the outer one's end.
+            "for b in https://a http://127.0.0.1:3290; do echo \"$b: $(curl -s $b/ | grep -oE "
+            "'href=\"/explore[^\"]*\"' | sort | uniq -c | tr '\\n' ' ')\"; done",
+            "psql \"$(grep ^DATABASE_URL .env.local | cut -d= -f2- | tr -d '\"')\" -c '\\d \"A\"'",
+            "echo \"$(echo ')')\" \"$(printf '%s' \"$(date)\")\"", "echo $((1 + (2 * 3)))",
         ]:
             with self.subTest(command=command):
                 self.assertFalse(needs_queue(command))
@@ -129,6 +137,8 @@ class GuardTests(Fixtures):
             with self.subTest(command=command, cwd=cwd):
                 self.assertEqual(needs_queue(command, cwd), expected)
         self.assertEqual(needs_queue("pnpm quality", web), True)
+        # A `cd` inside a substitution runs in a subshell and leaves the directory alone.
+        self.assertEqual(needs_queue('echo "$(cd %s)"; pnpm review:coverage' % app, "/"), False)
 
     def test_reads_shell_scripts(self):
         s = self.scripts
