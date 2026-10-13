@@ -1,6 +1,6 @@
 ---
 name: how
-description: "Codebase explanation and architecture placement. Use for \"how does X work\", code walkthroughs before changing something, runtime flow, onboarding mental models, and placement / ownership / layering questions (\"where should this live\", \"which package owns this\", \"is this the right layer\"). Can critique architecture. Use why for historical rationale."
+description: "Explain how code works and where things belong. Use for 'how does X work', runtime flow, walkthroughs before a change, and placement or layering questions ('where should this live'). Use why for history."
 ---
 
 # How

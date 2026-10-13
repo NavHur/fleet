@@ -1,6 +1,6 @@
 ---
 name: architect
-description: "Architecture design before code: sketch types, signatures, and module structure, then stay in the loop while implementation fills in. Use for /architect, 'architect this', 'design this', or non-trivial features where choosing types, interfaces, module boundaries, or ownership comes first. Do not use for localized edits, debugging, or implementation-only work."
+description: "Design types, signatures, and module boundaries before code, then guide implementation. Use for /architect, 'design this', or non-trivial features where interfaces or ownership come first; not for local edits or debugging."
 ---
 
 # Architect

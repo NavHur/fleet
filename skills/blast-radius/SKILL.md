@@ -1,6 +1,6 @@
 ---
 name: blast-radius
-description: "Find what a change could break beyond the diff, and prove the one fact it's safe because of by running real code instead of writing it up. Use for 'blast radius of X', 'what could this break', downstream impact, or risk analysis of a small diff you don't trust. Do not use for ordinary code review, implementation, or bug fixing."
+description: "Find what a change could break beyond its diff and prove the key safety fact by running code. Use for 'blast radius', 'what could this break', or downstream risk of a small diff; not for ordinary review."
 ---
 
 # Blast radius

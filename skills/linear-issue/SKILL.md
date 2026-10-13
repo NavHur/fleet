@@ -1,6 +1,6 @@
 ---
 name: linear-issue
-description: Create clear Linear issues from a request and the current conversation. Use when the user asks to create, make, add, file, or open a Linear issue or ticket. Do not use to read, search, update, or comment on an existing issue unless that is necessary to avoid creating a duplicate.
+description: "Create a Linear issue from the request and conversation. Use when asked to create, file, or open a Linear issue or ticket; not for reading or updating existing issues."
 ---
 
 # Linear Issue
