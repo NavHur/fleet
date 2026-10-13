@@ -1,6 +1,6 @@
 ---
 name: why
-description: "Evidence-backed design rationale. Use for 'why does X work this way', 'why we picked Y', regressions, postmortems, or data-backed thresholds. Queries each available evidence category (source control, issue tracker, docs, chat, observability, error tracking, analytics) in parallel and returns a cited read on decisions and tradeoffs. Use how for runtime behavior."
+description: "Evidence-backed design rationale from source control, issues, docs, chat, and telemetry. Use for 'why does X work this way', 'why did we pick Y', regressions, and postmortems. Use how for runtime behavior."
 ---
 
 # Why
