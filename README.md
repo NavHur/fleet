@@ -39,6 +39,7 @@ fleet/bin/sync --apply    # pull, link own skills, install and update third-part
 | `~/.local/bin/host-check` | `bin/host-check`: the shared validation queue |
 | `~/.local/bin/bg-job` | `bin/bg-job`: long jobs that outlive the agent session |
 | `~/.local/bin/idle-compact` | `bin/idle-compact`: idle Claude threads in T3 to compact before their prompt cache expires |
+| `~/.local/bin/shots` | `lib/shots/shots.mjs`: screenshots of a running app as small JPEGs, queued through host-check |
 | `~/.local/lib/host-check/` | `lib/host-check/`: `guard.py` (command guard and job classes), tests, OpenCode plugin |
 | `~/.config/t3-orchestration.md` | `config/t3-orchestration.md` |
 | `~/.config/host-validation.md` | generated from `config/host-validation.md` plus `hosts/<machine>/host-validation.md` |

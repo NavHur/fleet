@@ -230,8 +230,8 @@ elif command -v systemctl >/dev/null && ! systemctl --user is-enabled --quiet id
   systemctl --user enable --now idle-compact.timer
 fi
 
-echo "== Skill dependencies"
-for pkg in "$FLEET"/skills/*/package.json; do
+echo "== Node dependencies"
+for pkg in "$FLEET"/skills/*/package.json "$FLEET"/lib/*/package.json; do
   [ -e "$pkg" ] || continue
   dir=$(dirname "$pkg")
   [ -d "$dir/node_modules" ] && continue
