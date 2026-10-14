@@ -11,6 +11,7 @@ type AgentId = string & { readonly __brand: "AgentId" };
 
 function parseAgentId(input: string): AgentId {
   if (!isUUID(input)) throw new Error(`Invalid agent id: ${input}`);
+  // SAFETY: isUUID checked the format the brand promises.
   return input as AgentId;
 }
 
@@ -19,7 +20,7 @@ function focusAgent(id: AgentId): void {
 }
 ```
 
-Match the `readonly __brand: 'X'` shape; don't invent a new convention.
+Match the `readonly __brand: 'X'` shape; don't invent a new convention. With zod, `z.string().uuid().brand<"AgentId">()` validates and brands in one step, with no cast.
 
 ## Discriminated unions
 
@@ -109,43 +110,44 @@ Weakening the result to `Session | undefined` is the other total signature. Eith
 
 ## `unknown` over `any`
 
-`any` disables type checking for everything it touches. External data is always `unknown`. Narrow before use.
+`any` disables type checking for everything it touches. External data is `unknown`, but only at the line where it enters: decode it there with the repository's schema library and hand the domain type inward. A function that takes or returns `unknown` passes the decoding problem to every caller; the DCA repos reject both (`anti-slop/no-unknown-parameters`, `anti-slop/no-unknown-returns`).
 
 ```ts
-// Don't
+// Don't: any switches off checking for everything it reaches
 function handle(input: any) {
   return input.foo.bar;
 }
 
-// Do
-function handle(input: unknown) {
-  if (typeof input === "object" && input !== null && "foo" in input) {
-    // narrowed; compiler verifies access
-  }
+// Do: decode where the data enters, then pass the domain type
+const Listing = z.object({ id: z.string().uuid(), rentCents: z.number().int() });
+type Listing = z.infer<typeof Listing>;
+
+export async function GET(request: Request) {
+  const listing = Listing.parse(await request.json());
+  return Response.json(summarize(listing));
+}
+
+function summarize(listing: Listing) {
+  /* input is trusted */
 }
 ```
 
-External sources include RPC payloads, `JSON.parse`, `postMessage`, IPC, file contents, environment variables, database results.
+External sources include RPC payloads, `JSON.parse`, `postMessage`, IPC, file contents, environment variables, database results. Use `safeParse` when bad input is an expected outcome the caller turns into a response, `parse` when it is a bug.
 
 ## No `as` casts
 
-Every `as` is a potential runtime crash. Cast only after the type system has verified the claim.
+Every `as` is a potential runtime crash. Cast only after the type system or a check has verified the claim, and state that check in a `SAFETY:` comment right before the assertion (`anti-slop/require-safety-comment-for-type-assertion` in the DCA repos; `as const` is exempt).
 
 ```ts
 // Don't
 const user = data as User;
 
-// Do. Earn the cast at the boundary.
-function parseUser(data: unknown): User {
-  if (typeof data !== "object" || data === null) {
-    throw new Error("expected object");
-  }
-  if (!("id" in data) || typeof (data as Record<string, unknown>).id !== "string") {
-    throw new Error("expected id");
-  }
-  // ... validate all fields
-  return data as User; // OK, earned cast after full validation
-}
+// Do. A schema decodes without a cast.
+const user = User.parse(data);
+
+// Do, when a cast is unavoidable: say what was checked.
+// SAFETY: STATUS_LABELS is a Record<Status, string>, so its keys are exactly Status.
+const statuses = Object.keys(STATUS_LABELS) as Status[];
 ```
 
 When refactoring an `as` out of existing code, identify why TypeScript can't infer:
@@ -161,8 +163,8 @@ From best to last-resort:
 
 1. **Discriminated union switch / if.** Compiler narrows automatically.
 2. **`in` operator.** `"key" in obj` narrows to variants containing that key.
-3. **`typeof` / `instanceof`.** For primitives and class instances.
-4. **User-defined type guard.** When the above aren't enough.
+3. **`instanceof`.** For class instances, such as `Error` subclasses.
+4. **User-defined type guard.** When the above aren't enough. `typeof` checks live here or in a schema; the DCA repos reject them elsewhere (`anti-slop/no-runtime-typeof`).
 5. **`as` cast.** Only after validation.
 
 ```ts
@@ -221,6 +223,43 @@ function handle(s: Shape): void {
 ```
 
 Return-style in value-returning switches; void-style in statement switches.
+
+## Errors
+
+Classify each failure the way the **fail-loudly** principle (`~/.agents/skills/principle-fail-loudly/SKILL.md`) does: bad input, an expected outcome, or a bug.
+
+```ts
+// Don't: the failure becomes "no listings", and the cause is gone
+async function loadListings(countyId: CountyId): Promise<Listing[]> {
+  try {
+    return await db.listings.byCounty(countyId);
+  } catch {
+    return [];
+  }
+}
+
+// Do: add context and keep the cause; the caller decides what the user sees
+async function loadListings(countyId: CountyId): Promise<Listing[]> {
+  try {
+    return await db.listings.byCounty(countyId);
+  } catch (error) {
+    throw new Error(`Failed to load listings for county ${countyId}`, { cause: error });
+  }
+}
+```
+
+An expected outcome belongs in the return type, so the compiler makes callers handle it:
+
+```ts
+type ClaimResult =
+  | { kind: "claimed"; voucher: Voucher }
+  | { kind: "already-claimed"; claimedAt: Date }
+  | { kind: "expired" };
+```
+
+- Throw `Error` or a subclass, never a string or a plain object; `instanceof` then narrows it.
+- A `?? fallback` claims the value may legitimately be absent. For a required value, throw with what was missing instead.
+- Await or return every promise; a floating promise's rejection reaches no handler.
 
 ## `satisfies` over `as`
 

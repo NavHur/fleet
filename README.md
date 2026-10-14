@@ -16,7 +16,11 @@ The `principle-*` skills come from [pstack](https://github.com/backnotprop/pstac
 - writes `~/.config/principles.md`, one line per principle with when it applies and its path;
 - writes a marked block into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, and `~/.config/opencode/AGENTS.md`: the shared instructions in `config/instructions.md` plus a pointer to that index. Edit the shared rules there, never inside the block; a host's own instructions go outside it.
 
-`skills/principle-reach-for-what-exists` is fleet's own principle, written in the same format: the dependency ladder and `ceiling:` comments for deliberate shortcuts.
+Fleet's own principles are written in the same format:
+
+- `skills/principle-reach-for-what-exists`: the dependency ladder and `ceiling:` comments for deliberate shortcuts.
+- `skills/principle-fail-loudly`: failure classes, purposeful catches, kept causes, and no plausible defaults for required values.
+- `skills/principle-name-the-meaning`: names that carry purpose, units, and effects; named constants; mode flags split into functions; comments kept true.
 
 Skills in this repo cite principles by path (`~/.agents/skills/principle-x/SKILL.md`), not by name, because a principle hidden from the model cannot be found by name.
 
