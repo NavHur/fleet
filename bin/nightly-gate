@@ -246,6 +246,14 @@ def mark_posted(name, sha):
     return result
 
 
+def recover(name):
+    """Make the latest result its SHA's result again, should a crash have come between save's two writes."""
+    with state_lock(name):
+        current = latest(name)
+        if current and current["sha"] and completed(name, current["sha"]) != current:
+            write(ROOT / name / f"{current['sha']}.json", current)
+
+
 def repost(name, repo):
     """Post each saved result whose status never reached GitHub, without running its suite again."""
     for path in (ROOT / name).glob("*.json"):
@@ -324,6 +332,7 @@ def wake(name):
 
 def gate(name, repo, earlier):
     """Run one repository and wake the fix task right away if it needs one: 1 when the wake fails."""
+    recover(name)
     repost(name, repo)
     result = run_repo(name, repo, earlier)
     return wake(name) if needs_fix(result) else 0

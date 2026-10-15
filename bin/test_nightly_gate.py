@@ -216,6 +216,36 @@ class Run(unittest.TestCase):
         self.assertEqual(nightly_gate.latest("demo")["ack"]["thread"], "thread-1")
         self.wake.assert_called_once_with("demo")
 
+    def crash_before_the_sha_result(self, marker):
+        self.configure(f"echo x >> {marker}")
+        write = nightly_gate.write
+
+        def crash_after_latest(path, data):
+            if path.name != "latest.json":
+                raise OSError("crash")
+            write(path, data)
+
+        with mock.patch.object(nightly_gate, "write", side_effect=crash_after_latest), self.assertRaises(OSError):
+            self.run_gate()
+        return nightly_gate.latest("demo")["sha"]
+
+    def test_result_survives_a_crash_before_the_sha_result_is_written(self):
+        marker = self.tmp / "runs"
+        sha = self.crash_before_the_sha_result(marker)
+        self.run_gate()
+        self.assertTrue(nightly_gate.completed("demo", sha)["posted"])
+        self.assertEqual(marker.read_text().count("x"), 1)
+
+    def test_result_survives_a_crash_before_the_sha_result_after_main_moves(self):
+        marker = self.tmp / "runs"
+        first = self.crash_before_the_sha_result(marker)
+        self.commit("two\n")
+        self.run_gate()
+        self.assertTrue(nightly_gate.completed("demo", first)["posted"])
+        self.assertIn(f"statuses/{first}", self.gh_calls.read_text())
+        self.assertNotEqual(nightly_gate.latest("demo")["sha"], first)
+        self.assertEqual(marker.read_text().count("x"), 2)
+
     def test_ack_covers_new_failures_until_a_pass(self):
         self.configure("exit 3")
         self.run_gate()
