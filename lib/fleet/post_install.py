@@ -9,8 +9,9 @@
    Updates replace skill folders, so this runs on every sync.
 2. Write ~/.config/principles.md: one line per principle-* skill, from pstack
    or from this repo, saying when it applies and where its SKILL.md is.
-3. Write config/instructions.md and a pointer to that index into each
-   agent's global instructions, inside a marked block this script owns.
+3. Write config/instructions.md, then config/instructions.<agent>.md when
+   it exists, and a pointer to that index into each agent's global
+   instructions, inside a marked block this script owns.
    When this host has hosts/<host>/instructions.md or
    instructions.<agent>.md, they become the text above the block, in that
    order; otherwise the text outside the block is left as the host's own.
@@ -155,14 +156,22 @@ def with_host(text, host):
     return host + text[start:] if start >= 0 else host + text
 
 
+def block_text(agent):
+    """The managed block: the shared instructions, this agent's, then the principles pointer."""
+    own = SHARED.with_name(f"instructions.{agent}.md")
+    parts = [SHARED.read_text().strip()]
+    if own.is_file():
+        parts.append(own.read_text().strip())
+    return f"{BLOCK_START}\n" + "\n\n".join(parts) + f"\n\n{PRINCIPLES}{BLOCK_END}\n"
+
+
 def instructions(apply, backup_dir):
-    block = f"{BLOCK_START}\n{SHARED.read_text().rstrip()}\n\n{PRINCIPLES}{BLOCK_END}\n"
     host_dir = HOST_CONF.resolve().parent if HOST_CONF.exists() else None
     for agent, path in INSTRUCTIONS.items():
         if not path.parent.is_dir():
             continue
         text = path.read_text() if path.exists() else ""
-        updated = with_block(text, block)
+        updated = with_block(text, block_text(agent))
         host = host_text(host_dir, agent) if host_dir else None
         if host is not None:
             updated = with_host(updated, host)
