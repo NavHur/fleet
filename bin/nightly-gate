@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""Run each repository's complete suite on a clean checkout of origin/main.
+
+  nightly-gate run [REPO ...] [--force]   run the repos whose main moved; wake the fix task if one needs it
+  nightly-gate report [--json]            each repository's latest result
+  nightly-gate ack REPO SHA THREAD        record the fix thread launched for that result
+
+The repositories are in ~/.config/fleet/nightly.json (hosts/<machine>/nightly.json
+in fleet), so only a machine with that file runs them. A timer runs `run` every
+night. A repository whose origin/main already has a result is skipped, so quiet
+nights cost nothing. Otherwise its suite runs through host-check in a fresh
+detached worktree, with no caches or untracked files from the clone, and a
+failure is run once more: passing the second time makes it flaky.
+
+Each result is posted to GitHub as the `nightly` commit status on that SHA. A
+failure, a timeout, a setup error, or a third flaky night in a row needs a fix.
+When one has no fix thread yet, `run` posts to the local webhook of the T3
+scheduled task titled "Nightly fix", which reads `report --json`, launches the
+fix thread, and records it with `ack`. Results live in ~/.cache/nightly-gate/.
+"""
+import fcntl
+import json
+import os
+from pathlib import Path
+import shutil
+import sqlite3
+import subprocess
+import sys
+from datetime import datetime, timezone
+from urllib.error import URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+
+CONFIG = Path(os.environ.get("NIGHTLY_GATE_CONFIG") or Path.home() / ".config" / "fleet" / "nightly.json")
+ROOT = Path(os.environ.get("NIGHTLY_GATE_DIR") or Path.home() / ".cache" / "nightly-gate")
+HOST_CHECK = os.environ.get("NIGHTLY_GATE_HOST_CHECK") or str(Path.home() / ".local" / "bin" / "host-check")
+STATE = Path(os.environ.get("T3_HOME") or Path.home() / ".t3") / "userdata" / "statev2.sqlite"
+TASK_TITLE = "Nightly fix"
+FLAKY_LIMIT = 3
+TAIL_LINES = 80
+TIMEOUT_EXIT = 124
+STATUS = {"pass": "success", "flaky": "success", "fail": "failure", "timeout": "failure", "error": "error"}
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def git(clone, *args):
+    return subprocess.run(["git", "-C", str(clone), *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def latest(name):
+    path = ROOT / name / "latest.json"
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def save(result):
+    path = ROOT / result["repo"] / "latest.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(result, indent=2) + "\n")
+
+
+def classify(exits):
+    """The status of a run from the exit codes of its attempts."""
+    if exits[-1] == 0:
+        return "pass" if len(exits) == 1 else "flaky"
+    return "timeout" if exits[-1] == TIMEOUT_EXIT else "fail"
+
+
+def needs_fix(result):
+    if result is None or result.get("ack"):
+        return False
+    if result["status"] == "flaky":
+        return result["flakyStreak"] >= FLAKY_LIMIT
+    return result["status"] != "pass"
+
+
+def fresh_checkout(clone, path, sha):
+    if path.exists():
+        subprocess.run(["git", "-C", str(clone), "worktree", "remove", "--force", str(path)], capture_output=True)
+        shutil.rmtree(path, ignore_errors=True)
+    git(clone, "worktree", "prune")
+    git(clone, "worktree", "add", "--detach", str(path), sha)
+
+
+def drop_checkout(clone, path):
+    subprocess.run(["git", "-C", str(clone), "worktree", "remove", "--force", str(path)], capture_output=True)
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def attempt(repo, checkout, log, number):
+    command = f"{repo['setup']} && {repo['suite']}" if repo.get("setup") else repo["suite"]
+    minutes = repo.get("timeoutMinutes", 60)
+    with log.open("a") as out:
+        out.write(f"\n== nightly-gate attempt {number} at {now()}: {command}\n")
+        out.flush()
+        return subprocess.run([HOST_CHECK, "timeout", "--kill-after=30s", f"{minutes}m", "bash", "-lc", command],
+                              cwd=checkout, stdout=out, stderr=subprocess.STDOUT).returncode
+
+
+def tail(log):
+    return "\n".join(log.read_text(errors="replace").splitlines()[-TAIL_LINES:])
+
+
+def post_status(repo, result):
+    if not repo.get("github"):
+        return
+    description = f"{result['status']} on devbox in {result['minutes']} min"
+    if result["status"] == "error":
+        description = f"setup error: {result['error']}"[:140]
+    subprocess.run(["gh", "api", "-X", "POST", f"repos/{repo['github']}/statuses/{result['sha']}",
+                    "-f", f"state={STATUS[result['status']]}", "-f", "context=nightly",
+                    "-f", f"description={description}"], capture_output=True)
+
+
+def fetch_main(clone):
+    git(clone, "fetch", "--quiet", "origin", "main")
+    return git(clone, "rev-parse", "origin/main")
+
+
+def suite_status(repo, clone, sha, log):
+    """Run the suite on a fresh checkout, once more if it fails: (status, exits, error)."""
+    checkout = log.parent / "checkout"
+    try:
+        fresh_checkout(clone, checkout, sha)
+        exits = [attempt(repo, checkout, log, 1)]
+        if exits[0] != 0:
+            exits.append(attempt(repo, checkout, log, 2))
+        return classify(exits), exits, None
+    except (subprocess.CalledProcessError, OSError) as error:
+        detail = getattr(error, "stderr", None) or str(error)
+        return "error", [], f"checkout failed: {detail.strip()}"
+    finally:
+        drop_checkout(clone, checkout)
+
+
+def flaky_streak(previous, status):
+    if status != "flaky":
+        return 0
+    return previous["flakyStreak"] + 1 if previous and previous["status"] == "flaky" else 1
+
+
+def run_repo(name, repo, force):
+    clone = Path(os.path.expanduser(repo["clone"]))
+    previous = latest(name)
+    result = {"repo": name, "sha": None, "startedAt": now(), "minutes": 0, "ack": None}
+    try:
+        result["sha"] = fetch_main(clone)
+    except subprocess.CalledProcessError as error:
+        result.update(status="error", error=f"fetch failed: {error.stderr.strip()}", finishedAt=now(),
+                      flakyStreak=0)
+        save(result)
+        return result
+    if previous and previous["sha"] == result["sha"] and not force:
+        print(f"{name}: {result['sha'][:9]} already {previous['status']}, skipped")
+        return previous
+
+    log = ROOT / name / f"{result['sha']}.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("")
+    started = datetime.now(timezone.utc)
+    status, exits, error = suite_status(repo, clone, result["sha"], log)
+    result.update(status=status, exits=exits, log=str(log), finishedAt=now(),
+                  minutes=round((datetime.now(timezone.utc) - started).total_seconds() / 60, 1),
+                  flakyStreak=flaky_streak(previous, status))
+    if error:
+        result["error"] = error
+    if status != "pass":
+        result["tail"] = tail(log)
+    save(result)
+    post_status(repo, result)
+    print(f"{name}: {result['sha'][:9]} {status} in {result['minutes']} min")
+    return result
+
+
+def webhook():
+    """The local URL of the fix task's webhook, or None when it has none."""
+    if not STATE.exists():
+        return None
+    db = sqlite3.connect(f"file:{STATE}?mode=ro", uri=True)
+    row = db.execute("select task_id, webhook_token from scheduled_tasks "
+                     "where title = ? and enabled = 1 and webhook_token is not null", (TASK_TITLE,)).fetchone()
+    if row is None:
+        return None
+    origin = json.loads((STATE.parent / "server-runtime.json").read_text())["origin"]
+    return f"{origin}/api/hooks/{quote(row[0], safe='')}/{row[1]}"
+
+
+def wake(names):
+    url = webhook()
+    if url is None:
+        print(f'{", ".join(names)} need a fix, but no enabled webhook task is titled "{TASK_TITLE}"', file=sys.stderr)
+        return 1
+    request = Request(url, data=json.dumps({"repos": names}).encode(), method="POST",
+                      headers={"content-type": "application/json"})
+    try:
+        with urlopen(request, timeout=10) as response:
+            outcome = response.headers.get("x-t3-hook-outcome")
+    except URLError as error:
+        print(f"could not reach T3: {error}", file=sys.stderr)
+        return 1
+    print(f"woke the fix task for {', '.join(names)}: {outcome}")
+    return 0
+
+
+def run(names, force):
+    repos = json.loads(CONFIG.read_text())["repos"]
+    unknown = set(names) - set(repos)
+    if unknown:
+        print(f"not in {CONFIG}: {', '.join(sorted(unknown))}", file=sys.stderr)
+        return 2
+    ROOT.mkdir(parents=True, exist_ok=True)
+    with (ROOT / "lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("another nightly-gate run is in progress", file=sys.stderr)
+            return 1
+        results = [run_repo(name, repos[name], force) for name in names or repos]
+    due = [r["repo"] for r in results if needs_fix(r)]
+    return wake(due) if due else 0
+
+
+def report(as_json):
+    names = json.loads(CONFIG.read_text())["repos"] if CONFIG.exists() else {}
+    results = [dict(r, needsFix=needs_fix(r)) for r in map(latest, names) if r]
+    if as_json:
+        print(json.dumps(results, indent=2))
+        return
+    for r in results:
+        print(report_line(r))
+
+
+def report_line(r):
+    fix = "  NEEDS FIX" if r["needsFix"] else ""
+    ack = f"  fix thread {r['ack']['thread']}" if r.get("ack") else ""
+    return f"{r['repo']:14} {(r['sha'] or '')[:9]}  {r['status']:7} {r['finishedAt']}{fix}{ack}"
+
+
+def ack(name, sha, thread):
+    result = latest(name)
+    if result is None or result["sha"] != sha:
+        print(f"{name}'s latest result is not {sha}", file=sys.stderr)
+        return 1
+    result["ack"] = {"thread": thread, "at": now()}
+    save(result)
+    return 0
+
+
+def main(argv):
+    if argv[:1] == ["run"]:
+        return run([a for a in argv[1:] if a != "--force"], "--force" in argv)
+    if argv[:1] == ["report"] and set(argv[1:]) <= {"--json"}:
+        report("--json" in argv)
+        return 0
+    if argv[:1] == ["ack"] and len(argv) == 4:
+        return ack(*argv[1:])
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
