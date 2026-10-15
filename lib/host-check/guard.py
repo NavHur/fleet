@@ -122,9 +122,8 @@ def command_starts_dev(words, command):
 
 # --- Shell source -----------------------------------------------------------
 
-# A heredoc operator, not a `<<<` here-string, with any descriptor that begins
-# its word (`0<<EOF`, `{fd}<<EOF`, `'0<<EOF`) but not digits ending another
-# (`a1<<EOF`, `>&1<<EOF`).
+# A heredoc operator, not a `<<<` here-string, plus any descriptor that begins
+# its word (`0<<EOF`, `'0<<EOF`) but not digits ending another word (`a1<<EOF`).
 HEREDOC = re.compile(
     r"(?:(?<![^\s;|&('\"])(?<![<>]&)(?:\d+|\{[A-Za-z_][A-Za-z_0-9]*\}))?"
     r"(?<!<)<<-?\s*(['\"]?)([A-Za-z_][A-Za-z_0-9]*)\1"
