@@ -118,7 +118,7 @@ step() { # label command [args...]; prints label=OK|FAIL|skip
 
 commits_step() { # typecheck, lint and format on each commit of layer $name but its tip; sets commits_verdict
   local -a shas cfiles; local sha short out
-  mapfile -t shas < <(git rev-list --reverse --first-parent "$parent..HEAD" | sed '$d')
+  mapfile -t shas < <(git rev-list --reverse --topo-order "$parent..HEAD" | sed '$d')
   commits_verdict=none
   ((${#shas[@]})) || return 0
   commits_verdict=OK

@@ -92,6 +92,20 @@ class LayerGatesTests(unittest.TestCase):
         self.assertIn("commits=FAIL", verdicts["01-a"])
         self.assertIn("typecheck=OK", verdicts["01-a"])
 
+    def test_a_broken_commit_on_a_merged_side_branch_fails_the_layer(self):
+        self.git("checkout", "-q", "-b", "side", "s-02-b")
+        (self.root / "broken.ts").write_text("broken\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "break")
+        self.git("rm", "-q", "broken.ts")
+        self.git("commit", "-q", "-m", "repair")
+        self.git("checkout", "-q", "s-03-c")
+        self.git("merge", "-q", "--no-ff", "-m", "merge side", "side")
+        self.git("checkout", "-q", "main")
+        _calls, verdicts = self.gates(returncode=1, TYPECHECK_CMD="[ ! -f broken.ts ] || exit 1; :")
+        self.assertIn("commits=FAIL", verdicts["03-c"])
+        self.assertIn("typecheck=OK", verdicts["03-c"])
+
 
 if __name__ == "__main__":
     unittest.main()
