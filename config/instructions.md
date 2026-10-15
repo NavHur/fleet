@@ -31,8 +31,11 @@ confidence.
 
 ## Pull requests
 
-- Open PRs as drafts (REST `POST /repos/OWNER/REPO/pulls` with `draft=true`,
-  or `gh stack submit --auto` without `--open`); mark one ready when Pedro asks
+- Draft state follows the owner in the `origin` remote URL, on every host.
+  Owner `PedroNavHur` (personal): open PRs ready for review (`draft=false`, or
+  `gh stack submit --auto --open`). Any other owner (work): open them as drafts
+  (REST `POST /repos/OWNER/REPO/pulls` with `draft=true`, or
+  `gh stack submit --auto` without `--open`) and mark one ready when Pedro asks
   in that conversation.
 - Stacks use `gh stack`: fix on the layer that owns the code, `gh stack rebase`
   descendants when their dependencies need it or Pedro asks, and merge with
