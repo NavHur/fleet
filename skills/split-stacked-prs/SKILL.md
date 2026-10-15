@@ -1,6 +1,6 @@
 ---
 name: split-stacked-prs
-description: Native GitHub stacked PRs within Pedro's weighted and raw churn ceilings. Use to split a large branch into dependency-ordered layers, to carry review fixes through, gate, or re-measure an existing stack, or to restack one that fell behind its base. Not for code review.
+description: Native GitHub stacked PRs, layers of small commits within Pedro's churn ceilings. Use to split a large branch into dependency-ordered layers, to carry review fixes through, gate, or re-measure an existing stack, or to restack one that fell behind its base. Not for code review.
 ---
 
 # Split Stacked PRs
@@ -15,21 +15,22 @@ and the hook contract are in the header of `scripts/lib.sh`.
 
 ## Enforce the contract
 
-Read `references/size-policy.md` for the canonical personal policy: test-file
-classification, generated-data exemptions, retirement exceptions, the
-five-layer limit, whole-file splits.
-Apply it only to Pedro's pull requests.
+Read `references/size-policy.md` for the canonical personal policy: the
+pull request, layer and commit sizes, test-file classification,
+generated-data exemptions, retirement exceptions, the stack length,
+whole-file splits. Apply it only to Pedro's pull requests.
 
-- Measure each layer against its direct parent: weighted size at most 1000,
-  raw churn at most 2000, unless the retirement exception applies. Target
-  weighted size below 500; explain any layer from 500 through 1000.
+- Measure each layer against its direct parent and each commit against its
+  own parent, under the policy's ceilings. Explain any layer under 300
+  weighted.
 - Keep each behavior change with its tests. Fixtures, helpers, setup and test
   infrastructure count toward both ceilings.
 - Every layer builds and passes its checks alone, is independently
   understandable and revertible, and the top reproduces the source exactly.
 
 `scripts/diff_budget.py BASE HEAD` measures one pair from their merge-base, so
-BASE can be a branch name (exit 2: a ceiling is exceeded). It recognizes JS/TS
+BASE can be a branch name (exit 2: a ceiling is exceeded); with `--per-commit`
+it measures every commit in that range under the commit ceilings. It recognizes JS/TS
 `*.test.*`/`*.spec.*`, Python and Go test names, lockfiles and
 `linguist-generated` files; add `--test GLOB` for other verified test files and
 `--generated GLOB` for verified generated paths, including the data exemptions
@@ -62,16 +63,23 @@ the changed files; a file's layer sits at or above the layers of what it imports
 
 Prefer cohesive vertical slices: preparation and moves, then contracts,
 schemas and migrations, then domain behavior, then consumers, wiring and
-cleanup. Separate refactors from behavior changes. Keep a migration with its
+cleanup. Within a layer, order its commits the same way, with refactors and
+behavior changes in separate commits. Keep a migration with its
 minimum compatible code unless rollout safety needs expand, migrate, contract.
 Put generated output and lockfile updates in the layer that changes their
 inputs. Avoid temporary breakage, forward references and layers that exist
 only to meet a number. When an indivisible change exceeds a ceiling and no
 module boundary helps, stop and report the blocker.
 
-Write the plan as a manifest directory outside the worktree: one file per
-layer, named in stack order (`01-contract`, `02-domain`, ...), listing its
-paths, deletions included. A plain path is taken whole from the source. A file
+When the source's commits already follow that order and each passes
+`diff_budget.py --per-commit "$merge_base" "$source_tip"`, cut the layers at
+commit boundaries instead of rebuilding: see step 4.
+
+Otherwise write the plan as a manifest directory outside the worktree: one
+file per layer, named in stack order (`01-contract`, `02-domain`, ...), listing
+its paths, deletions included. Split each layer into commits with
+`# commit: SUBJECT` lines, each followed by the paths of that commit, within
+the commit ceilings. A plain path is taken whole from the source. A file
 that needs in-between versions (expand, then contract) is `~path` in each
 earlier layer and plain in its final layer; each layer with a `~path` gets an
 executable `hooks/<layer>` that writes those versions from `$SOURCE`.
@@ -82,11 +90,21 @@ python3 "$SKILL_DIR/scripts/check_manifests.py" "$merge_base" "$source_tip" "$pl
 
 It must pass: no missing, duplicated, unchanged or misplaced path.
 
-Show the user a plan table: order, branch, purpose, dependencies, paths,
-weighted size, raw churn, test churn, excluded churn, validation. Continue when
+Show the user a plan table: order, branch, purpose, dependencies, commits,
+paths, weighted size, raw churn, test churn, excluded churn, validation. Continue when
 the user asked for execution; otherwise stop here.
 
 ## 4. Build in an isolated worktree
+
+A stack cut at commit boundaries skips this step: put each layer's branch on
+its last commit, derive the manifests, and verify as in step 5. The top layer
+is the source, so the tree check holds by construction.
+
+```bash
+git branch "<source>-01-domain" <sha>   # one per layer, bottom to top
+python3 "$SKILL_DIR/scripts/derive_manifests.py" --base "$base_branch" \
+  --branches "<source>-01-domain" "<source>-02-ui" --out "$plan/layers"
+```
 
 1. Create the worktree at the merge-base and prepare it with the script
    (a symlinked `node_modules` breaks pnpm):
@@ -105,8 +123,9 @@ the user asked for execution; otherwise stop here.
      --manifests "$plan/layers" --prefix "<source>-" --msgs "$plan/msgs"
    ```
 
-   It commits each layer without hooks and fails unless the top tree equals
-   the source, so the gates in step 5 are mandatory.
+   It commits each layer, one commit per `# commit:` section, without hooks
+   and fails unless the top tree equals the source, so the gates in step 5
+   are mandatory.
 3. Only when a layer needs hunks of one file that no hook can express, build
    it by hand with non-interactive patches and keep a hunk ledger mapping
    every source change to exactly one layer.
@@ -136,7 +155,8 @@ Keep the worktree and safety branch until the stack is published and verified.
      --base "$merge_base" --gates "$LOG_DIR"
    ```
 
-   Exit 2 means a layer exceeds a ceiling; revise it unless it is a retirement.
+   Exit 2 means a layer or one of its commits exceeds a ceiling; revise it
+   unless it is a retirement. A `small` layer passes but needs its reason.
 3. Review the log and diffs bottom to top as a reviewer would.
 
 If the stack rebases onto a newer base, tree equality no longer applies:
@@ -227,7 +247,7 @@ squash-merged into the base. Finish with `restack.py clean STATE_DIR`.
 
 ## 9. Report the result
 
-Return the stack bottom to top with PR links, parents, weighted size, raw
-churn, test churn, excluded churn, validation status and any justification for
-500 through 1000. State the disposition of the original PR, source branch,
+Return the stack bottom to top with PR links, parents, commits, weighted size,
+raw churn, test churn, excluded churn, validation status, the reason for any
+layer under 300 and any `Size-Exception` trailer. State the disposition of the original PR, source branch,
 temporary worktree and safety branch.
