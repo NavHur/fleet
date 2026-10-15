@@ -175,7 +175,8 @@ gh stack submit --auto
 gh stack view
 ```
 
-`--auto` opens drafts; keep them draft. Give every PR body a one-sentence
+`--auto` opens drafts: keep them draft in work repos, and add `--open` in
+personal repos so they open ready for review. Give every PR body a one-sentence
 purpose and why the boundary is atomic, its parent and next layer, a change
 summary, gate results, and reviewer notes on migrations, rollout order,
 generated output or risk. Then write the size and gate lines into every body:

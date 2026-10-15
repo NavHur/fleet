@@ -31,9 +31,11 @@ confidence.
 
 ## Pull requests
 
-- Open PRs as drafts (REST `POST /repos/OWNER/REPO/pulls` with `draft=true`,
-  or `gh stack submit --auto` without `--open`); mark one ready when Pedro asks
-  in that conversation.
+- Work repos (owned by DCA, under `~/dca`): open PRs as drafts (REST
+  `POST /repos/OWNER/REPO/pulls` with `draft=true`, or `gh stack submit --auto`
+  without `--open`); mark one ready when Pedro asks in that conversation.
+  Personal repos (PedroNavHur): open PRs ready for review (`draft=false`, or
+  `gh stack submit --auto --open`).
 - Stacks use `gh stack`: fix on the layer that owns the code, `gh stack rebase`
   descendants when their dependencies need it or Pedro asks, and merge with
   `gh stack merge` on the top PR.
