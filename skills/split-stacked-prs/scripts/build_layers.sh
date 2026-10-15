@@ -8,7 +8,9 @@
 # with ~paths (in-between versions of a file whose final version is in a later
 # layer) needs an executable MANIFEST_DIR/hooks/<name> that writes them; the
 # hook may also edit the layer's whole files. A change outside the manifest is
-# an error. A message file MSG_DIR/<name> is used when present.
+# an error. A layer is one commit, message MSG_DIR/<name> when present, unless
+# its manifest has "# commit: SUBJECT" sections: then each section is one
+# commit, message MSG_DIR/<name>.<k> (k counts sections from 1) or SUBJECT.
 # Commits skip hooks: run the layer gates afterwards (layer_gates.sh).
 #
 # Usage:
@@ -23,11 +25,40 @@ while (($#)); do
     --manifests) manifests=$2; shift 2 ;;
     --prefix) prefix=$2; shift 2 ;;
     --msgs) msgs=$2; shift 2 ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-[[ -n $base && -n $source && -n $manifests ]] || { sed -n '2,15p' "$0" >&2; exit 2; }
+[[ -n $base && -n $source && -n $manifests ]] || { sed -n '2,17p' "$0" >&2; exit 2; }
+
+commit_with() { # MESSAGE_FILE FALLBACK_SUBJECT
+  if [[ -n $msgs && -f $1 ]]; then
+    git -c core.hooksPath=/dev/null commit -q -F "$1"
+  else
+    git -c core.hooksPath=/dev/null commit -q -m "$2"
+  fi
+}
+
+commit_sections() { # NAME; the layer's changes are staged
+  local manifest=$manifests/$1 subject k=0 paths want
+  want=$(git write-tree)
+  git reset -q
+  while IFS= read -r subject; do
+    k=$((k + 1))
+    paths=$(section_paths "$manifest" "$k")
+    [[ -z $paths ]] || GIT_LITERAL_PATHSPECS=1 git add -A --force --pathspec-from-file=- <<<"$paths"
+    if git diff --cached --quiet; then
+      echo "$1: commit $k ($subject) changes nothing" >&2
+      exit 1
+    fi
+    commit_with "$msgs/$1.$k" "$subject"
+  done < <(commit_subjects "$manifest")
+  if [[ $(git rev-parse 'HEAD^{tree}') != "$want" ]]; then
+    echo "$1: changes outside every commit section:" >&2
+    git diff --stat HEAD "$want" >&2
+    exit 1
+  fi
+}
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 . "$script_dir/lib.sh"
@@ -62,10 +93,10 @@ for name in $(layer_names "$manifests"); do
     echo "$name: the layer changes nothing" >&2
     exit 1
   fi
-  if [[ -n $msgs && -f $msgs/$name ]]; then
-    git -c core.hooksPath=/dev/null commit -q -F "$msgs/$name"
+  if [[ -n $(commit_subjects "$manifests/$name") ]]; then
+    commit_sections "$name"
   else
-    git -c core.hooksPath=/dev/null commit -q -m "wip: $name"
+    commit_with "$msgs/$name" "wip: $name"
   fi
   parent=$(git rev-parse HEAD)
   printf '%s %s\n' "$(git rev-parse --short HEAD)" "$branch"

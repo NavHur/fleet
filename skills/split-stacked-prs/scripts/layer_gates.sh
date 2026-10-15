@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Run the checks on every layer, bottom to top, each against its own parent.
+# Tests run once, on the top layer, against the stack base: that covers every
+# layer's changes. --tests-each runs them on every layer against its parent,
+# to find the layer that broke one; otherwise lower layers report tests=deferred.
 #
 # Outside the shared CPU queue it re-executes itself once under
 # `HOST_CHECK_CLASS=heavy host-check`; do not wrap it yourself. It prints the
@@ -9,23 +12,25 @@
 # refresh_stack.py --gates reads.
 #
 # Before each layer: setup_worktree.sh (install, prisma generate, repo hook;
-# each only when its input changed). Skip it with --no-setup.
+# each only when its input changed). Skip it with --no-setup. Then each commit
+# of the layer but its tip gets typecheck, lint and format on its own changed
+# files (commits=OK|FAIL, or none for a one-commit layer).
 # Steps per layer, each overridable by environment variable (run in --app):
 #   TYPECHECK_CMD  default: pnpm typecheck
 #   LINT_CMD       default: pnpm lint
 #   FORMAT_CMD     default: pnpm exec oxfmt --check   (gets the layer's changed files)
 #   TEST_CMD       default: pnpm exec vitest run --testTimeout=20000 --changed
-#                  (gets the parent ref)
+#                  (gets the stack base, or the parent with --tests-each)
 # A command is a shell snippet; its arguments arrive as "$@". Set a step to
 # "skip" to leave it out.
 #
 # Usage:
 #   layer_gates.sh --manifests DIR [--base REF] [--prefix PREFIX] [--app DIR]
-#                  [--log-dir DIR] [--only NAME] [--no-setup]
+#                  [--log-dir DIR] [--only NAME] [--no-setup] [--tests-each]
 set -uo pipefail
 
-usage() { sed -n '2,25p' "$0"; }
-base= manifests= prefix= app=. log_dir= only= setup=1
+usage() { sed -n '2,29p' "$0"; }
+base= manifests= prefix= app=. log_dir= only= setup=1 tests_each=0
 args=("$@")
 while (($#)); do
   case $1 in
@@ -36,6 +41,7 @@ while (($#)); do
     --log-dir) log_dir=$2; shift 2 ;;
     --only) only=$2; shift 2 ;;
     --no-setup) setup=0; shift ;;
+    --tests-each) tests_each=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -85,9 +91,20 @@ start=$(git rev-parse --abbrev-ref HEAD)
 app_prefix=$(cd "$root/$app" && git rev-parse --show-prefix)
 failed=0
 parent=$base
+top=$(layer_names "$manifests" | tail -1)
 echo "logs: $log_dir"
 note() { echo "$(date +%T) $*" >>"$progress"; }
 note "start base=$(git rev-parse --short "$base")"
+
+tests_step() { # the tests verdict for layer $name
+  if ((tests_each)); then
+    step tests "$test_cmd" "$parent"
+  elif [[ $name == "$top" ]]; then
+    step tests "$test_cmd" "$base"
+  else
+    echo tests=deferred
+  fi
+}
 
 step() { # label command [args...]; prints label=OK|FAIL|skip
   local label=$1 cmd=$2 started=$SECONDS verdict; shift 2
@@ -97,6 +114,27 @@ step() { # label command [args...]; prints label=OK|FAIL|skip
   if (cd "$root/$app" && bash -c "$cmd \"\$@\"" "$label" "$@") >>"$log" 2>&1; then verdict=OK; else verdict=FAIL; fi
   note "$name $label $verdict $((SECONDS - started))s"
   echo "$label=$verdict"
+}
+
+commits_step() { # typecheck, lint and format on each commit of layer $name but its tip; sets commits_verdict
+  local -a shas cfiles; local sha short out
+  mapfile -t shas < <(git rev-list --reverse --topo-order "$parent..HEAD" | sed '$d')
+  commits_verdict=none
+  ((${#shas[@]})) || return 0
+  commits_verdict=OK
+  for sha in "${shas[@]}"; do
+    short=$(git rev-parse --short "$sha")
+    note "$name commit $short"
+    echo "### commit $short" >>"$log"
+    git checkout -q --detach "$sha" || { commits_verdict=FAIL; break; }
+    if ((setup)) && ! bash "$script_dir/setup_worktree.sh" "$root" >>"$log" 2>&1; then commits_verdict=FAIL; break; fi
+    mapfile -t cfiles < <(git -c core.quotePath=false diff --name-only --diff-filter=d "$sha^" "$sha" -- "$root/$app" | sed "s#^$app_prefix##")
+    out=$(step typecheck "$typecheck_cmd"; step lint "$lint_cmd"; ((${#cfiles[@]})) && step format "$format_cmd" "${cfiles[@]}")
+    note "$name commit $short ${out//$'\n'/ }"
+    if [[ $out == *FAIL* ]]; then commits_verdict=FAIL; break; fi
+  done
+  git checkout -q "$branch" || { commits_verdict=FAIL; return; }
+  if ((setup)) && ! bash "$script_dir/setup_worktree.sh" "$root" >>"$log" 2>&1; then commits_verdict=FAIL; fi
 }
 
 for name in $(layer_names "$manifests"); do
@@ -114,11 +152,13 @@ for name in $(layer_names "$manifests"); do
     fi
   fi
   mapfile -t files < <(git -c core.quotePath=false diff --name-only --diff-filter=d "$parent" HEAD -- "$root/$app" | sed "s#^$app_prefix##")
+  commits_step
   results=(
     "$(step typecheck "$typecheck_cmd")"
     "$(step lint "$lint_cmd")"
     "$( ((${#files[@]})) && step format "$format_cmd" "${files[@]}" || echo format=none)"
-    "$(step tests "$test_cmd" "$parent")"
+    "commits=$commits_verdict"
+    "$(tests_step)"
   )
   [[ ${results[*]} == *FAIL* ]] && failed=1
   summary=$(grep -E '^ +(Test Files|Tests) ' "$log" | tr -s ' ' | tr '\n' ' ')

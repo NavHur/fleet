@@ -2,7 +2,10 @@
 """Measure review-line churn between two Git revisions.
 
 Tests count toward raw churn only. Lockfiles and verified generated files are
-excluded from both ceilings. Exit with status 2 when either ceiling is exceeded.
+excluded from both ceilings. With --per-commit, every commit in the range is
+measured against its parent under the commit ceilings; a commit carrying a
+`Size-Exception: <reason>` trailer is exempt. Exit with status 2 when a ceiling
+is exceeded.
 """
 
 from __future__ import annotations
@@ -36,6 +39,9 @@ LOCKFILE_NAMES = {
     "uv.lock",
     "yarn.lock",
 }
+PR_CEILINGS = (1000, 2000)
+COMMIT_CEILINGS = (300, 600)
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 
 @dataclass
@@ -155,7 +161,7 @@ def classify(
 
 
 def summarize(
-    entries: list[DiffEntry], target: int, cap: int, raw_cap: int, exempt: bool = False
+    entries: list[DiffEntry], cap: int, raw_cap: int, exemption: str | None = None
 ) -> dict[str, object]:
     included = [entry for entry in entries if not entry.excluded]
     tests = [entry for entry in included if entry.test]
@@ -166,17 +172,14 @@ def summarize(
     weighted_size = sum(
         (entry.additions or 0) + (entry.deletions or 0) / 4 for entry in weighted
     )
-    if exempt:
-        status = "exempt-retirement"
+    if exemption:
+        status = exemption
     elif weighted_size > cap or budgeted_lines > raw_cap:
         status = "cap-violation"
-    elif weighted_size <= target:
-        status = "target"
     else:
         status = "within-cap"
     return {
         "status": status,
-        "target": target,
         "hard_cap": cap,
         "raw_cap": raw_cap,
         "weighted_size": weighted_size,
@@ -213,10 +216,7 @@ def print_text(summary: dict[str, object]) -> None:
         f"{summary['excluded_lines']} lines "
         f"(+{summary['excluded_additions']} / -{summary['excluded_deletions']})"
     )
-    print(
-        f"Status: {summary['status']} "
-        f"(weighted target <= {summary['target']})"
-    )
+    print(f"Status: {summary['status']}")
     if summary["included_binary_files"] or summary["excluded_binary_files"]:
         print(
             "Binary files (not line-counted): "
@@ -262,25 +262,24 @@ def parse_args() -> argparse.Namespace:
         help="verified generated path glob to exclude; repeat as needed",
     )
     parser.add_argument(
-        "--target",
-        type=int,
-        default=499,
-        help="preferred maximum weighted size (default: 499)",
+        "--per-commit", action="store_true",
+        help="measure each non-merge commit in the range against its parent",
     )
     parser.add_argument(
-        "--cap",
-        type=int,
-        default=1000,
-        help="hard maximum weighted size (default: 1000)",
+        "--cap", type=int,
+        help="weighted size ceiling (default: 1000, or 300 with --per-commit)",
     )
     parser.add_argument(
-        "--raw-cap", type=int, default=2000,
-        help="raw churn ceiling (default: 2000)",
+        "--raw-cap", type=int,
+        help="raw churn ceiling (default: 2000, or 600 with --per-commit)",
     )
     parser.add_argument("--json", action="store_true", help="emit JSON")
     args = parser.parse_args()
-    if args.target < 0 or args.cap < 0 or args.target > args.cap or args.raw_cap < 0:
-        parser.error("require 0 <= target <= cap and raw-cap >= 0")
+    cap, raw_cap = COMMIT_CEILINGS if args.per_commit else PR_CEILINGS
+    args.cap = cap if args.cap is None else args.cap
+    args.raw_cap = raw_cap if args.raw_cap is None else args.raw_cap
+    if args.cap < 0 or args.raw_cap < 0:
+        parser.error("require cap >= 0 and raw-cap >= 0")
     return args
 
 
@@ -306,34 +305,68 @@ def retirement_only(base: str, head: str) -> bool:
     )
 
 
+def measure(
+    start: str, head: str, args: argparse.Namespace, exemption: str | None = None
+) -> dict[str, object]:
+    raw = git(
+        "diff", "--numstat", "-z", "--find-renames", "--find-copies", start, head, "--",
+        text=False,
+    )
+    entries = classify(parse_numstat(raw), args.generated, args.test)
+    if exemption is None and retirement_only(start, head):
+        exemption = "exempt-retirement"
+    return summarize(entries, args.cap, args.raw_cap, exemption)
+
+
+def measure_commits(start: str, head: str, args: argparse.Namespace) -> list[dict[str, object]]:
+    """Each non-merge commit in start..head against its first parent."""
+    summaries = []
+    for sha in git("rev-list", "--reverse", "--no-merges", f"{start}..{head}").split():
+        parents = git("rev-list", "--parents", "-n", "1", sha).split()[1:]
+        reason = git(
+            "log", "-1", "--format=%(trailers:key=Size-Exception,valueonly,separator=%x20)", sha,
+        ).strip()
+        summary = measure(parents[0] if parents else EMPTY_TREE, sha, args,
+                          "exempt-trailer" if reason else None)
+        subject = git("log", "-1", "--format=%s", sha).strip()
+        summary.update(commit=sha, subject=subject, exception=reason or None)
+        summaries.append(summary)
+    return summaries
+
+
+def print_commits(summaries: list[dict[str, object]], cap: int, raw_cap: int) -> None:
+    print(f"Commits: {len(summaries)} (ceilings: weighted {cap}, raw {raw_cap})")
+    for summary in summaries:
+        print(
+            f"  {str(summary['commit'])[:9]}  weighted {summary['weighted_size']:>7g}"
+            f"  raw {summary['raw_churn']:>5}  {summary['status']:<17} {summary['subject']}"
+        )
+
+
+def emit(summaries: list[dict[str, object]], args: argparse.Namespace) -> None:
+    if args.json:
+        report = {"commits": summaries} if args.per_commit else summaries[0]
+        print(json.dumps(report, indent=2, sort_keys=True))
+    elif args.per_commit:
+        print_commits(summaries, args.cap, args.raw_cap)
+    else:
+        print_text(summaries[0])
+
+
 def main() -> int:
     args = parse_args()
     try:
         start = diff_start(args.base, args.head)
-        raw = git(
-            "diff",
-            "--numstat",
-            "-z",
-            "--find-renames",
-            "--find-copies",
-            start,
-            args.head,
-            "--",
-            text=False,
-        )
-        entries = classify(parse_numstat(raw), args.generated, args.test)
-        summary = summarize(
-            entries, args.target, args.cap, args.raw_cap,
-            retirement_only(start, args.head),
-        )
+        if args.per_commit:
+            summaries = measure_commits(start, args.head, args)
+        else:
+            summaries = [measure(start, args.head, args)]
     except (RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
-    if args.json:
-        print(json.dumps(summary, indent=2, sort_keys=True))
-    else:
-        print_text(summary)
-    return 2 if summary["status"] == "cap-violation" else 0
+    emit(summaries, args)
+    over = any(summary["status"] == "cap-violation" for summary in summaries)
+    return 2 if over else 0
 
 
 if __name__ == "__main__":

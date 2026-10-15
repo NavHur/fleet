@@ -6,6 +6,9 @@
 #   # branch: NAME   optional header; without it the branch is PREFIX<file name>
 #   # base: REF      optional, first manifest only: the stack's base
 #   # pr: N          optional, the layer's pull request number
+#   # commit: SUBJECT  optional: starts the next commit of the layer, holding
+#                    the paths below it; paths above the first one join it.
+#                    Without any, build_layers.sh makes one commit per layer.
 #   path             whole file: the layer takes the source version (or deletes it)
 #   ~path            staged: an in-between version; the final version is in a
 #                    later layer. hooks/<name> writes it (build and fix); without
@@ -18,8 +21,11 @@
 # write each staged path's full content from $SOURCE (git show "$SOURCE:path"
 # plus edits), not patch the current file, so reruns give the same result.
 
-layer_names() { # DIR
-  find "$1" -maxdepth 1 -type f ! -name '.*' -printf '%f\n' | sort
+layer_names() { # DIR; a glob skips dotfiles, and BSD find has no -printf
+  local path
+  for path in "$1"/*; do
+    if [[ -f $path ]]; then printf '%s\n' "${path##*/}"; fi
+  done | LC_ALL=C sort
 }
 
 manifest_header() { # DIR NAME KEY
@@ -45,6 +51,18 @@ whole_paths() { # MANIFEST_FILE
 
 staged_paths() { # MANIFEST_FILE
   sed -n -e 's/[[:space:]]*$//' -e 's/^~//p' "$1"
+}
+
+commit_subjects() { # MANIFEST_FILE
+  sed -n 's/^#[[:space:]]*commit:[[:space:]]*//p' "$1"
+}
+
+section_paths() { # MANIFEST_FILE K: whole and ~paths of the Kth commit section, from 1
+  awk -v k="$2" '
+    /^[[:space:]]*#[[:space:]]*commit:/ { n++; next }
+    /^[[:space:]]*(#|$)/ { next }
+    { sub(/[[:space:]]+$/, ""); sub(/^~/, ""); if ((n ? n : 1) == k) print }
+  ' "$1"
 }
 
 apply_whole() { # SOURCE_SHA MANIFEST_FILE: copy whole files from the source, delete removed ones

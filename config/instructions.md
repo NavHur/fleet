@@ -16,8 +16,11 @@ on the host shares its queue.
 - Commit subjects: a Conventional Commits type, a scope when obvious
   (`fix(vacant-land): …`), imperative, under 72 characters; reasoning in the
   body.
-- Gate each commit you will push with the `pre-commit` skill and commit once
-  its steps pass. Rounds of review-loop and stacked PRs use their light check.
+- Commit in small steps, each within the commit ceiling below. Before each
+  commit, run format, lint, and typecheck on its changed files. Before
+  pushing, run the `pre-commit` skill once, on the top head: the branch, or
+  the last layer's tip; lower layers get format, lint, and typecheck. Rounds
+  of review-loop and stacked PRs use their light check.
 
 ## Tests
 
@@ -34,8 +37,9 @@ confidence.
 - Stacks use `gh stack`: fix on the layer that owns the code, `gh stack rebase`
   descendants when their dependencies need it or Pedro asks, and merge with
   `gh stack merge` on the top PR.
-- Pedro's PRs stay within 1000 weighted, 2000 raw churn, and 5 layers per
-  stack; measure before pushing, as
+- Pedro's PRs stay within 1000 weighted and 2000 raw churn, each commit within
+  300 and 600; stack layers aim for 400 to 1000 weighted, at most 5 per stack.
+  Measure before pushing, as
   `~/.agents/skills/split-stacked-prs/references/size-policy.md` says. The rule
   is personal: it stays out of repositories.
 

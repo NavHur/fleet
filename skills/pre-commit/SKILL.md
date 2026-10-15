@@ -1,6 +1,6 @@
 ---
 name: pre-commit
-description: "Deterministic pre-commit validation. Use before a required commit gate or when the user requests format, lint, typecheck, and tests. Do not use for remote CI diagnosis or code review."
+description: "Deterministic pre-commit validation. Use for the gate on the top head about to be pushed (a branch, or a stack's last layer), or when the user requests format, lint, typecheck, and tests. Do not use for remote CI diagnosis or code review."
 ---
 
 # Pre-commit

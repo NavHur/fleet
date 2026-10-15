@@ -8,6 +8,21 @@ against its direct base branch:
 - **Raw churn** is additions plus deletions, including test files, at most
   **2000**. Report test churn separately.
 
+A pull request is made of commits, and a stack of layers:
+
+- A **commit** is one step a reviewer can follow alone: a move or rename, an
+  extracted helper, a new type, a behavior change with its tests, the wiring.
+  Refactors and behavior changes go in separate commits, and each commit
+  typechecks. Against its parent, a commit stays within **300** weighted and
+  **600** raw, measured like a pull request. A commit that cannot be split,
+  such as one cohesive new module or a mechanical edit across many files,
+  carries a `Size-Exception: <reason>` trailer.
+- A **layer** is one purpose a reviewer approves in one sitting, built from
+  several commits. Aim for **400 to 1000** weighted. A layer under **300**
+  weighted needs a reason (a migration that ships first, rollout order, a
+  retirement, a risky change that should revert alone); otherwise merge it
+  into its neighbour.
+
 Test files are unit, component, integration, E2E, and accessibility tests:
 JS/TS `*.test.*` and `*.spec.*`, Python `test_*.py` and `*_test.py`, Go
 `*_test.go`; pass other verified test files with `--test GLOB`. Handwritten
@@ -27,12 +42,16 @@ python3 ~/.agents/skills/split-stacked-prs/scripts/diff_budget.py \
   --generated '*.geojson'
 ```
 
-- A layer that only deletes files, or only renames them without content
-  changes, is exempt from both ceilings. Group those retirements so each layer
-  still typechecks, importer before import.
-- A stack holds at most **5 layers**. Larger work becomes several independent
-  stacks, each branched from the integration branch and merged in waves: one
-  stack merges, the rest rebase onto the new tip.
+Add `--per-commit` to the same command to measure each commit in the range
+against its parent under the commit ceilings.
+
+- A layer or commit that only deletes files, or only renames them without
+  content changes, is exempt from its ceilings. Group those retirements so
+  each layer still typechecks, importer before import.
+- A stack holds 2 to 4 layers, at most **5**. Work within the pull request
+  ceilings ships as one pull request of small commits. Larger work becomes
+  several independent stacks, each branched from the integration branch and
+  merged in waves: one stack merges, the rest rebase onto the new tip.
 - Split on whole files, never inside one, so every layer typechecks on its own.
   The seam that usually works: domain module and its tests, then the component
   with its tests and accessibility suite, then the wiring and any retirement.
