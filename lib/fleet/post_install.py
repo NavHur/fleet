@@ -158,7 +158,10 @@ def with_host(text, host):
 
 def block_text(agent):
     """The managed block: the shared instructions, this agent's, then the principles pointer."""
-    parts = [f.read_text().strip() for f in (SHARED, SHARED.with_name(f"instructions.{agent}.md")) if f.is_file()]
+    own = SHARED.with_name(f"instructions.{agent}.md")
+    parts = [SHARED.read_text().strip()]
+    if own.is_file():
+        parts.append(own.read_text().strip())
     return f"{BLOCK_START}\n" + "\n\n".join(parts) + f"\n\n{PRINCIPLES}{BLOCK_END}\n"
 
 
