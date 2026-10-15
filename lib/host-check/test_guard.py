@@ -89,6 +89,7 @@ class GuardTests(Fixtures):
             # Command substitutions are commands too, quotes and all.
             "echo \"$(pnpm test)\"", "n=$(pnpm lint | wc -l)",
             "echo \"a: $(curl -s x | grep -oE 'href=\"/e[^\"]*\"')\"; pnpm test",
+            "ssh devbox 'cat <<EOF\nx\nEOF'; pnpm test", "bash -c 'cat <<EOF\nx\nEOF\npnpm test'",
         ]:
             with self.subTest(command=command):
                 self.assertTrue(needs_queue(command))
@@ -112,6 +113,10 @@ class GuardTests(Fixtures):
             "'href=\"/explore[^\"]*\"' | sort | uniq -c | tr '\\n' ' ')\"; done",
             "psql \"$(grep ^DATABASE_URL .env.local | cut -d= -f2- | tr -d '\"')\" -c '\\d \"A\"'",
             "echo \"$(echo ')')\" \"$(printf '%s' \"$(date)\")\"", "echo $((1 + (2 * 3)))",
+            # A heredoc inside a quoted argument ends on a line that also closes the quote.
+            "ssh devbox 'python3 - <<\"EOF\"\nprint(\"it's\")\nEOF'",
+            "ssh devbox 'cat <<EOF\nx\nEOF'", "bash -c \"cat <<EOF\nx\nEOF\"",
+            "ssh devbox 'f=$(ls x); python3 - \"$f\" <<\"EOF\"\nimport sys\nEOF' | tail -3",
         ]:
             with self.subTest(command=command):
                 self.assertFalse(needs_queue(command))
