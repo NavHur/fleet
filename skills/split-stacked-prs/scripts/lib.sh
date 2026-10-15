@@ -18,8 +18,11 @@
 # write each staged path's full content from $SOURCE (git show "$SOURCE:path"
 # plus edits), not patch the current file, so reruns give the same result.
 
-layer_names() { # DIR
-  find "$1" -maxdepth 1 -type f ! -name '.*' -printf '%f\n' | sort
+layer_names() { # DIR; a glob skips dotfiles, and BSD find has no -printf
+  local path
+  for path in "$1"/*; do
+    if [[ -f $path ]]; then printf '%s\n' "${path##*/}"; fi
+  done | LC_ALL=C sort
 }
 
 manifest_header() { # DIR NAME KEY
