@@ -1,4 +1,4 @@
-"""Run with: cd ~/.claude/hooks && python3 -m unittest test_migration_guard"""
+"""Run with: cd hosts/workbox/claude-hooks && python3 -m unittest test_migration_guard"""
 import importlib.util
 import json
 import os

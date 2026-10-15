@@ -12,5 +12,6 @@ run bin test_idle_compact test_nightly_gate
 run lib/fleet test_opencode_servers test_hooks test_post_install
 run skills/pedro-best-practices/tests test_complexity test_long_comments
 run skills/review-loop/scripts test_loop
+run hosts/workbox/claude-hooks test_merge_guard test_migration_guard
 run skills/split-stacked-prs/scripts test_diff_budget test_restack test_build_layers test_refresh_stack test_layer_gates
 exit $status

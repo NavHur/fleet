@@ -14,7 +14,7 @@ The `principle-*` skills come from [pstack](https://github.com/backnotprop/pstac
 
 - gives each such skill an `agents/openai.yaml` with `allow_implicit_invocation: false`, because Codex ignores the frontmatter key;
 - writes `~/.config/principles.md`, one line per principle with when it applies and its path;
-- writes a marked block into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, and `~/.config/opencode/AGENTS.md`: the shared instructions in `config/instructions.md` plus a pointer to that index. Edit the shared rules there, never inside the block; a host's own instructions go outside it.
+- writes a marked block into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, and `~/.config/opencode/AGENTS.md`: the shared instructions in `config/instructions.md`, then the agent's own in `config/instructions.<agent>.md` when there is one, plus a pointer to that index. Edit the shared rules there, never inside the block; a host's own instructions go outside it.
 
 Fleet's own principles are written in the same format:
 
@@ -50,6 +50,7 @@ fleet/bin/sync --apply    # pull, link own skills, install and update third-part
 | `~/.config/host-validation.md` | generated from `config/host-validation.md` plus `hosts/<machine>/host-validation.md` |
 | `~/.config/fleet/host.json` | `hosts/<machine>/host.json`: queue limits and CPU policy |
 | `~/.config/systemd/user/builds.slice` | `hosts/<machine>/builds.slice` (Linux) |
+| `~/.claude/hooks/*-guard.py` | `hosts/workbox/claude-hooks/`: workbox's merge, migration, and agent-CLI guards, which `/etc/claude-code/managed-settings.json` and `~/.codex/hooks.json` run |
 
 The full list of links is in `links`. `bin/sync` also adds the guard to Claude Code, Codex, Cursor, and OpenCode as a pre-command hook. On Linux, host-check runs jobs in `builds.slice`; on macOS it runs them under `taskpolicy -c utility`, which yields the CPU to interactive work and does not limit memory.
 

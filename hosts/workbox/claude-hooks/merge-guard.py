@@ -19,7 +19,7 @@ T3 runs sessions in bypassPermissions and approves it without showing a prompt.
 GraphQL merge mutations, `gh api .../merges`, and curl merge calls are denied
 outright: they don't name PRs by number. PreToolUse on file tools, and on Bash,
 denies touching the approvals and transcripts. Draft-to-ready changes are not
-gated. Catches common forms only; this is a habit guard, not a security boundary.
+gated, nor is `--help`. Catches common forms only; this is a habit guard, not a security boundary.
 """
 import glob
 import importlib.util
@@ -37,6 +37,7 @@ PR_URL = re.compile(r"/pull/(\d+)")
 MERGE_PATH = re.compile(r"pulls/(\d+)/merge\b")
 NEGATION = re.compile(r"\b(don'?t|do not|never|not yet|wait|hold|stop|no)\b", re.I)
 NOT_HUMAN = ("<task-notification", "<local-command", "<command-name>", "<command-message>")
+HELP = {"-h", "--help"}
 USE_GH = "use `gh pr merge <N>` or `gh stack merge <N>`"
 CODEX_SESSIONS = os.path.expanduser("~/.codex/sessions")
 # T3 notices and context injections that Codex records as user messages.
@@ -180,7 +181,7 @@ def classify(words):
     if name != "gh":
         return None
     if args[:2] in (["pr", "merge"], ["stack", "merge"]):
-        return "gated", pr_numbers(args[2:])
+        return None if HELP & set(args) else ("gated", pr_numbers(args[2:]))
     if args[:1] == ["api"]:
         rest = args[1:]
         if "graphql" in rest and MUTATIONS.search(graphql_text(rest)):

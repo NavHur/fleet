@@ -26,7 +26,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 HOOKS = os.path.dirname(os.path.abspath(__file__))
-HOST_CHECK = os.path.expanduser("~/.local/lib/host-check")
+# This file is linked from ~/.claude/hooks; the fleet repo it lives in has host-check.
+HOST_CHECK = str(Path(os.path.realpath(__file__)).parents[3] / "lib" / "host-check")
 PRISMA_WRITES = {("migrate", "deploy"), ("migrate", "dev"), ("migrate", "reset"), ("migrate", "resolve"), ("db", "push")}
 SCRIPT_NAME = re.compile(r"db:(deploy|migrate|push|reset)(:[\w-]+)?")
 RAW_MIGRATION = re.compile(r"prisma\s+(migrate\s+(deploy|dev|reset|resolve)|db\s+push)|\bdb:(deploy|migrate|push|reset)\b")
