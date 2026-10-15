@@ -93,6 +93,7 @@ class GuardTests(Fixtures):
             "cat <<A <<'B'\na\nA\nb\nB\npnpm test",
             # A descriptor goes with its operator, leaving the command.
             "0<<EOF pnpm test\nx\nEOF", "3<<'EOF' eslint .\nx\nEOF", "{fd}<<EOF pnpm test\nx\nEOF",
+            "bash -c '0<<EOF pnpm test\nx\nEOF'", "bash -c \"3<<EOF eslint .\nx\nEOF\"",
         ]:
             with self.subTest(command=command):
                 self.assertTrue(needs_queue(command))
