@@ -124,7 +124,7 @@ class DiffBudgetTests(unittest.TestCase):
         report = self.run_budget({"app.test.ts": original + self.lines(10, "added")})
         self.assertEqual(report["weighted_size"], 10)
         self.assertEqual(report["test_churn"], 0)
-        self.assertEqual(report["status"], "target")
+        self.assertEqual(report["status"], "within-cap")
 
     def test_pure_deletion_retirement_exempt(self):
         self.base = self.tree({"old.ts": self.lines(5000)})
@@ -143,10 +143,69 @@ class DiffBudgetTests(unittest.TestCase):
         report = self.run_budget({"new.ts": "new content\n"}, expected=2)
         self.assertEqual(report["status"], "cap-violation")
 
-    def commit(self, files, *parents):
+    def commit(self, files, *parents, message="commit"):
         tree = self.tree(files)
         flags = [flag for parent in parents for flag in ("-p", parent)]
-        return self.git("commit-tree", tree, *flags, "-m", "commit")
+        return self.git("commit-tree", tree, *flags, "-m", message)
+
+    def run_commits(self, base, head, *options, expected=0):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), base, head, "--per-commit", "--json", *options],
+            cwd=self.root, text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, expected, result.stderr or result.stdout)
+        return {c["subject"]: c for c in json.loads(result.stdout)["commits"]}
+
+    def test_each_commit_measures_against_its_parent(self):
+        """Two 200-line steps pass the commit ceiling though the range totals 400."""
+        fork = self.commit({"app.ts": "a\n"})
+        first = self.commit({"app.ts": "a\n", "one.ts": self.lines(200)}, fork, message="one")
+        head = self.commit(
+            {"app.ts": "a\n", "one.ts": self.lines(200), "two.ts": self.lines(200)},
+            first, message="two",
+        )
+        commits = self.run_commits(fork, head)
+        self.assertEqual(list(commits), ["one", "two"])
+        self.assertEqual(commits["two"]["weighted_size"], 200)
+        self.assertEqual(commits["two"]["status"], "within-cap")
+
+    def test_commit_ceilings_fail_independently(self):
+        fork = self.commit({})
+        weighted = self.commit({"app.ts": self.lines(301)}, fork, message="weighted")
+        raw = self.commit(
+            {"app.ts": self.lines(301), "app.test.ts": self.lines(601)}, weighted, message="raw",
+        )
+        commits = self.run_commits(fork, raw, expected=2)
+        self.assertEqual(commits["weighted"]["status"], "cap-violation")
+        self.assertEqual(commits["raw"]["weighted_size"], 0)
+        self.assertEqual(commits["raw"]["status"], "cap-violation")
+
+    def test_size_exception_trailer_exempts_a_commit(self):
+        fork = self.commit({})
+        message = "feat: add the parser\n\nSize-Exception: one cohesive generated grammar"
+        head = self.commit({"parser.ts": self.lines(900)}, fork, message=message)
+        commits = self.run_commits(fork, head)
+        self.assertEqual(commits["feat: add the parser"]["status"], "exempt-trailer")
+        self.assertEqual(
+            commits["feat: add the parser"]["exception"], "one cohesive generated grammar",
+        )
+
+    def test_merge_commits_are_skipped(self):
+        fork = self.commit({"app.ts": "a\n"})
+        side = self.commit({"app.ts": "a\n", "side.ts": self.lines(10)}, fork, message="side")
+        main = self.commit({"app.ts": "a\n", "big.ts": self.lines(900)}, fork, message="main")
+        merge = self.commit(
+            {"app.ts": "a\n", "side.ts": self.lines(10), "big.ts": self.lines(900)},
+            side, main, message="merge",
+        )
+        commits = self.run_commits(side, merge, expected=2)
+        self.assertEqual(list(commits), ["main"])
+
+    def test_tree_base_measures_history_from_the_root(self):
+        """The empty tree as BASE lists every commit; the root diffs against it."""
+        root = self.commit({"app.ts": self.lines(10)}, message="root")
+        commits = self.run_commits(self.base, root, "--cap", "5", expected=2)
+        self.assertEqual(commits["root"]["weighted_size"], 10)
 
     def test_commits_measure_from_their_merge_base(self):
         """A branch name works as BASE: work landed on it after the fork doesn't count."""
