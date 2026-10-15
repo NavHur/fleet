@@ -166,6 +166,56 @@ class Run(unittest.TestCase):
         self.assertEqual(marker.read_text().count("x"), 1)
         self.assertEqual(len(self.gh_calls.read_text().splitlines()), 2)
 
+    def test_unposted_status_is_posted_after_main_moves(self):
+        marker = self.tmp / "runs"
+        self.configure(f"echo x >> {marker}")
+        self.gh_down.touch()
+        with mock.patch("sys.stderr"):
+            self.run_gate()
+            first = nightly_gate.latest("demo")["sha"]
+            self.commit("two\n")
+            self.run_gate()
+        second = nightly_gate.latest("demo")["sha"]
+
+        self.gh_down.unlink()
+        self.run_gate()
+        self.assertTrue(nightly_gate.completed("demo", first)["posted"])
+        self.assertEqual(nightly_gate.latest("demo")["sha"], second)
+        self.assertTrue(nightly_gate.latest("demo")["posted"])
+        self.assertEqual(marker.read_text().count("x"), 2)
+
+    def test_main_back_at_an_acked_failure_after_a_pass_wakes_again(self):
+        self.configure("grep -q two README")
+        self.run_gate()
+        first = nightly_gate.latest("demo")["sha"]
+        nightly_gate.main(["ack", "demo", first, "thread-1"])
+        self.commit("two\n")
+        self.run_gate()
+        self.assertEqual(nightly_gate.latest("demo")["status"], "pass")
+
+        git(self.origin, "reset", "-q", "--hard", first)
+        self.run_gate()
+        result = nightly_gate.latest("demo")
+        self.assertEqual((result["sha"], result["ack"]), (first, None))
+        self.assertEqual(self.wake.call_count, 2)
+
+    def test_ack_survives_a_crash_before_the_sha_result_is_written(self):
+        self.configure("exit 3")
+        self.run_gate()
+        sha = nightly_gate.latest("demo")["sha"]
+        write = nightly_gate.write
+
+        def crash_after_latest(path, data):
+            if path.name != "latest.json":
+                raise OSError("crash")
+            write(path, data)
+
+        with mock.patch.object(nightly_gate, "write", side_effect=crash_after_latest), self.assertRaises(OSError):
+            nightly_gate.main(["ack", "demo", sha, "thread-1"])
+        self.run_gate()
+        self.assertEqual(nightly_gate.latest("demo")["ack"]["thread"], "thread-1")
+        self.wake.assert_called_once_with("demo")
+
     def test_ack_covers_new_failures_until_a_pass(self):
         self.configure("exit 3")
         self.run_gate()

@@ -13,15 +13,15 @@ detached worktree, with no caches or untracked files from the clone, and a
 failure is run once more: passing the second time makes it flaky.
 
 Each result is posted to GitHub as the `nightly` commit status on that SHA; a
-skipped SHA whose status never reached GitHub is posted again. A failure, a
-timeout, a setup error, or a third flaky night in a row needs a fix. When one
-has no fix thread yet, `run` posts {"repo": REPO} to the local webhook of the T3
-scheduled task titled "Nightly fix", which reads `report --json`, launches the
-fix thread, and records it with `ack`. That thread keeps covering later failing
-SHAs until a night needs no fix. An error (fetch or checkout) is reported every
-night it is the latest result, whatever its ack. Results live in
-~/.cache/nightly-gate/<repo>/: <sha>.json per SHA run, latest.json for the
-latest outcome, fetch errors included.
+saved result whose status never reached GitHub is posted again on the next run.
+A failure, a timeout, a setup error, or a third flaky night in a row needs a
+fix. When one has no fix thread yet, `run` posts {"repo": REPO} to the local
+webhook of the T3 scheduled task titled "Nightly fix", which reads
+`report --json`, launches the fix thread, and records it with `ack`. That thread
+keeps covering later failing SHAs until a night needs no fix. An error (fetch or
+checkout) is reported every night it is the latest result, whatever its ack.
+Results live in ~/.cache/nightly-gate/<repo>/: <sha>.json per SHA run,
+latest.json for the latest outcome, fetch errors included.
 """
 from contextlib import contextmanager
 import fcntl
@@ -89,12 +89,15 @@ def write(path, data):
 
 
 def save(result):
-    """Make the result its repo's latest; one with a SHA is also that SHA's result."""
+    """Make the result its repo's latest; one with a SHA is also that SHA's result.
+
+    latest.json is written first: it holds the current ack, which a reused SHA takes from it.
+    """
     folder = ROOT / result["repo"]
     folder.mkdir(parents=True, exist_ok=True)
+    write(folder / "latest.json", result)
     if result["sha"]:
         write(folder / f"{result['sha']}.json", result)
-    write(folder / "latest.json", result)
 
 
 @contextmanager
@@ -214,9 +217,10 @@ def record(result):
 
 
 def reuse(name, sha):
-    """Make the result already at that SHA the latest again, as after a fetch error."""
+    """Make the result already at that SHA the latest again, under the fix thread that covers main now."""
     with state_lock(name):
         result = completed(name, sha)
+        result["ack"] = carried_ack(latest(name), result)
         save(result)
     return result
 
@@ -225,11 +229,29 @@ def publish(repo, result):
     """Post the saved result's commit status unless GitHub has it, and record that it does."""
     if result.get("posted") or not post_status(repo, result):
         return result
-    with state_lock(result["repo"]):
-        result = completed(result["repo"], result["sha"])
+    return mark_posted(result["repo"], result["sha"])
+
+
+def mark_posted(name, sha):
+    """Record that GitHub has the status at that SHA, leaving the latest result unless it is that SHA's."""
+    with state_lock(name):
+        current = latest(name)
+        if current and current["sha"] == sha:
+            current["posted"] = True
+            save(current)
+            return current
+        result = completed(name, sha)
         result["posted"] = True
-        save(result)
+        write(ROOT / name / f"{sha}.json", result)
     return result
+
+
+def repost(name, repo):
+    """Post each saved result whose status never reached GitHub, without running its suite again."""
+    for path in (ROOT / name).glob("*.json"):
+        result = load(path)
+        if path.name != "latest.json" and not result["posted"]:
+            publish(repo, result)
 
 
 def fetch_error(name, started, error):
@@ -302,6 +324,7 @@ def wake(name):
 
 def gate(name, repo, earlier):
     """Run one repository and wake the fix task right away if it needs one: 1 when the wake fails."""
+    repost(name, repo)
     result = run_repo(name, repo, earlier)
     return wake(name) if needs_fix(result) else 0
 
