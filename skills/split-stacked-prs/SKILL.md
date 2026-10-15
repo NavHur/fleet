@@ -25,8 +25,9 @@ whole-file splits. Apply it only to Pedro's pull requests.
   weighted.
 - Keep each behavior change with its tests. Fixtures, helpers, setup and test
   infrastructure count toward both ceilings.
-- Every layer builds and passes its checks alone, is independently
+- Every layer builds, typechecks and lints alone, is independently
   understandable and revertible, and the top reproduces the source exactly.
+  The tests run once, on the top layer.
 
 `scripts/diff_budget.py BASE HEAD` measures one pair from their merge-base, so
 BASE can be a branch name (exit 2: a ceiling is exceeded); with `--per-commit`
@@ -134,7 +135,9 @@ Keep the worktree and safety branch until the stack is published and verified.
 
 ## 5. Verify every layer
 
-1. Run the gates on every layer, each against its parent:
+1. Run the gates on every layer, each against its parent. Tests run once, on
+   the top layer against the base; lower layers report `tests=deferred`. Add
+   `--tests-each` only to find the layer that broke a test failing at the top.
 
    ```bash
    bash "$SKILL_DIR/scripts/layer_gates.sh" --manifests "$plan/layers" --prefix "<source>-" \
@@ -239,7 +242,7 @@ python3 "$SKILL_DIR/scripts/restack.py" start --base origin/nightly "$branch_1" 
 
 It rebases each layer onto the new tip of the one below in a scratch worktree,
 which also moves seams `gh stack rebase` skips, reports any layer whose own
-diff changed, runs `layer_gates.sh` (add `--tests` for tests), and pushes
+diff changed, runs `layer_gates.sh` (add `--tests` for the top layer's tests), and pushes
 every branch in one atomic leased push only when the gates pass. Exit 3 is a
 conflict: resolve it in the printed worktree, `git rebase --continue`, then
 `restack.py resume STATE_DIR --push`. Pass `--old-base` when a lower layer was

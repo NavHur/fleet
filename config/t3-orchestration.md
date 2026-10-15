@@ -77,8 +77,8 @@ other workers are present: preserve their edits and accommodate concurrent
 changes. For validation, include `~/.config/host-validation.md` and
 require `~/.local/bin/host-check`. Authorize commits, pushes, PRs, or
 service operations only when those actions belong to the user's task. A commit
-still requires format, lint, and typecheck on its changed files, and a pushed
-head the pre-commit skill with every prescribed check passing.
+still requires format, lint, and typecheck on its changed files, and the top
+head of a push the pre-commit skill with every prescribed check passing.
 
 ## Workspace binding
 

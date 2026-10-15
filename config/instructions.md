@@ -18,9 +18,9 @@ on the host shares its queue.
   body.
 - Commit in small steps, each within the commit ceiling below. Before each
   commit, run format, lint, and typecheck on its changed files. Before
-  pushing, gate each pushed head (the branch, or every layer tip) with the
-  `pre-commit` skill. Rounds of review-loop and stacked PRs use their light
-  check.
+  pushing, run the `pre-commit` skill once, on the top head: the branch, or
+  the last layer's tip; lower layers get format, lint, and typecheck. Rounds
+  of review-loop and stacked PRs use their light check.
 
 ## Tests
 
