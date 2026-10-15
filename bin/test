@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Run every unittest suite in the repo, the same way CI does.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+status=0
+run() {
+  echo "== $1"
+  (cd "$1" && shift && python3 -m unittest "$@") || status=1
+}
+run lib/host-check test_guard test_scheduler test_bg_job
+run bin test_idle_compact test_nightly_gate
+run lib/fleet test_opencode_servers test_hooks test_post_install
+run skills/pedro-best-practices/tests test_complexity test_long_comments
+run skills/review-loop/scripts test_loop
+run skills/split-stacked-prs/scripts test_diff_budget test_restack test_build_layers test_refresh_stack test_layer_gates
+exit $status

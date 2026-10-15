@@ -53,16 +53,7 @@ fleet/bin/sync --apply    # pull, link own skills, install and update third-part
 
 The full list of links is in `links`. `bin/sync` also adds the guard to Claude Code, Codex, Cursor, and OpenCode as a pre-command hook. On Linux, host-check runs jobs in `builds.slice`; on macOS it runs them under `taskpolicy -c utility`, which yields the CPU to interactive work and does not limit memory.
 
-Run the tests on any machine with:
-
-```sh
-cd lib/host-check && python3 -m unittest test_guard test_scheduler test_bg_job
-cd bin && python3 -m unittest test_idle_compact test_nightly_gate
-cd lib/fleet && python3 -m unittest test_opencode_servers test_hooks test_post_install
-cd skills/pedro-best-practices/tests && python3 -m unittest test_complexity test_long_comments
-cd skills/review-loop/scripts && python3 -m unittest test_loop
-cd skills/split-stacked-prs/scripts && python3 -m unittest test_diff_budget test_restack test_build_layers test_refresh_stack test_layer_gates
-```
+Run the tests on any machine with `bin/test`, which runs every unittest suite; CI runs it on each push to main and each pull request.
 
 A skill with a `package.json` gets its dependencies from `bin/sync` (`pnpm install --frozen-lockfile`); `pedro-best-practices` uses that for its own oxlint. Its GDScript and PHP tests skip, with a reason, on machines without gdtoolkit or `php`; set `PBP_GDTOOLKIT_PYTHON` to a Python that has gdtoolkit to run them. Its godot-guard tests skip without godot-guard 0.2 or newer; set `PBP_GODOT_GUARD` to one, such as a godot-guard checkout's `.venv/bin/godot-guard`.
 
