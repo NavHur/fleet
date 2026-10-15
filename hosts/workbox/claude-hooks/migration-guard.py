@@ -1,0 +1,190 @@
+"""Hold schema migrations on a shared database until Pedro approves them.
+
+PreToolUse on Bash denies `prisma migrate deploy|dev|reset|resolve`, `prisma db
+push`, and package scripts named `db:deploy`, `db:migrate`, `db:push`, or
+`db:reset` (or whose body runs one of those), unless the database they target
+is local or Pedro's latest chat message approves a migration ("I authorize the
+migration", "migrate"), with no negation such as "don't" or "wait".
+
+The target is DATABASE_URL or DIRECT_URL set inline in the command, else the
+first .env.local or .env that sets one, from the directory the command runs in
+up to /. localhost, 127.0.0.1, ::1, and socket URLs are local; anything else,
+or no URL at all, counts as shared. Some work worktrees point at the
+production database, so a migration there is a production change.
+
+Chat approval applies only on the main thread; subagents hand migrations back.
+Claude Code and Codex both run this hook, through merge-guard.py's transcript
+readers. Scripts that migrate internally, such as test-database and preview
+deploy helpers, are not seen. A habit guard, not a security boundary.
+"""
+import importlib.util
+import json
+import os
+import re
+import sys
+from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
+
+HOOKS = os.path.dirname(os.path.abspath(__file__))
+HOST_CHECK = os.path.expanduser("~/.local/lib/host-check")
+PRISMA_WRITES = {("migrate", "deploy"), ("migrate", "dev"), ("migrate", "reset"), ("migrate", "resolve"), ("db", "push")}
+SCRIPT_NAME = re.compile(r"db:(deploy|migrate|push|reset)(:[\w-]+)?")
+RAW_MIGRATION = re.compile(r"prisma\s+(migrate\s+(deploy|dev|reset|resolve)|db\s+push)|\bdb:(deploy|migrate|push|reset)\b")
+INLINE_URL = re.compile(r"\b(?:DATABASE_URL|DIRECT_URL)=(\"[^\"]*\"|'[^']*'|[^\s;&|]+)")
+ENV_LINE = re.compile(r"^\s*(?:export\s+)?(?:DATABASE_URL|DIRECT_URL)\s*=\s*(.*?)\s*$", re.M)
+LOCAL_HOSTS = {"", "localhost", "127.0.0.1", "::1"}
+RUNNERS = {"pnpm", "npm", "yarn", "bun", "npx", "bunx", "turbo"}
+MAX_DEPTH = 3
+HELP = {"-h", "--help"}
+
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+sys.path.insert(0, HOST_CHECK)  # guard.py imports hostconf beside it
+guard = load("host_check_guard", os.path.join(HOST_CHECK, "guard.py"))
+merge_guard = load("merge_guard", os.path.join(HOOKS, "merge-guard.py"))
+
+
+def runs_prisma_write(words):
+    return any(os.path.basename(word) == "prisma" and tuple(words[i + 1:i + 3]) in PRISMA_WRITES
+               for i, word in enumerate(words))
+
+
+def launched(words, names):
+    """The first of names a segment launches and its arguments, past wrappers such as host-check or env."""
+    start = next((i for i, word in enumerate(words) if os.path.basename(word) in names), None)
+    return None if start is None else (os.path.basename(words[start]), words[start + 1:])
+
+
+def runner(words):
+    return launched(words, RUNNERS)
+
+
+def nested_commands(words, here):
+    """(command, directory) pairs a segment runs: a shell's -c string, or a package script's body."""
+    shell = launched(words, guard.SHELLS)
+    if shell:
+        kind, value = guard.shell_invocation(shell[1])
+        return [(value, here)] if kind == "string" else []
+    found = runner(words)
+    return guard.expansions(*found, here) if found else []
+
+
+def migrates(words):
+    if HELP & set(words):
+        return False
+    found = runner(words)
+    return runs_prisma_write(words) or bool(found and any(SCRIPT_NAME.fullmatch(arg) for arg in found[1]))
+
+
+def migration_dirs(command, cwd, depth=0):
+    """Each directory a migration in the command runs from, following shells and package scripts."""
+    return [d for words, here in guard.walk(command, cwd) for d in segment_dirs(words, here, depth)]
+
+
+def segment_dirs(words, here, depth):
+    nested = nested_commands(words, here) if depth < MAX_DEPTH else []
+    if nested:
+        return [d for body, directory in nested for d in migration_dirs(body, directory, depth + 1)]
+    return [here] if migrates(words) else []
+
+
+def file_urls(directory):
+    """The database URLs set in a directory's .env.local, else its .env."""
+    for name in (".env.local", ".env"):
+        try:
+            urls = ENV_LINE.findall(Path(directory, name).read_text())
+        except OSError:
+            continue
+        if urls:
+            return urls
+    return []
+
+
+def env_urls(directory):
+    """The database URLs in the nearest .env.local or .env that sets one, from directory up."""
+    start = Path(directory)
+    return next(filter(None, map(file_urls, [start, *start.parents])), [])
+
+
+def is_local(url):
+    parts = urlsplit(url.strip().strip("\"'"))
+    socket = parse_qs(parts.query).get("host", [""])[0].startswith("/")
+    return (parts.hostname or "") in LOCAL_HOSTS or socket
+
+
+def describe(directory, urls):
+    """The shared database among urls, or None when all are local."""
+    if not urls:
+        return f"an unknown database (no DATABASE_URL in {directory} or above)"
+    remote = next((u for u in urls if not is_local(u)), None)
+    return remote and (urlsplit(remote.strip("\"'")).hostname or "a remote database")
+
+
+def shared_target(command, directories):
+    """The shared database the migration would hit, or None when every target is local."""
+    inline = INLINE_URL.findall(command)
+    targets = [("the command", inline)] if inline else [(d, env_urls(d)) for d in directories]
+    return next(filter(None, (describe(d, urls) for d, urls in targets)), None)
+
+
+def approved_in_chat(message):
+    if not message:
+        return False
+    text = re.sub(r"<t3_context.*?</t3_context>", "", message, flags=re.S)
+    return bool(re.search(r"\bmigrat", text, re.I)) and not merge_guard.NEGATION.search(text)
+
+
+def latest_message(payload):
+    """(is_subagent, Pedro's latest message) for Claude Code or Codex."""
+    rollout = merge_guard.codex_rollout(payload)
+    if rollout is not None:
+        subagent, message = merge_guard.codex_thread(rollout)
+        return subagent, message
+    return bool(payload.get("agent_id")), merge_guard.last_human_message(payload.get("transcript_path"))
+
+
+def reason(command, payload):
+    cwd = guard.hook_cwd(payload, payload.get("tool_input") or {})
+    try:
+        directories = migration_dirs(command, cwd)
+    except ValueError:
+        directories = [cwd] if RAW_MIGRATION.search(command) else []
+    if not directories:
+        return None
+    target = shared_target(command, directories)
+    if not target:
+        return None
+    subagent, message = latest_message(payload)
+    if subagent:
+        return (f"Subagents can't run migrations against {target}. Report back to the main thread, "
+                "which asks Pedro to approve the migration.")
+    if approved_in_chat(message):
+        return None
+    return (f"This migrates {target}, which is shared and may be production. "
+            "Pedro's latest message doesn't approve a migration. Stop and end your turn: tell him which "
+            "migrations would apply and what they change, and ask him to reply `migrate`. After he does, "
+            "retry the same command. Use a local database for anything else.")
+
+
+def main():
+    payload = json.load(sys.stdin)
+    command = (payload.get("tool_input") or {}).get("command")
+    if payload.get("hook_event_name") != "PreToolUse" or not isinstance(command, str):
+        return 0
+    denial = reason(command, payload)
+    if denial:
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": "deny",
+            "permissionDecisionReason": denial,
+        }}))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
