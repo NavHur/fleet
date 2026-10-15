@@ -1,6 +1,7 @@
 """Exercise the budget CLI against real Git trees without creating commits."""
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -9,6 +10,7 @@ import unittest
 
 
 SCRIPT = Path(__file__).with_name("diff_budget.py")
+IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
 
 
 class DiffBudgetTests(unittest.TestCase):
@@ -21,7 +23,7 @@ class DiffBudgetTests(unittest.TestCase):
         self.paths = set()
 
     def git(self, *args):
-        return subprocess.check_output(["git", *args], cwd=self.root, text=True).strip()
+        return subprocess.check_output(["git", *args], cwd=self.root, text=True, env={**os.environ, **IDENTITY}).strip()
 
     def tree(self, files):
         for path in getattr(self, "paths", set()):
