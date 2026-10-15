@@ -91,6 +91,8 @@ class GuardTests(Fixtures):
             "echo \"a: $(curl -s x | grep -oE 'href=\"/e[^\"]*\"')\"; pnpm test",
             "ssh devbox 'cat <<EOF\nx\nEOF'; pnpm test", "bash -c 'cat <<EOF\nx\nEOF\npnpm test'",
             "cat <<A <<'B'\na\nA\nb\nB\npnpm test",
+            # A descriptor goes with its operator, leaving the command.
+            "0<<EOF pnpm test\nx\nEOF", "3<<'EOF' eslint .\nx\nEOF", "{fd}<<EOF pnpm test\nx\nEOF",
         ]:
             with self.subTest(command=command):
                 self.assertTrue(needs_queue(command))
@@ -120,6 +122,8 @@ class GuardTests(Fixtures):
             "ssh devbox 'f=$(ls x); python3 - \"$f\" <<\"EOF\"\nimport sys\nEOF' | tail -3",
             # A delimiter is syntax, not a command, and `<<<` is a here-string.
             "cat <<eslint\nhello\neslint", "cat <<'tsc'\nx\ntsc", "cat <<<\"it's\"",
+            # Digits ending a word are not a descriptor.
+            "echo a1<<EOF\nx\nEOF", "echo 2>&1<<EOF\nx\nEOF",
         ]:
             with self.subTest(command=command):
                 self.assertFalse(needs_queue(command))
