@@ -40,21 +40,22 @@ commit_with() { # MESSAGE_FILE FALLBACK_SUBJECT
 }
 
 commit_sections() { # NAME; the layer's changes are staged
-  local manifest=$manifests/$1 subject k=0 paths
+  local manifest=$manifests/$1 subject k=0 paths want
+  want=$(git write-tree)
   git reset -q
   while IFS= read -r subject; do
     k=$((k + 1))
     paths=$(section_paths "$manifest" "$k")
-    [[ -z $paths ]] || GIT_LITERAL_PATHSPECS=1 git add -A --pathspec-from-file=- <<<"$paths"
+    [[ -z $paths ]] || GIT_LITERAL_PATHSPECS=1 git add -A --force --pathspec-from-file=- <<<"$paths"
     if git diff --cached --quiet; then
       echo "$1: commit $k ($subject) changes nothing" >&2
       exit 1
     fi
     commit_with "$msgs/$1.$k" "$subject"
   done < <(commit_subjects "$manifest")
-  if [[ -n $(git status --porcelain) ]]; then
+  if [[ $(git rev-parse 'HEAD^{tree}') != "$want" ]]; then
     echo "$1: changes outside every commit section:" >&2
-    git status --short >&2
+    git diff --stat HEAD "$want" >&2
     exit 1
   fi
 }

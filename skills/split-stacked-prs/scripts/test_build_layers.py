@@ -19,7 +19,7 @@ class BuildLayersTests(unittest.TestCase):
         self.manifests.mkdir()
         self.root.mkdir()
         self.git("init", "-q", "-b", "main")
-        self.write({"app.ts": "app\n", "old.ts": "old\n"})
+        self.write({"app.ts": "app\n", "old.ts": "old\n", ".gitignore": "generated.txt\n"})
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "base")
         self.git("checkout", "-q", "-b", "source")
@@ -66,6 +66,18 @@ class BuildLayersTests(unittest.TestCase):
             "01-all": "# commit: feat: everything\ntypes.ts\ndomain.ts\nview.ts\nold.ts\n# commit: feat: nothing\n",
         }, expected=1)
         self.assertIn("commit 2 (feat: nothing) changes nothing", result.stderr)
+
+    def test_force_added_ignored_file_is_staged_in_its_section(self):
+        self.git("checkout", "-q", "-B", "source", "main")
+        self.write({"generated.txt": "generated\n", "view.ts": "view\n"})
+        self.git("add", "-f", "generated.txt", "view.ts")
+        self.git("commit", "-q", "-m", "source")
+        self.git("checkout", "-q", "main")
+        result = self.build({
+            "01-generated": "# commit: feat: add the generated output\ngenerated.txt\n# commit: feat: add the view\nview.ts\n",
+        })
+        self.assertIn("top tree equals source", result.stdout)
+        self.assertEqual(self.subjects("main..s-01-generated"), ["feat: add the generated output", "feat: add the view"])
 
 
 if __name__ == "__main__":
