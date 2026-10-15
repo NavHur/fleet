@@ -181,15 +181,27 @@ def classify(words):
     if name != "gh":
         return None
     if args[:2] in (["pr", "merge"], ["stack", "merge"]):
-        return None if HELP & set(args) else ("gated", pr_numbers(args[2:]))
+        return classify_merge(args)
     if args[:1] == ["api"]:
-        rest = args[1:]
-        if "graphql" in rest and MUTATIONS.search(graphql_text(rest)):
-            return "blocked", "a GraphQL merge mutation"
-        if method(rest) == "PUT" and (match := next(filter(None, map(MERGE_PATH.search, rest)), None)):
-            return "gated", [match.group(1)]
-        if any(re.search(r"repos/[^/\s]+/[^/\s]+/merges\b", a) for a in rest) and method(rest) != "GET":
-            return "blocked", "a branch merge through the REST merges endpoint"
+        return classify_api(args[1:])
+    return None
+
+
+def classify_merge(args):
+    """A `gh pr merge` or `gh stack merge` is gated unless it only asks for help."""
+    if HELP & set(args):
+        return None
+    return "gated", pr_numbers(args[2:])
+
+
+def classify_api(rest):
+    """Classify the arguments after `gh api`: merge mutations, PUT pulls/N/merge, REST merges."""
+    if "graphql" in rest and MUTATIONS.search(graphql_text(rest)):
+        return "blocked", "a GraphQL merge mutation"
+    if method(rest) == "PUT" and (match := next(filter(None, map(MERGE_PATH.search, rest)), None)):
+        return "gated", [match.group(1)]
+    if any(re.search(r"repos/[^/\s]+/[^/\s]+/merges\b", a) for a in rest) and method(rest) != "GET":
+        return "blocked", "a branch merge through the REST merges endpoint"
     return None
 
 
