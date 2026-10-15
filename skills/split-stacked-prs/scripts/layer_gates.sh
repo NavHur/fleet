@@ -12,7 +12,9 @@
 # refresh_stack.py --gates reads.
 #
 # Before each layer: setup_worktree.sh (install, prisma generate, repo hook;
-# each only when its input changed). Skip it with --no-setup.
+# each only when its input changed). Skip it with --no-setup. Then each commit
+# of the layer but its tip gets typecheck, lint and format on its own changed
+# files (commits=OK|FAIL, or none for a one-commit layer).
 # Steps per layer, each overridable by environment variable (run in --app):
 #   TYPECHECK_CMD  default: pnpm typecheck
 #   LINT_CMD       default: pnpm lint
@@ -27,7 +29,7 @@
 #                  [--log-dir DIR] [--only NAME] [--no-setup] [--tests-each]
 set -uo pipefail
 
-usage() { sed -n '2,28p' "$0"; }
+usage() { sed -n '2,29p' "$0"; }
 base= manifests= prefix= app=. log_dir= only= setup=1 tests_each=0
 args=("$@")
 while (($#)); do
@@ -114,6 +116,27 @@ step() { # label command [args...]; prints label=OK|FAIL|skip
   echo "$label=$verdict"
 }
 
+commits_step() { # typecheck, lint and format on each commit of layer $name but its tip; sets commits_verdict
+  local -a shas cfiles; local sha short out
+  mapfile -t shas < <(git rev-list --reverse --first-parent "$parent..HEAD" | sed '$d')
+  commits_verdict=none
+  ((${#shas[@]})) || return 0
+  commits_verdict=OK
+  for sha in "${shas[@]}"; do
+    short=$(git rev-parse --short "$sha")
+    note "$name commit $short"
+    echo "### commit $short" >>"$log"
+    git checkout -q --detach "$sha" || { commits_verdict=FAIL; break; }
+    if ((setup)) && ! bash "$script_dir/setup_worktree.sh" "$root" >>"$log" 2>&1; then commits_verdict=FAIL; break; fi
+    mapfile -t cfiles < <(git -c core.quotePath=false diff --name-only --diff-filter=d "$sha^" "$sha" -- "$root/$app" | sed "s#^$app_prefix##")
+    out=$(step typecheck "$typecheck_cmd"; step lint "$lint_cmd"; ((${#cfiles[@]})) && step format "$format_cmd" "${cfiles[@]}")
+    note "$name commit $short ${out//$'\n'/ }"
+    if [[ $out == *FAIL* ]]; then commits_verdict=FAIL; break; fi
+  done
+  git checkout -q "$branch" || { commits_verdict=FAIL; return; }
+  if ((setup)) && ! bash "$script_dir/setup_worktree.sh" "$root" >>"$log" 2>&1; then commits_verdict=FAIL; fi
+}
+
 for name in $(layer_names "$manifests"); do
   branch=$(layer_branch "$manifests" "$name" "$prefix")
   if [[ -n $only && $name != "$only" ]]; then parent=$branch; continue; fi
@@ -129,10 +152,12 @@ for name in $(layer_names "$manifests"); do
     fi
   fi
   mapfile -t files < <(git -c core.quotePath=false diff --name-only --diff-filter=d "$parent" HEAD -- "$root/$app" | sed "s#^$app_prefix##")
+  commits_step
   results=(
     "$(step typecheck "$typecheck_cmd")"
     "$(step lint "$lint_cmd")"
     "$( ((${#files[@]})) && step format "$format_cmd" "${files[@]}" || echo format=none)"
+    "commits=$commits_verdict"
     "$(tests_step)"
   )
   [[ ${results[*]} == *FAIL* ]] && failed=1

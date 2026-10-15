@@ -25,9 +25,9 @@ whole-file splits. Apply it only to Pedro's pull requests.
   weighted.
 - Keep each behavior change with its tests. Fixtures, helpers, setup and test
   infrastructure count toward both ceilings.
-- Every layer builds, typechecks and lints alone, is independently
-  understandable and revertible, and the top reproduces the source exactly.
-  The tests run once, on the top layer.
+- Every layer and every commit in it builds, typechecks and lints alone, is
+  independently understandable and revertible, and the top reproduces the
+  source exactly. The tests run once, on the top layer.
 
 `scripts/diff_budget.py BASE HEAD` measures one pair from their merge-base, so
 BASE can be a branch name (exit 2: a ceiling is exceeded); with `--per-commit`
@@ -135,7 +135,9 @@ Keep the worktree and safety branch until the stack is published and verified.
 
 ## 5. Verify every layer
 
-1. Run the gates on every layer, each against its parent. Tests run once, on
+1. Run the gates on every layer, each against its parent. Each commit but a
+   layer's tip also gets typecheck, lint and format on its own changed files
+   (`commits=OK|FAIL`, or `none` for a one-commit layer). Tests run once, on
    the top layer against the base; lower layers report `tests=deferred`. Add
    `--tests-each` only to find the layer that broke a test failing at the top.
 
