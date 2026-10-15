@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Run the checks on every layer, bottom to top, each against its own parent.
+# Tests run once, on the top layer, against the stack base: that covers every
+# layer's changes. --tests-each runs them on every layer against its parent,
+# to find the layer that broke one; otherwise lower layers report tests=deferred.
 #
 # Outside the shared CPU queue it re-executes itself once under
 # `HOST_CHECK_CLASS=heavy host-check`; do not wrap it yourself. It prints the
@@ -15,17 +18,17 @@
 #   LINT_CMD       default: pnpm lint
 #   FORMAT_CMD     default: pnpm exec oxfmt --check   (gets the layer's changed files)
 #   TEST_CMD       default: pnpm exec vitest run --testTimeout=20000 --changed
-#                  (gets the parent ref)
+#                  (gets the stack base, or the parent with --tests-each)
 # A command is a shell snippet; its arguments arrive as "$@". Set a step to
 # "skip" to leave it out.
 #
 # Usage:
 #   layer_gates.sh --manifests DIR [--base REF] [--prefix PREFIX] [--app DIR]
-#                  [--log-dir DIR] [--only NAME] [--no-setup]
+#                  [--log-dir DIR] [--only NAME] [--no-setup] [--tests-each]
 set -uo pipefail
 
-usage() { sed -n '2,25p' "$0"; }
-base= manifests= prefix= app=. log_dir= only= setup=1
+usage() { sed -n '2,28p' "$0"; }
+base= manifests= prefix= app=. log_dir= only= setup=1 tests_each=0
 args=("$@")
 while (($#)); do
   case $1 in
@@ -36,6 +39,7 @@ while (($#)); do
     --log-dir) log_dir=$2; shift 2 ;;
     --only) only=$2; shift 2 ;;
     --no-setup) setup=0; shift ;;
+    --tests-each) tests_each=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -85,9 +89,20 @@ start=$(git rev-parse --abbrev-ref HEAD)
 app_prefix=$(cd "$root/$app" && git rev-parse --show-prefix)
 failed=0
 parent=$base
+top=$(layer_names "$manifests" | tail -1)
 echo "logs: $log_dir"
 note() { echo "$(date +%T) $*" >>"$progress"; }
 note "start base=$(git rev-parse --short "$base")"
+
+tests_step() { # the tests verdict for layer $name
+  if ((tests_each)); then
+    step tests "$test_cmd" "$parent"
+  elif [[ $name == "$top" ]]; then
+    step tests "$test_cmd" "$base"
+  else
+    echo tests=deferred
+  fi
+}
 
 step() { # label command [args...]; prints label=OK|FAIL|skip
   local label=$1 cmd=$2 started=$SECONDS verdict; shift 2
@@ -118,7 +133,7 @@ for name in $(layer_names "$manifests"); do
     "$(step typecheck "$typecheck_cmd")"
     "$(step lint "$lint_cmd")"
     "$( ((${#files[@]})) && step format "$format_cmd" "${files[@]}" || echo format=none)"
-    "$(step tests "$test_cmd" "$parent")"
+    "$(tests_step)"
   )
   [[ ${results[*]} == *FAIL* ]] && failed=1
   summary=$(grep -E '^ +(Test Files|Tests) ' "$log" | tr -s ' ' | tr '\n' ' ')

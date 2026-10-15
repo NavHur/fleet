@@ -19,8 +19,8 @@ On a conflict the run stops with exit 3: resolve it in STATE_DIR/wt, run
 
 After the rebase it reports, per layer, whether its diff against its parent is
 unchanged (same patch-id), then runs layer_gates.sh over the restacked
-branches: typecheck, lint, and format-check of the layer's files, plus tests
-with --tests. --push (or the push command) sends every branch in one
+branches: typecheck, lint, and format-check of the layer's files, plus the
+tests on the top layer with --tests. --push (or the push command) sends every branch in one
 atomic `git push` with a lease on each old remote tip: every branch moves or
 none does, and a pre-push hook runs once.
 Gates must pass before --push pushes; `push` pushes regardless.
@@ -247,7 +247,7 @@ def parse_args(argv):
     again = commands.add_parser("resume")
     again.add_argument("state_dir")
     for sub in (begin, again):
-        sub.add_argument("--tests", action="store_true", help="also run each layer's tests")
+        sub.add_argument("--tests", action="store_true", help="also run the tests, once on the top layer")
         sub.add_argument("--no-gates", action="store_true", help="skip layer_gates.sh")
         sub.add_argument("--push", action="store_true", help="push when the gates pass")
     for name in ("push", "clean"):
