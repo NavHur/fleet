@@ -3,7 +3,9 @@
 
 Run after each fix round. Every layer in the manifest directory is covered,
 so none is left out. For each layer it runs diff_budget.py against the
-merge-base with its parent and prints a table. With --gates LOG_DIR (from
+merge-base with its parent, and again with --per-commit for the layer's own
+commits, and prints a table; a layer under the 300 weighted floor shows as
+"small" and needs a stated reason. With --gates LOG_DIR (from
 layer_gates.sh) it also reports each layer's gate verdicts, but only for
 results recorded at the branch's current commit.
 
@@ -19,7 +21,7 @@ replace them, --test for other verified test files.
 Usage:
   refresh_stack.py --manifests DIR [--prefix P] [--base REF] [--gates LOG_DIR]
                    [--repo OWNER/REPO] [--update-prs] [--generated GLOB]... [--test GLOB]...
-Exit status 2 when a layer exceeds a ceiling, 1 on other errors.
+Exit status 2 when a layer or one of its commits exceeds a ceiling, 1 on other errors.
 """
 
 import argparse
@@ -37,6 +39,7 @@ DEFAULT_GENERATED = [
     "prisma/migrations/*", "*/prisma/migrations/*", "*.geojson",
 ]
 SIZE_PREFIX = "Size against its base:"
+LAYER_FLOOR = 300
 GATES_PREFIX = "Layer gates at"
 
 
@@ -81,6 +84,21 @@ def set_line(body, prefix, line):
     return body.rstrip("\n") + "\n\n" + line
 
 
+def budget(fork, head, flags):
+    result = run(sys.executable, os.path.join(HERE, "diff_budget.py"), fork, head, "--json", *flags, check=False)
+    if result.returncode not in (0, 2):
+        sys.exit(f"diff_budget failed for {head[:9]}: {result.stderr.strip()}")
+    return json.loads(result.stdout)
+
+
+def layer_status(size, commits):
+    if any(c["status"] == "cap-violation" for c in commits):
+        return "commit-over"
+    if size["status"] == "within-cap" and size["weighted_size"] < LAYER_FLOOR:
+        return "small"
+    return size["status"]
+
+
 def gates_line(log_dir, name, head):
     path = os.path.join(log_dir, f"{name}.result")
     if not os.path.exists(path):
@@ -93,6 +111,19 @@ def gates_line(log_dir, name, head):
     summary = re.sub(r"\s+", " ", summary).strip()
     text = f"{GATES_PREFIX} `{sha[:9]}`: {pretty}" + (f" ({summary})" if summary else "") + "."
     return text, verdicts
+
+
+def print_table(rows):
+    w = max(len(r[0]) for r in rows)
+    print(f"\n{'layer':<{w}} {'PR':>5} {'weighted':>9} {'raw':>6} {'tests':>6} {'excl':>5} {'commits':>7}  status   gates")
+    for name, pr, size, commits, status, gate_note in rows:
+        print(
+            f"{name:<{w}} {('#' + str(pr)) if pr else '-':>5} {size['weighted_size']:>9g} {size['raw_churn']:>6}"
+            f" {size['test_churn']:>6} {size['excluded_lines']:>5} {len(commits):>7}  {status:<8} {gate_note}"
+        )
+    over = [(row[0], c) for row in rows for c in row[3] if c["status"] == "cap-violation"]
+    for name, c in over:
+        print(f"{name}: commit {c['commit'][:9]} weighted {c['weighted_size']:g}, raw {c['raw_churn']} over 300/600: {c['subject']}")
 
 
 def main():
@@ -128,21 +159,19 @@ def main():
         branch = header(manifest, "branch") or args.prefix + name
         head = git("rev-parse", branch)
         fork = git("merge-base", parent, branch)
-        result = run(sys.executable, os.path.join(HERE, "diff_budget.py"), fork, head, "--json", *budget_flags, check=False)
-        if result.returncode not in (0, 2):
-            print(f"{name}: diff_budget failed: {result.stderr.strip()}", file=sys.stderr)
-            return 1
-        over |= result.returncode == 2
-        size = json.loads(result.stdout)
+        size = budget(fork, head, budget_flags)
+        commits = budget(fork, head, ["--per-commit", *budget_flags])["commits"]
+        status = layer_status(size, commits)
+        over |= status in ("cap-violation", "commit-over")
         excluded = f", excluded {size['excluded_lines']:,}" if size["excluded_lines"] else ""
         size_line = (
             f"{SIZE_PREFIX} weighted {size['weighted_size']:g}, raw churn {size['raw_churn']:,}"
-            f" (tests {size['test_churn']:,}{excluded})."
+            f" (tests {size['test_churn']:,}{excluded}) in {len(commits)} commits."
         )
         gate_text, gate_note = gates_line(args.gates, name, head) if args.gates else (None, "")
         pr = header(manifest, "pr")
         pr = int(pr) if pr else (find_pr(repo, branch) if repo else None)
-        rows.append((name, branch, pr, size, gate_note))
+        rows.append((name, pr, size, commits, status, gate_note))
 
         if pr is None or repo is None:
             print(f"{name}: no open PR for {branch}" if repo else f"{name}: no GitHub origin; pass --repo", file=sys.stderr)
@@ -172,13 +201,7 @@ def main():
                     errors += 1
         parent = branch
 
-    w = max(len(r[0]) for r in rows)
-    print(f"\n{'layer':<{w}} {'PR':>5} {'weighted':>9} {'raw':>6} {'tests':>6} {'excl':>5}  status   gates")
-    for name, branch, pr, size, gate_note in rows:
-        print(
-            f"{name:<{w}} {('#' + str(pr)) if pr else '-':>5} {size['weighted_size']:>9g} {size['raw_churn']:>6}"
-            f" {size['test_churn']:>6} {size['excluded_lines']:>5}  {size['status']:<8} {gate_note}"
-        )
+    print_table(rows)
     print(f"{len(rows)}/{len(names)} layers measured")
     if errors:
         return 1
