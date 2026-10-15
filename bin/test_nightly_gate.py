@@ -1,6 +1,7 @@
 import importlib.machinery
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -13,6 +14,8 @@ loader.exec_module(nightly_gate)
 
 # Stands in for host-check: drops the `timeout --kill-after=30s Nm` prefix and runs the rest.
 HOST_CHECK = '#!/bin/sh\nshift 3\nexec "$@"\n'
+# Stands in for gh: logs each call, and fails while $GH_DOWN exists.
+GH = '#!/bin/sh\necho "$@" >> "$GH_CALLS"\nif [ -e "$GH_DOWN" ]; then echo "gh is down" >&2; exit 1; fi\n'
 
 
 def git(cwd, *args):
@@ -31,6 +34,7 @@ class Pure(unittest.TestCase):
         self.assertTrue(nightly_gate.needs_fix({"status": "fail", "ack": None}))
         self.assertTrue(nightly_gate.needs_fix({"status": "error", "ack": None}))
         self.assertFalse(nightly_gate.needs_fix({"status": "fail", "ack": {"thread": "t"}}))
+        self.assertTrue(nightly_gate.needs_fix({"status": "error", "ack": {"thread": "t"}}))
         self.assertFalse(nightly_gate.needs_fix({"status": "flaky", "flakyStreak": 2, "ack": None}))
         self.assertTrue(nightly_gate.needs_fix({"status": "flaky", "flakyStreak": 3, "ack": None}))
 
@@ -55,11 +59,19 @@ class Run(unittest.TestCase):
         stub = self.tmp / "host-check"
         stub.write_text(HOST_CHECK)
         stub.chmod(0o755)
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "gh").write_text(GH)
+        (bin_dir / "gh").chmod(0o755)
+        self.gh_calls = self.tmp / "gh-calls"
+        self.gh_down = self.tmp / "gh-down"
         self.config = self.tmp / "nightly.json"
         self.patches = [mock.patch.object(nightly_gate, "ROOT", self.tmp / "state"),
                         mock.patch.object(nightly_gate, "CONFIG", self.config),
                         mock.patch.object(nightly_gate, "HOST_CHECK", str(stub)),
-                        mock.patch.object(nightly_gate, "wake", return_value=0)]
+                        mock.patch.object(nightly_gate, "wake", return_value=0),
+                        mock.patch.dict(os.environ, {"PATH": f"{bin_dir}:{os.environ['PATH']}",
+                                                     "GH_CALLS": str(self.gh_calls), "GH_DOWN": str(self.gh_down)})]
         for patch in self.patches:
             patch.start()
         self.wake = nightly_gate.wake
@@ -69,8 +81,12 @@ class Run(unittest.TestCase):
             patch.stop()
 
     def configure(self, suite, clone=None):
-        repo = {"clone": str(clone or self.tmp / "clone"), "suite": suite}
+        repo = {"clone": str(clone or self.tmp / "clone"), "suite": suite, "github": "o/demo"}
         self.config.write_text(json.dumps({"repos": {"demo": repo}}))
+
+    def commit(self, text):
+        (self.origin / "README").write_text(text)
+        git(self.origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", text)
 
     def run_gate(self, *args):
         with mock.patch("sys.stdout"):
@@ -89,8 +105,7 @@ class Run(unittest.TestCase):
         self.run_gate("--force")
         self.assertEqual(marker.read_text().count("x"), 2)
 
-        (self.origin / "README").write_text("two\n")
-        git(self.origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "two")
+        self.commit("two\n")
         self.run_gate()
         self.assertEqual(marker.read_text().count("x"), 3)
         self.assertNotEqual(nightly_gate.latest("demo")["sha"], result["sha"])
@@ -108,7 +123,7 @@ class Run(unittest.TestCase):
         result = nightly_gate.latest("demo")
         self.assertEqual((result["status"], result["exits"]), ("fail", [3, 3]))
         self.assertIn("broken", result["tail"])
-        self.wake.assert_called_once_with(["demo"])
+        self.wake.assert_called_once_with("demo")
 
         self.assertEqual(nightly_gate.main(["ack", "demo", result["sha"], "thread-1"]), 0)
         self.assertFalse(nightly_gate.needs_fix(nightly_gate.latest("demo")))
@@ -129,7 +144,85 @@ class Run(unittest.TestCase):
         result = nightly_gate.latest("demo")
         self.assertEqual(result["status"], "error")
         self.assertIn("fetch failed", result["error"])
-        self.wake.assert_called_once_with(["demo"])
+        self.wake.assert_called_once_with("demo")
+
+    def test_failed_wake_fails_the_run(self):
+        self.configure("exit 3")
+        self.wake.return_value = 1
+        self.assertEqual(self.run_gate(), 1)
+
+    def test_unposted_status_is_posted_again_without_rerunning(self):
+        marker = self.tmp / "runs"
+        self.configure(f"echo x >> {marker}")
+        self.gh_down.touch()
+        with mock.patch("sys.stderr"):
+            self.run_gate()
+        self.assertFalse(nightly_gate.latest("demo")["posted"])
+
+        self.gh_down.unlink()
+        self.run_gate()
+        self.assertTrue(nightly_gate.latest("demo")["posted"])
+        self.run_gate()
+        self.assertEqual(marker.read_text().count("x"), 1)
+        self.assertEqual(len(self.gh_calls.read_text().splitlines()), 2)
+
+    def test_ack_covers_new_failures_until_a_pass(self):
+        self.configure("exit 3")
+        self.run_gate()
+        first = nightly_gate.latest("demo")["sha"]
+        nightly_gate.main(["ack", "demo", first, "thread-1"])
+
+        self.commit("two\n")
+        self.run_gate()
+        result = nightly_gate.latest("demo")
+        self.assertNotEqual(result["sha"], first)
+        self.assertEqual((result["ack"]["thread"], result["ack"]["sha"]), ("thread-1", first))
+        self.wake.assert_called_once_with("demo")
+
+        self.configure("true")
+        self.commit("three\n")
+        self.run_gate()
+        self.assertIsNone(nightly_gate.latest("demo")["ack"])
+        self.configure("exit 3")
+        self.commit("four\n")
+        self.run_gate()
+        self.assertIsNone(nightly_gate.latest("demo")["ack"])
+        self.assertEqual(self.wake.call_count, 2)
+
+    def test_each_repo_wakes_the_fix_task_before_the_next_runs(self):
+        marker = self.tmp / "b-ran"
+        clone = str(self.tmp / "clone")
+        repos = {"a": {"clone": clone, "suite": "exit 1"}, "b": {"clone": clone, "suite": f"touch {marker}"},
+                 "c": {"clone": clone, "suite": "exit 1"}}
+        self.config.write_text(json.dumps({"repos": repos}))
+        woken = []
+        self.wake.side_effect = lambda name: woken.append((name, marker.exists())) or 0
+        self.run_gate()
+        self.assertEqual(woken, [("a", False), ("c", True)])
+
+    def test_fetch_error_keeps_the_result_at_main(self):
+        marker = self.tmp / "runs"
+        self.configure(f"echo x >> {marker}")
+        self.run_gate()
+        sha = nightly_gate.latest("demo")["sha"]
+        git(self.tmp / "clone", "remote", "set-url", "origin", str(self.tmp / "missing"))
+        self.run_gate()
+        self.assertEqual(nightly_gate.latest("demo")["status"], "error")
+
+        git(self.tmp / "clone", "remote", "set-url", "origin", str(self.origin))
+        self.run_gate()
+        self.assertEqual((nightly_gate.latest("demo")["status"], nightly_gate.latest("demo")["sha"]), ("pass", sha))
+        self.assertEqual(marker.read_text().count("x"), 1)
+
+    def test_checkout_error_runs_again(self):
+        marker = self.tmp / "runs"
+        self.configure(f"echo x >> {marker}")
+        with mock.patch.object(nightly_gate, "fresh_checkout", side_effect=OSError("disk full")):
+            self.run_gate()
+        self.assertEqual(nightly_gate.latest("demo")["status"], "error")
+        self.run_gate()
+        self.assertEqual(nightly_gate.latest("demo")["status"], "pass")
+        self.assertEqual(marker.read_text().count("x"), 1)
 
     def test_unknown_repo_is_refused(self):
         self.configure("true")
