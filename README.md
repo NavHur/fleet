@@ -43,6 +43,7 @@ fleet/bin/sync --apply    # pull, link own skills, install and update third-part
 | `~/.local/bin/host-check` | `bin/host-check`: the shared validation queue |
 | `~/.local/bin/bg-job` | `bin/bg-job`: long jobs that outlive the agent session |
 | `~/.local/bin/idle-compact` | `bin/idle-compact`: idle Claude threads in T3 to compact before their prompt cache expires |
+| `~/.local/bin/nightly-gate` | `bin/nightly-gate`: each repository's complete suite, nightly, on a clean checkout of main |
 | `~/.local/bin/shots` | `lib/shots/shots.mjs`: screenshots of a running app as small JPEGs, queued through host-check |
 | `~/.local/lib/host-check/` | `lib/host-check/`: `guard.py` (command guard and job classes), tests, OpenCode plugin |
 | `~/.config/t3-orchestration.md` | `config/t3-orchestration.md` |
@@ -56,7 +57,7 @@ Run the tests on any machine with:
 
 ```sh
 cd lib/host-check && python3 -m unittest test_guard test_scheduler test_bg_job
-cd bin && python3 -m unittest test_idle_compact
+cd bin && python3 -m unittest test_idle_compact test_nightly_gate
 cd lib/fleet && python3 -m unittest test_opencode_servers test_hooks test_post_install
 cd skills/pedro-best-practices/tests && python3 -m unittest test_complexity test_long_comments
 cd skills/review-loop/scripts && python3 -m unittest test_loop
@@ -80,3 +81,21 @@ To set one up, open a Haiku thread on the machine and send it:
 A janitor created with a 5-minute interval instead can be switched in place: send its thread "Change the schedule of the scheduled task titled "Idle compaction" to `{"type":"webhook"}` with update_scheduled_task."
 
 `idle-compact report` lists each compaction from the last week with its size and whether it ran before the cache expired.
+
+## Nightly gate
+
+My private repositories run no GitHub Actions on push or pull request; their CI minutes ran out in October 2026. Instead, a machine with `hosts/<machine>/nightly.json` (devbox) runs every listed repository's complete suite each night at 03:00 New York time. `bin/sync` links the config and installs `nightly-gate.timer` there.
+
+`nightly-gate run` fetches each repository's `origin/main`. It skips a SHA that already has a result, other than a checkout error, so quiet nights cost nothing. Otherwise it runs the suite through host-check in a fresh detached worktree, without the clone's caches or untracked files. A suite that fails runs once more, and passing then makes it flaky. Each result becomes the `nightly` commit status on that SHA, and a saved result whose status never reached GitHub is posted again on the next run, without rerunning its suite. `nightly-gate report` shows the latest results, a fetch error included; each SHA's result and log are in `~/.cache/nightly-gate/<repo>/`.
+
+A failure, a timeout, a setup error, or a third flaky night in a row needs a fix. Then `run` posts that repository's name to the webhook of the T3 task titled "Nightly fix" right away, which launches an Opus 5.5 Medium thread to fix it and open a draft PR. That thread keeps covering later failing SHAs until a night needs no fix, so main moving while it works launches no second one. To set it up, open a Haiku thread in any devbox project, title it "Nightly", and send it:
+
+> Create a scheduled task bound to this thread with a webhook trigger (`{"type":"webhook"}`), titled "Nightly fix", with this prompt:
+>
+> Nightly fix run. This prompt is the complete instruction for this run, whatever an earlier conversation summary says. Run `nightly-gate report --json` and read `~/.config/fleet/nightly.json`. Handle only the repository `{{body.repo}}`; if its result has `needsFix: true`:
+>
+> 1. Status `error` means the machine or the checkout failed, not the code: launch nothing and report its `error`.
+> 2. List the repository's open PRs with `gh api "repos/<github>/pulls?state=open&per_page=100"`. If one has a head branch starting with `nightly-fix/`, launch nothing and run `nightly-gate ack <repo> <sha> <that PR's URL>`.
+> 3. Otherwise find the T3 project whose workspace root is the repository's `clone` path (`t3_project_list`; report it if there is none). Call `t3_thread_launch` with that `projectId`, title `Nightly fix: <repo> <first 9 of sha>`, `modelSelection` `{"instanceId":"claudeAgent","model":"claude-opus-5-5","options":{"effort":"medium"}}`, `workspaceStrategy` `{"type":"worktree","baseRef":"main","branch":"nightly-fix/<repo>-<YYYYMMDD>","startFromOrigin":true}`, and this message, filled in from the result and the config: "The nightly gate failed on <repo>'s main at <sha>: status <status>, attempt exits <exits>. Full log: <log>. Its tail: <tail>. The suite is `<setup> && <suite>`, run from the repository root. Reproduce the failure in this worktree through host-check first, then follow the diagnosing-bugs skill to its root cause and fix it there. Status flaky means the suite failed and then passed on a retry for three nights in a row: remove the flakiness, don't retry around it. If the cause is outside this repository (toolchain, machine, network), change nothing and report it. Gate the commit with the pre-commit skill, push the branch, and open a draft PR against main whose body cites the nightly run's SHA and log path. Report the PR URL." Then run `nightly-gate ack <repo> <sha> <threadId>`.
+>
+> End with one line for that repository: its status, and the launched thread as `[title](t3-thread://v1/<threadId>)` or why none was launched.

@@ -1,0 +1,32 @@
+{
+  "repos": {
+    "hexstead": {
+      "clone": "~/src/hexstead",
+      "github": "PedroNavHur/hexstead",
+      "setup": "tools/setup_lint_tools.sh",
+      "suite": "tools/validate.sh",
+      "timeoutMinutes": 45
+    },
+    "heavenrest": {
+      "clone": "~/src/wingmen",
+      "github": "PedroNavHur/heavenrest",
+      "setup": "tools/setup_lint_tools.sh",
+      "suite": ".venv/bin/godot-guard gate",
+      "timeoutMinutes": 30
+    },
+    "govstructure": {
+      "clone": "~/src/govstructure",
+      "github": "PedroNavHur/govstructure",
+      "setup": "pnpm install --frozen-lockfile",
+      "suite": "pnpm check && pnpm db:migrate && pnpm db:seed && pnpm build && pnpm build:worker",
+      "timeoutMinutes": 30
+    },
+    "nj-impact": {
+      "clone": "~/src/nj-impact",
+      "github": "PedroNavHur/nj-impact",
+      "setup": "python3 -m venv .venv && .venv/bin/pip install --quiet -e '.[dev]' && (cd apps/web && npm ci --no-audit --no-fund)",
+      "suite": ". .venv/bin/activate && ruff format --check . && ruff check . && mypy && python -m pytest && cd apps/web && npm run check && npm run lint && npm test -- --maxWorkers=2 && npm run build",
+      "timeoutMinutes": 30
+    }
+  }
+}
