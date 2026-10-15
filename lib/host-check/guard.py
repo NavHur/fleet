@@ -122,29 +122,37 @@ def command_starts_dev(words, command):
 
 # --- Shell source -----------------------------------------------------------
 
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z_0-9]*)\1")
+# A heredoc operator, not a `<<<` here-string.
+HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)([A-Za-z_][A-Za-z_0-9]*)\1")
 
 
 def strip_heredocs(command):
-    """Drop heredoc bodies, such as subagent briefs; their apostrophes break shlex.
+    """Drop heredocs, such as subagent briefs; their apostrophes break shlex.
 
-    Closing lines stay. In `ssh host 'cat <<EOF ... EOF'` the closing line also
-    ends the quoted argument, and in `bash -c` text, which is read again, it
-    ends the then-empty heredoc so the commands after it still count.
+    The operator, body, and closing line all go, so a delimiter never reads as
+    a command. A closing line that goes on, as `EOF'` ends a quoted `ssh` or
+    `bash -c` argument, keeps what follows the delimiter.
     """
     kept, pending = [], []
     for line in command.split("\n"):
-        if pending:
-            end = line.strip()
-            if end == pending[0]:
-                pending.pop(0)
-            elif end.startswith((pending[0] + "'", pending[0] + '"')):
-                pending = []
-            else:
-                continue
-        kept.append(line)
-        pending = pending or [m.group(2) for m in HEREDOC.finditer(line.replace("<<<", "   "))]
+        line, pending = close_heredoc(line, pending)
+        if line is None:
+            continue
+        kept.append(HEREDOC.sub("", line))
+        pending = [m.group(2) for m in HEREDOC.finditer(line)]
     return "\n".join(kept)
+
+
+def close_heredoc(line, pending):
+    """Return the part of `line` outside heredoc bodies, or None, and the delimiters still open."""
+    if not pending:
+        return line, pending
+    end = line.strip()
+    if end == pending[0]:
+        return None, pending[1:]
+    if end.startswith((pending[0] + "'", pending[0] + '"')):
+        return end[len(pending[0]):], []
+    return None, pending
 
 
 def strip_comments(command):
