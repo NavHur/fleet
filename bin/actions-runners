@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Keep a self-hosted GitHub Actions runner for each repository in runners.json.
+
+  actions-runners status               each runner's service and GitHub state
+  actions-runners missing              the names with no runner installed yet
+  actions-runners install [NAME ...]   register and start the runners not installed yet
+  actions-runners remove NAME          stop a runner and deregister it from GitHub
+
+The repositories are in ~/.config/fleet/runners.json (hosts/<machine>/runners.json
+in fleet), so only a machine with that file runs them. A personal account has no
+account-level runners, so each repository gets its own: runner NAME lives in
+~/.local/share/actions-runners/NAME, is registered as <host>-NAME with the file's
+labels, and runs as actions-runner@NAME.service, a systemd user unit in
+builds.slice, so CI jobs share the CPU weight and memory ceiling of host-check
+jobs. Workflows pick it with `runs-on: [self-hosted, <label>]`.
+"""
+import json
+import os
+from pathlib import Path
+import platform
+import shutil
+import socket
+import subprocess
+import sys
+from urllib.request import urlretrieve
+
+CONFIG = Path(os.environ.get("ACTIONS_RUNNERS_CONFIG") or Path.home() / ".config" / "fleet" / "runners.json")
+ROOT = Path(os.environ.get("ACTIONS_RUNNERS_DIR") or Path.home() / ".local" / "share" / "actions-runners")
+CACHE = Path(os.environ.get("ACTIONS_RUNNERS_CACHE") or Path.home() / ".cache" / "actions-runners")
+# The runner service starts with systemd's bare PATH; jobs need the user's tools.
+JOB_PATH = f"{Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+# pnpm/action-setup installs pnpm into ~/setup-pnpm and reinstalls it every run,
+# taking a store kept beside it along; pin the store to the one devbox already has.
+JOB_ENV = {"npm_config_store_dir": f"{Path.home()}/.local/share/pnpm/store"}
+ARCH = {"x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}
+
+
+def gh(*args):
+    return subprocess.run(["gh", *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def systemctl(*args):
+    subprocess.run(["systemctl", "--user", *args], check=True)
+
+
+def config():
+    return json.loads(CONFIG.read_text())
+
+
+def runner_name(name):
+    return f"{socket.gethostname().split('.')[0]}-{name}"
+
+
+def installed(name):
+    return (ROOT / name / ".runner").exists()
+
+
+def missing():
+    return [name for name in config()["repos"] if not installed(name)]
+
+
+def tarball():
+    """The latest runner release for this machine, downloaded once into the cache."""
+    asset = f"linux-{ARCH[platform.machine()]}"
+    version = gh("api", "repos/actions/runner/releases/latest", "--jq", ".tag_name").lstrip("v")
+    path = CACHE / f"actions-runner-{asset}-{version}.tar.gz"
+    if not path.exists():
+        CACHE.mkdir(parents=True, exist_ok=True)
+        url = f"https://github.com/actions/runner/releases/download/v{version}/{path.name}"
+        urlretrieve(url, f"{path}.part")
+        os.replace(f"{path}.part", path)
+    return path
+
+
+def token(repo, kind):
+    return gh("api", "-X", "POST", f"repos/{repo}/actions/runners/{kind}-token", "--jq", ".token")
+
+
+def write_env(folder):
+    """The runner reads .path and .env at start; config.sh fills them from the shell that ran it."""
+    (folder / ".path").write_text(JOB_PATH + "\n")
+    lines = [line for line in (folder / ".env").read_text().splitlines() if line.split("=")[0] not in JOB_ENV]
+    lines += [f"{key}={value}" for key, value in JOB_ENV.items()]
+    (folder / ".env").write_text("\n".join(lines) + "\n")
+
+
+def install(name, repo, labels):
+    folder = ROOT / name
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    subprocess.run(["tar", "-xzf", str(tarball()), "-C", str(folder)], check=True)
+    subprocess.run(["./config.sh", "--unattended", "--replace", "--url", f"https://github.com/{repo}",
+                    "--token", token(repo, "registration"), "--name", runner_name(name),
+                    "--labels", ",".join(labels), "--work", "_work"], cwd=folder, check=True)
+    write_env(folder)
+    systemctl("daemon-reload")
+    systemctl("enable", "--now", f"actions-runner@{name}.service")
+    print(f"{name}: registered {runner_name(name)} on {repo}")
+
+
+def remove(name, repo):
+    folder = ROOT / name
+    subprocess.run(["systemctl", "--user", "disable", "--now", f"actions-runner@{name}.service"])
+    if installed(name):
+        subprocess.run(["./config.sh", "remove", "--token", token(repo, "remove")], cwd=folder, check=True)
+    shutil.rmtree(folder, ignore_errors=True)
+    print(f"{name}: removed")
+    return 0
+
+
+def github_state(name, repo):
+    runners = json.loads(gh("api", f"repos/{repo}/actions/runners"))["runners"]
+    match = next((r for r in runners if r["name"] == runner_name(name)), None)
+    if match is None:
+        return "not registered"
+    return "busy" if match["busy"] else match["status"]
+
+
+def status():
+    for name, repo in config()["repos"].items():
+        service = subprocess.run(["systemctl", "--user", "is-active", f"actions-runner@{name}.service"],
+                                 capture_output=True, text=True).stdout.strip()
+        state = github_state(name, repo) if installed(name) else "not installed"
+        print(f"{name:14} {repo:32} service {service:9} github {state}")
+    return 0
+
+
+def install_all(names):
+    settings = config()
+    unknown = set(names) - set(settings["repos"])
+    if unknown:
+        print(f"not in {CONFIG}: {', '.join(sorted(unknown))}", file=sys.stderr)
+        return 2
+    for name in [n for n in names or settings["repos"] if not installed(n)]:
+        install(name, settings["repos"][name], settings["labels"])
+    return 0
+
+
+def main(argv):
+    if argv == ["status"]:
+        return status()
+    if argv == ["missing"]:
+        print("\n".join(missing()))
+        return 0
+    if argv[:1] == ["install"]:
+        return install_all(argv[1:])
+    if argv[:1] == ["remove"] and len(argv) == 2:
+        return remove(argv[1], config()["repos"][argv[1]])
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
