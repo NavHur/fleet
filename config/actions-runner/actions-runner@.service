@@ -4,10 +4,11 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=%h/.local/share/actions-runners/%i
-ExecStart=%h/.local/share/actions-runners/%i/run.sh
+# The runner's own service entry point: it exports PATH from .path, which run.sh ignores.
+ExecStart=%h/.local/share/actions-runners/%i/bin/runsvc.sh
 Slice=builds.slice
 Nice=10
-# The runner finishes or cancels its job on SIGTERM; killing the whole group would cut it off.
+# runsvc.sh hands SIGTERM to the runner, which cancels its job; killing the whole group would cut that off.
 KillMode=process
 KillSignal=SIGTERM
 TimeoutStopSec=5min
