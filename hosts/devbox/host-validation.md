@@ -6,8 +6,9 @@ coding tools, T3, and previews.
 - Limits: 6 jobs, with no separate heavy or build caps. Vitest defaults to 2
   workers. Jobs run at nice +10.
 - Each job runs in its own scope under `builds.slice`
-  (`~/.config/systemd/user/builds.slice`): CPU weight 20, an aggregate 600% CPU
-  ceiling, memory reclaim above 10 GiB, and a 12 GiB hard ceiling. If a build is
+  (`~/.config/systemd/user/builds.slice`): CPU weight 20 with no CPU ceiling, so
+  jobs use all eight vCPUs when the host is idle and yield when it is busy;
+  memory reclaim above 10 GiB, and a 12 GiB hard ceiling. If a build is
   killed with exit 137, inspect memory pressure and retry when the host is
   quieter. Without a user systemd bus, jobs still queue and run at nice +10
   outside the slice, and its ceilings do not apply.
