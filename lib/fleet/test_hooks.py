@@ -55,6 +55,14 @@ class ClaudeSettings(unittest.TestCase):
         self.settings.write_text(json.dumps(data))
         self.assertIsNone(hooks.claude_settings())
 
+    def test_model_settings_merge_per_model(self):
+        self.config.write_text(json.dumps({"modelSettings": {"claude-haiku-5-5": {"autoCompactWindow": 125000}}}))
+        self.settings.write_text(json.dumps({"modelSettings": {"claude-fable-5-1": {"effortLevel": "medium"},
+                                                               "claude-haiku-5-5": {"autoCompactWindow": 100000}}}))
+        _, data, _ = hooks.claude_settings()
+        self.assertEqual(data["modelSettings"], {"claude-fable-5-1": {"effortLevel": "medium"},
+                                                 "claude-haiku-5-5": {"autoCompactWindow": 125000}})
+
     def test_shipped_config_is_valid(self):
         managed = json.loads((Path(__file__).resolve().parents[2] / "config" / "claude-settings.json").read_text())
         self.assertEqual(managed["attribution"], {"commit": "", "pr": "", "sessionUrl": False})
