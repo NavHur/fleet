@@ -44,9 +44,9 @@ BLOCK_START = "<!-- fleet:instructions (managed by fleet bin/sync from config/in
 BLOCK_END = "<!-- /fleet:instructions -->"
 PRINCIPLES = """## Engineering principles
 
-Before nontrivial design, implementation, debugging, or review, read
-`~/.config/principles.md` and apply the principles that fit, reading each one's
-SKILL.md in full first. In `code-review`, add the matching principles to the
+Before nontrivial implementation or debugging, read `~/.config/principles.md`
+and apply the lines that fit. Before design or review, also read each matching
+principle's SKILL.md in full; in `code-review`, add those principles to the
 Standards sources, ranked below the repo's documented standards.
 """
 # The block's earlier name; its contents now live in the instructions block.
@@ -107,8 +107,7 @@ def index_text():
         "",
         "# Engineering principles",
         "",
-        "Each line says when a principle applies and where its SKILL.md is. Read the",
-        "file in full before applying the principle.",
+        "Each line says when a principle applies and where its SKILL.md is.",
         "",
     ]
     # Own principles are symlinks from this repo, so list every folder.
