@@ -230,15 +230,6 @@ elif command -v systemctl >/dev/null && ! systemctl --user is-enabled --quiet id
   systemctl --user enable --now idle-compact.timer
 fi
 
-# Runs the nightly gate (bin/nightly-gate) on a machine with hosts/<machine>/nightly.json.
-echo "== Nightly gate timer"
-if [ -e "$HOME/.config/fleet/nightly.json" ] && command -v systemctl >/dev/null \
-  && ! systemctl --user is-enabled --quiet nightly-gate.timer 2>/dev/null \
-  && step enable "nightly-gate.timer"; then
-  systemctl --user daemon-reload
-  systemctl --user enable --now nightly-gate.timer
-fi
-
 # Registers a runner for each repository in hosts/<machine>/runners.json (bin/actions-runners).
 echo "== Actions runners"
 if [ -e "$HOME/.config/fleet/runners.json" ] && command -v systemctl >/dev/null; then
