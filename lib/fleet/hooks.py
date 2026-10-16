@@ -23,8 +23,9 @@ CLAUDE_SETTINGS = Path(__file__).resolve().parents[2] / "config" / "claude-setti
 HOST_CONF = HOME / ".config" / "fleet" / "host.json"  # bin/sync links it to hosts/<host>/host.json
 # Hooks that call scripts from skills fleet no longer installs for every agent.
 RETIRED_HOOKS = ["/skills/impeccable/"]
-# Managed keys merged one entry at a time, so a machine's own entries (a gateway's token) survive.
-MERGED_KEYS = {"env"}
+# Managed keys merged one entry at a time, so a machine's own entries (a gateway's token, another
+# model's settings) survive. A managed entry replaces that entry whole.
+MERGED_KEYS = {"env", "modelSettings"}
 MESSAGES = {
     "Claude Code": ("hook", "Claude Code: add the guard to {}"),
     "Claude settings": ("set", "Claude Code: write {keys} in {path}"),

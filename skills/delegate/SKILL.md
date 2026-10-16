@@ -26,7 +26,7 @@ models from the Claude provider and GPT models from Codex, and use another
 OpenCode model only when the user names it.
 
 Haiku bills a whole request at 5× once its prompt passes 100K tokens, and its
-sessions compact at 100K. Keep its brief lean: point to files and commands
+sessions compact near 100K. Keep its brief lean: point to files and commands
 rather than pasting their contents.
 
 Keep ambiguous requirements and design decisions in the parent until the brief
