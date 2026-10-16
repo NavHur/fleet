@@ -156,6 +156,22 @@ class SchedulerTests(unittest.TestCase):
         process = self.launch(self.a, "printenv", "VITEST_MAX_WORKERS")
         self.assertEqual(process.communicate(timeout=5)[0].strip(), "1")
 
+    def test_finished_jobs_are_logged(self):
+        self.env["HOST_CHECK_LABEL"] = "pre-push"
+        process = self.launch(self.a, "python3", "-c", "import sys; sys.exit(3)")
+        process.communicate(timeout=5)
+        self.assertEqual(process.returncode, 3)
+        killed = self.launch(self.b, "bash", "-c", "kill -TERM $$")
+        killed.communicate(timeout=5)
+        self.assertEqual(killed.returncode, -signal.SIGTERM)
+        records = [json.loads(line) for line in (self.queue / "jobs.jsonl").read_text().splitlines()]
+        self.assertEqual([(r["label"], r["exit"]) for r in records], [("pre-push", 3), ("pre-push", -15)])
+        first = records[0]
+        self.assertEqual((first["class"], first["worktree"]), ("light", os.path.realpath(self.a)))
+        self.assertIn("sys.exit(3)", first["command"])
+        self.assertGreaterEqual(first["wait_s"], 0)
+        self.assertGreaterEqual(first["run_s"], 0)
+
     def test_nested_wrapper_is_rejected(self):
         process = self.launch(self.a, str(self.wrapper), "true")
         _, stderr = process.communicate(timeout=5)
