@@ -77,7 +77,7 @@ def token(repo, kind):
 
 
 def write_env(folder):
-    """The runner reads .path and .env at start; config.sh fills them from the shell that ran it."""
+    """runsvc.sh exports .path and the runner reads .env; config.sh fills both from the shell that ran it."""
     (folder / ".path").write_text(JOB_PATH + "\n")
     lines = [line for line in (folder / ".env").read_text().splitlines() if line.split("=")[0] not in JOB_ENV]
     lines += [f"{key}={value}" for key, value in JOB_ENV.items()]
