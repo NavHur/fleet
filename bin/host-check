@@ -147,6 +147,76 @@ def log_job(queue, record):
         say(f"could not log the job: {error}")
 
 
+class Locks:
+    """The locks one job holds, in the order it took them; the job's children inherit them."""
+
+    def __init__(self, queue, started):
+        self.queue = queue
+        self.started = started
+        self.owner = ""
+        self.held = []
+
+    def wait(self, path, mode, describe):
+        """Take the lock at PATH, waiting as long as it takes."""
+        fd = open_lock(path)
+        wait_for(fd, mode, describe, self.started)
+        self.held.append(fd)
+
+    def acquire(self, prefix, count, label):
+        """Hold the first free of COUNT slots; others may take a slot ahead of a waiter."""
+        next_report = time.monotonic() + 10
+        while True:
+            number = self.sweep(prefix, count)
+            if number:
+                return number
+            if time.monotonic() >= next_report:
+                say(f"waiting for {label} ({int(time.monotonic() - self.started)}s)")
+                next_report += 10
+            time.sleep(1)
+
+    def sweep(self, prefix, count):
+        """Hold the first free slot and record its owner; None when every slot is taken."""
+        for number in range(1, count + 1):
+            fd = open_lock(self.queue / f"{prefix}-{number}.lock")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                os.close(fd)
+                continue
+            stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            (self.queue / f"{prefix}-{number}.owner").write_text(f"{self.owner} started={stamp}\n")
+            self.held.append(fd)
+            return number
+        return None
+
+
+def acquire_slots(locks, conf, job_class):
+    """Take the slots the class needs and return the global one with the class details."""
+    # Classes go build, heavy, global, so no deadlock.
+    classes = []
+    if job_class == "build":
+        n = locks.acquire("build", conf["build_slots"], f"a build slot ({conf['build_slots']} builds at once)")
+        classes.append(f"build {n}/{conf['build_slots']}")
+    if job_class != "light":
+        n = locks.acquire("heavy", conf["heavy_slots"],
+                          f"a heavy slot ({conf['heavy_slots']} whole suites or builds at once)")
+        classes.append(f"heavy {n}/{conf['heavy_slots']}")
+    return locks.acquire("slot", conf["slots"], "a global slot"), classes
+
+
+def lock_worktree(locks):
+    """Take the legacy and worktree locks and return the worktree path."""
+    # Jobs from the previous wrapper generation hold this lock exclusively.
+    # Shared holders run together but never overlap one of those.
+    locks.wait(locks.queue / "lock", fcntl.LOCK_SH, lambda: "legacy validation to finish")
+    worktree = worktree_root()
+    key = hashlib.sha256(worktree.encode()).hexdigest()
+    # Taken before any global slot, so same-worktree waiters consume no slots.
+    locks.wait(locks.queue / "worktrees" / f"{key}.lock", fcntl.LOCK_EX,
+               lambda: f"worktree {shlex.quote(worktree)}")
+    return worktree
+
+
 def main(argv):
     conf = hostconf.load()
     if not argv or argv[0] in ("--help", "-h"):
@@ -161,54 +231,12 @@ def main(argv):
     os.chmod(queue, 0o700)
     os.chmod(queue / "worktrees", 0o700)
     started = time.monotonic()
-    held = []
-
-    # Jobs from the previous wrapper generation hold this lock exclusively.
-    # Shared holders run together but never overlap one of those.
-    legacy = open_lock(queue / "lock")
-    wait_for(legacy, fcntl.LOCK_SH, lambda: "legacy validation to finish", started)
-    held.append(legacy)
-
-    worktree = worktree_root()
-    key = hashlib.sha256(worktree.encode()).hexdigest()
-    # Taken before any global slot, so same-worktree waiters consume no slots.
-    tree = open_lock(queue / "worktrees" / f"{key}.lock")
-    wait_for(tree, fcntl.LOCK_EX, lambda: f"worktree {shlex.quote(worktree)}", started)
-    held.append(tree)
-
+    locks = Locks(queue, started)
+    worktree = lock_worktree(locks)
     job_class = classify(argv)
-
-    def acquire(prefix, count, label):
-        """Hold the first free of COUNT slots; classes go build, heavy, global, so no deadlock."""
-        next_report = time.monotonic() + 10
-        while True:
-            for number in range(1, count + 1):
-                fd = open_lock(queue / f"{prefix}-{number}.lock")
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    os.close(fd)
-                    continue
-                stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                (queue / f"{prefix}-{number}.owner").write_text(
-                    f"pid={os.getpid()} class={job_class} executable={shlex.quote(argv[0])} "
-                    f"worktree={shlex.quote(worktree)} started={stamp}\n")
-                held.append(fd)
-                return number
-            if time.monotonic() >= next_report:
-                say(f"waiting for {label} ({int(time.monotonic() - started)}s)")
-                next_report += 10
-            time.sleep(1)
-
-    classes = []
-    if job_class == "build":
-        n = acquire("build", conf["build_slots"], f"a build slot ({conf['build_slots']} builds at once)")
-        classes.append(f"build {n}/{conf['build_slots']}")
-    if job_class != "light":
-        n = acquire("heavy", conf["heavy_slots"],
-                    f"a heavy slot ({conf['heavy_slots']} whole suites or builds at once)")
-        classes.append(f"heavy {n}/{conf['heavy_slots']}")
-    slot = acquire("slot", conf["slots"], "a global slot")
+    locks.owner = (f"pid={os.getpid()} class={job_class} executable={shlex.quote(argv[0])} "
+                   f"worktree={shlex.quote(worktree)}")
+    slot, classes = acquire_slots(locks, conf, job_class)
 
     prefix, where = launcher(conf)
     detail = f", {', '.join(classes)}" if classes else ""
@@ -221,7 +249,7 @@ def main(argv):
     # The command and its surviving children keep the locks until they exit.
     command = [*prefix, *argv]
     begun = time.gmtime()
-    returncode = run_job(command, env, held)
+    returncode = run_job(command, env, locks.held)
     if returncode is None:
         say(f"command not found: {command[0]}")
         return 127
