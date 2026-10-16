@@ -1,0 +1,9 @@
+{
+  "labels": ["devbox"],
+  "repos": {
+    "hexstead": "PedroNavHur/hexstead",
+    "heavenrest": "PedroNavHur/heavenrest",
+    "govstructure": "PedroNavHur/govstructure",
+    "nj-impact": "PedroNavHur/nj-impact"
+  }
+}

@@ -239,6 +239,15 @@ if [ -e "$HOME/.config/fleet/nightly.json" ] && command -v systemctl >/dev/null 
   systemctl --user enable --now nightly-gate.timer
 fi
 
+# Registers a runner for each repository in hosts/<machine>/runners.json (bin/actions-runners).
+echo "== Actions runners"
+if [ -e "$HOME/.config/fleet/runners.json" ] && command -v systemctl >/dev/null; then
+  for name in $("$FLEET/bin/actions-runners" missing); do
+    step register "$name" || continue
+    "$FLEET/bin/actions-runners" install "$name"
+  done
+fi
+
 echo "== Node dependencies"
 for pkg in "$FLEET"/skills/*/package.json "$FLEET"/lib/*/package.json; do
   [ -e "$pkg" ] || continue

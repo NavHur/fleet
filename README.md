@@ -44,6 +44,7 @@ fleet/bin/sync --apply    # pull, link own skills, install and update third-part
 | `~/.local/bin/bg-job` | `bin/bg-job`: long jobs that outlive the agent session |
 | `~/.local/bin/idle-compact` | `bin/idle-compact`: idle Claude threads in T3 to compact before their prompt cache expires |
 | `~/.local/bin/nightly-gate` | `bin/nightly-gate`: each repository's complete suite, nightly, on a clean checkout of main |
+| `~/.local/bin/actions-runners` | `bin/actions-runners`: a self-hosted GitHub Actions runner per repository |
 | `~/.local/bin/shots` | `lib/shots/shots.mjs`: screenshots of a running app as small JPEGs, queued through host-check |
 | `~/.local/lib/host-check/` | `lib/host-check/`: `guard.py` (command guard and job classes), tests, OpenCode plugin |
 | `~/.config/t3-orchestration.md` | `config/t3-orchestration.md` |
@@ -91,3 +92,11 @@ A failure, a timeout, a setup error, or a third flaky night in a row needs a fix
 > 3. Otherwise find the T3 project whose workspace root is the repository's `clone` path (`t3_project_list`; report it if there is none). Call `t3_thread_launch` with that `projectId`, title `Nightly fix: <repo> <first 9 of sha>`, `modelSelection` `{"instanceId":"claudeAgent","model":"claude-opus-5-5","options":{"effort":"medium"}}`, `workspaceStrategy` `{"type":"worktree","baseRef":"main","branch":"nightly-fix/<repo>-<YYYYMMDD>","startFromOrigin":true}`, and this message, filled in from the result and the config: "The nightly gate failed on <repo>'s main at <sha>: status <status>, attempt exits <exits>. Full log: <log>. Its tail: <tail>. The suite is `<setup> && <suite>`, run from the repository root. Reproduce the failure in this worktree through host-check first, then follow the diagnosing-bugs skill to its root cause and fix it there. Status flaky means the suite failed and then passed on a retry for three nights in a row: remove the flakiness, don't retry around it. If the cause is outside this repository (toolchain, machine, network), change nothing and report it. Gate the commit with the pre-commit skill, push the branch, and open a draft PR against main whose body cites the nightly run's SHA and log path. Report the PR URL." Then run `nightly-gate ack <repo> <sha> <threadId>`.
 >
 > End with one line for that repository: its status, and the launched thread as `[title](t3-thread://v1/<threadId>)` or why none was launched.
+
+## Actions runners
+
+A machine with `hosts/<machine>/runners.json` (devbox) runs a self-hosted GitHub Actions runner for each repository listed there, so pushes and pull requests get CI without GitHub-hosted minutes. A personal account has no account-level runners, so each repository registers its own. `bin/sync` registers any that are missing.
+
+`actions-runners install` downloads the latest runner release, registers it with a token from `gh` as `<host>-<name>` with the file's labels, and starts `actions-runner@<name>.service`. That systemd user unit runs in `builds.slice` at nice +10, so CI jobs share the CPU weight and memory ceiling of host-check jobs instead of competing with interactive work. Jobs see `~/.local/bin` on their PATH and use the machine's pnpm store. A workflow picks a runner with `runs-on: [self-hosted, devbox]`. `actions-runners status` shows each runner's service and GitHub state, and `actions-runners remove <name>` deregisters one.
+
+A runner runs whatever code a job checks out, on a machine that also holds my work. Only private repositories get one: GitHub never runs their fork pull requests' workflows, and public repositories require my approval for every outside contributor's run.

@@ -1,0 +1,18 @@
+[Unit]
+Description=GitHub Actions runner for %i
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/.local/share/actions-runners/%i
+ExecStart=%h/.local/share/actions-runners/%i/run.sh
+Slice=builds.slice
+Nice=10
+# The runner finishes or cancels its job on SIGTERM; killing the whole group would cut it off.
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=5min
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

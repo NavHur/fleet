@@ -7,9 +7,11 @@
 .local/bin/bg-job                       bin/bg-job
 .local/bin/idle-compact                 bin/idle-compact
 .local/bin/nightly-gate                 bin/nightly-gate
+.local/bin/actions-runners              bin/actions-runners
 .local/lib/host-check                   lib/host-check
 .config/fleet/host.json                 hosts/{host}/host.json
 .config/fleet/nightly.json              hosts/{host}/nightly.json
+.config/fleet/runners.json              hosts/{host}/runners.json
 .config/t3-orchestration.md             config/t3-orchestration.md
 .claude/hooks/merge-guard.py            hosts/{host}/claude-hooks/merge-guard.py
 .claude/hooks/agent-cli-guard.py        hosts/{host}/claude-hooks/agent-cli-guard.py
@@ -20,3 +22,4 @@
 .config/opencode/plugins/host-check.js  lib/host-check/opencode-plugin.js  if:.config/opencode
 .config/systemd/user/nightly-gate.service  config/nightly-gate/nightly-gate.service  if:.config/fleet/nightly.json
 .config/systemd/user/nightly-gate.timer    config/nightly-gate/nightly-gate.timer    if:.config/fleet/nightly.json
+.config/systemd/user/actions-runner@.service  config/actions-runner/actions-runner@.service  if:.config/fleet/runners.json
