@@ -54,6 +54,16 @@ fleet/bin/sync --apply    # pull, link own skills, install and update third-part
 
 The full list of links is in `links`. `bin/sync` also adds the guard to Claude Code, Codex, Cursor, and OpenCode as a pre-command hook. On Linux, host-check runs jobs in `builds.slice`; on macOS it runs them under `taskpolicy -c utility`, which yields the CPU to interactive work and does not limit memory.
 
+### How the queue works
+
+Agents read `~/.config/host-validation.md`, which keeps only what they act on. The mechanism behind it:
+
+- Each physical Git worktree has one lock; subdirectories and symlinks share it, and outside Git the physical working directory is the key. Waiters take their worktree lock before a global slot, so they hold no global capacity. Slot acquisition is not FIFO. Locks release when the command and every child that inherited them exit. The owner files under `~/.cache/host-check/` name the last holders and may be stale when idle.
+- Host-wide caps apply to all jobs, to heavy jobs (builds, a full `check`, and `test` or `vitest run` without file or directory arguments), and to builds. A heavy job waits for its class without holding a global slot, so targeted tests, lint, format, and typecheck keep running.
+- The wrapper picks the class from the command, reading package scripts and shell scripts for the strongest command inside. A script it cannot read, or one that runs hidden commands (`"$@"`, `$cmd`, `eval`), is heavy.
+- The guard (`lib/host-check/guard.py`) recognizes package scripts (by their package.json bodies, through workspace filters), shell scripts, validation executables, pipelines, and benchmark or debug harnesses (`tsx`/`node` on `bench*`, `perf*`, `debug-*`). It trusts scripts that call host-check themselves, and misses aliases, generated commands, and commands sent to an already-open interactive shell. Hook changes take effect in new tool sessions; Codex needs `/hooks` once to trust the guard.
+- Scheduling is cooperative: a command run directly bypasses the queue.
+
 Run the tests on any machine with `bin/test`, which runs every unittest suite; CI runs it on each push to main and each pull request.
 
 A skill with a `package.json` gets its dependencies from `bin/sync` (`pnpm install --frozen-lockfile`); `pedro-best-practices` uses that for its own oxlint. Its GDScript and PHP tests skip, with a reason, on machines without gdtoolkit or `php`; set `PBP_GDTOOLKIT_PYTHON` to a Python that has gdtoolkit to run them. Its godot-guard tests skip without godot-guard 0.2 or newer; set `PBP_GODOT_GUARD` to one, such as a godot-guard checkout's `.venv/bin/godot-guard`.

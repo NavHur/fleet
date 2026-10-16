@@ -20,3 +20,27 @@ coding tools, T3, and previews.
   like). The guard denies them. Build through the queue and serve the
   production build.
 - `bg-job` runs each job as a transient systemd user service, `bgjob-NAME`.
+
+### Previews
+
+A browser outside devbox cannot reach `localhost`. To run, test, or preview a
+project, restart its supervised service (its pre-start builds for production;
+start no separate build alongside it), confirm it is active, and check its
+journal if startup fails. Then open the tunnel URL in the T3 browser
+(`preview_status`, `preview_open` if nothing is attached) and test the public
+route. Report the tunnel URL, the service status, and what you checked. A
+loopback `curl` is diagnosis only. Previews use test data, never production.
+
+| Project | Service | Tunnel |
+| --- | --- | --- |
+| HiveFront | `hivefront-test-server` | `https://hive-dev.pnav.dev` |
+| pnav | `pnav-dev-server` | `https://dev.pnav.dev` |
+| LeetWiz | `leetwiz-preview` | `https://leetwiz-dev.pnav.dev` |
+| LiteQuiz | `litequiz-preview` (system: `sudo systemctl`, `journalctl -u`) | `https://quiz-dev.pnav.dev` |
+| NJ Impact | `nj-impact-dev-server` | `https://nj-impact-dev.pnav.dev` |
+| GovStructure | `govstructure-preview` | `https://govstructure.pnav.dev` |
+| Fonema | `fonema-preview` (the `fonema-prototype` worktree for now) | `https://fonema-dev.pnav.dev` |
+
+The rest are user services: `systemctl --user restart NAME.service`,
+`journalctl --user -u NAME.service`. A project with no service and tunnel gets
+one set up before it is previewed.

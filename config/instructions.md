@@ -6,8 +6,7 @@ cancelling one.
 ## Validation
 
 Run builds, tests, lint, typechecks, format checks, and benchmarks through
-`~/.local/bin/host-check`, following `~/.config/host-validation.md`; every agent
-on the host shares its queue.
+`~/.local/bin/host-check`, following `~/.config/host-validation.md`.
 
 ## Git
 
@@ -16,11 +15,10 @@ on the host shares its queue.
 - Commit subjects: a Conventional Commits type, a scope when obvious
   (`fix(vacant-land): …`), imperative, under 72 characters; reasoning in the
   body.
-- Commit in small steps, each within the commit ceiling below. Before each
-  commit, run format, lint, and typecheck on its changed files. Before
-  pushing, run the `pre-commit` skill once, on the top head: the branch, or
-  the last layer's tip; lower layers get format, lint, and typecheck. Rounds
-  of review-loop and stacked PRs use their light check.
+- Commit in small steps within the commit ceiling below, running format, lint,
+  and typecheck on each commit's changed files. Before pushing, run the
+  `pre-commit` skill once on the top head (the branch, or the last layer's
+  tip). Review-loop rounds and stacked PRs use their light check.
 
 ## Tests
 
@@ -31,33 +29,25 @@ confidence.
 
 ## Pull requests
 
-- Draft state follows the owner in the `origin` remote URL, on every host.
-  Owner `PedroNavHur` (personal): open PRs ready for review (`draft=false`, or
-  `gh stack submit --auto --open`). Any other owner (work): open them as drafts
-  (REST `POST /repos/OWNER/REPO/pulls` with `draft=true`, or
-  `gh stack submit --auto` without `--open`) and mark one ready when Pedro asks
-  in that conversation.
+- Draft state follows the owner in the `origin` URL. `PedroNavHur` opens PRs
+  ready for review (`draft=false`, or `gh stack submit --auto --open`); any
+  other owner opens drafts (REST `draft=true`, or `gh stack submit --auto`),
+  marked ready when Pedro asks in that conversation.
 - Stacks use `gh stack`: fix on the layer that owns the code, `gh stack rebase`
   descendants when their dependencies need it or Pedro asks, and merge with
   `gh stack merge` on the top PR.
-- Pedro's PRs stay within 1000 weighted and 2000 raw churn, each commit within
-  300 and 600; stack layers aim for 400 to 1000 weighted, at most 5 per stack.
-  Measure before pushing, as
-  `~/.agents/skills/split-stacked-prs/references/size-policy.md` says. The rule
-  is personal: it stays out of repositories.
+- Size: a PR within 1000 weighted and 2000 raw churn, each commit within 300
+  and 600, stack layers 400 to 1000 weighted, at most 5 per stack. Measure
+  before pushing per `~/.agents/skills/split-stacked-prs/references/size-policy.md`.
+  The rule is personal: it stays out of repositories.
 
 ## GitHub API
 
-REST first: use `gh api` REST endpoints whenever one exists; `gh` porcelain and
-`--json` may use GraphQL. Spend GraphQL only on draft/ready switches, resolving
-review threads, auto-merge, the merge queue, and marking files viewed; `gh stack`
-is exempt. When GraphQL runs out, keep the PR and wait for the reset; on a
-rate-limit error, check `gh api rate_limit` once and honor the reset.
-
-## Instruction files
-
-Agent instructions live only in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, and
-`~/.config/opencode/AGENTS.md`; repositories carry none.
+Use `gh api` REST endpoints whenever one exists; `gh` porcelain and `--json`
+may use GraphQL. Spend GraphQL only on draft/ready switches, resolving review
+threads, auto-merge, the merge queue, and marking files viewed; `gh stack` is
+exempt. On a rate-limit error, check `gh api rate_limit` once, keep the PR, and
+wait for the reset.
 
 ## Code (React, Svelte, Godot, Python, PHP)
 
@@ -66,9 +56,9 @@ Agent instructions live only in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, and
   parameters; Resource scripts excluded). Choose the interface you would want
   without the cap; bundling independent inputs to fit it is no fix.
 - Cognitive complexity at most 8 and cyclomatic at most 16 per function, or the
-  repository's stricter limit, reached by simpler control flow.
-- Branch with early returns, named helpers, `if`/`switch`/`match`, or lookup
-  tables; keep conditional expressions one level deep.
-- Follow each language's performance guidance: the Vercel React rules for
-  React, the `pedro-best-practices` references for Svelte and Godot.
-- Audits run when Pedro invokes `pedro-best-practices`; follow that skill.
+  repository's stricter limit, reached by simpler control flow: early returns,
+  named helpers, `if`/`switch`/`match`, or lookup tables, with conditional
+  expressions one level deep.
+- Performance: the Vercel React rules for React, the `pedro-best-practices`
+  references for Svelte and Godot. Audits run when Pedro invokes
+  `pedro-best-practices`.
