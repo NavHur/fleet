@@ -6,15 +6,18 @@ One job per physical Git worktree, and host-wide caps on all jobs, heavy jobs
 Linux the job runs in a systemd user slice whose CPU and memory limits the
 kernel enforces; on macOS it runs under a taskpolicy QoS clamp, so it yields
 the CPU to interactive work. Lock files live in ~/.cache/host-check and are
-held by the command and every child that inherits them.
+held by the command and every child that inherits them. Each finished job
+appends its wait, run time, and exit status to jobs.jsonl there.
 """
 import fcntl
 import hashlib
+import json
 import os
 from pathlib import Path
 import platform
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -38,6 +41,7 @@ def usage(conf):
     print(f"Vitest defaults to {conf['vitest_max_workers']} workers. "
           "HOST_CHECK_CLASS=build|heavy|light overrides the detected class.")
     print("Run from the target worktree. Wrap a command or pipeline, never both.")
+    print("HOST_CHECK_LABEL tags the job in ~/.cache/host-check/jobs.jsonl.")
     print(f"Policy: {hostconf.HOST_VALIDATION}")
 
 
@@ -98,6 +102,121 @@ def launcher(conf):
     return ["nice", "-n", str(max(conf["nice"], 10))], "nice"
 
 
+def run_job(command, env, held):
+    """Run COMMAND and return its exit status (negative for a signal), or None if it is missing.
+
+    host-check stays the parent so it can log the job's end. It forwards
+    termination to the job; an interrupt from the terminal already reaches the
+    job through its process group, so host-check only outlives it.
+    """
+    try:
+        child = subprocess.Popen(command, env=env, pass_fds=held)
+    except FileNotFoundError:
+        return None
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, lambda received, _frame: child.send_signal(received))
+    # Set after the spawn: an ignored disposition would be inherited by the job.
+    for signum in (signal.SIGINT, signal.SIGQUIT):
+        signal.signal(signum, signal.SIG_IGN)
+    return child.wait()
+
+
+def exit_like(returncode):
+    """Exit as the job did, dying by its signal so callers see the same status."""
+    if returncode >= 0:
+        return returncode
+    # SIGKILL's disposition cannot be changed, and it never needs resetting.
+    if -returncode != signal.SIGKILL:
+        signal.signal(-returncode, signal.SIG_DFL)
+    os.kill(os.getpid(), -returncode)
+    return 128 - returncode
+
+
+def log_job(queue, record):
+    """Append one JSON line to jobs.jsonl in the queue directory; a failure only warns."""
+    line = (json.dumps(record, separators=(",", ":")) + "\n").encode()
+    try:
+        fd = os.open(queue / "jobs.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            written = os.write(fd, line)
+        finally:
+            os.close(fd)
+        if written < len(line):
+            say(f"could not log the job: wrote {written} of {len(line)} bytes")
+    except OSError as error:
+        say(f"could not log the job: {error}")
+
+
+class Locks:
+    """The locks one job holds, in the order it took them; the job's children inherit them."""
+
+    def __init__(self, queue, started):
+        self.queue = queue
+        self.started = started
+        self.owner = ""
+        self.held = []
+
+    def wait(self, path, mode, describe):
+        """Take the lock at PATH, waiting as long as it takes."""
+        fd = open_lock(path)
+        wait_for(fd, mode, describe, self.started)
+        self.held.append(fd)
+
+    def acquire(self, prefix, count, label):
+        """Hold the first free of COUNT slots; others may take a slot ahead of a waiter."""
+        next_report = time.monotonic() + 10
+        while True:
+            number = self.sweep(prefix, count)
+            if number:
+                return number
+            if time.monotonic() >= next_report:
+                say(f"waiting for {label} ({int(time.monotonic() - self.started)}s)")
+                next_report += 10
+            time.sleep(1)
+
+    def sweep(self, prefix, count):
+        """Hold the first free slot and record its owner; None when every slot is taken."""
+        for number in range(1, count + 1):
+            fd = open_lock(self.queue / f"{prefix}-{number}.lock")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                os.close(fd)
+                continue
+            stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            (self.queue / f"{prefix}-{number}.owner").write_text(f"{self.owner} started={stamp}\n")
+            self.held.append(fd)
+            return number
+        return None
+
+
+def acquire_slots(locks, conf, job_class):
+    """Take the slots the class needs and return the global one with the class details."""
+    # Classes go build, heavy, global, so no deadlock.
+    classes = []
+    if job_class == "build":
+        n = locks.acquire("build", conf["build_slots"], f"a build slot ({conf['build_slots']} builds at once)")
+        classes.append(f"build {n}/{conf['build_slots']}")
+    if job_class != "light":
+        n = locks.acquire("heavy", conf["heavy_slots"],
+                          f"a heavy slot ({conf['heavy_slots']} whole suites or builds at once)")
+        classes.append(f"heavy {n}/{conf['heavy_slots']}")
+    return locks.acquire("slot", conf["slots"], "a global slot"), classes
+
+
+def lock_worktree(locks):
+    """Take the legacy and worktree locks and return the worktree path."""
+    # Jobs from the previous wrapper generation hold this lock exclusively.
+    # Shared holders run together but never overlap one of those.
+    locks.wait(locks.queue / "lock", fcntl.LOCK_SH, lambda: "legacy validation to finish")
+    worktree = worktree_root()
+    key = hashlib.sha256(worktree.encode()).hexdigest()
+    # Taken before any global slot, so same-worktree waiters consume no slots.
+    locks.wait(locks.queue / "worktrees" / f"{key}.lock", fcntl.LOCK_EX,
+               lambda: f"worktree {shlex.quote(worktree)}")
+    return worktree
+
+
 def main(argv):
     conf = hostconf.load()
     if not argv or argv[0] in ("--help", "-h"):
@@ -112,71 +231,39 @@ def main(argv):
     os.chmod(queue, 0o700)
     os.chmod(queue / "worktrees", 0o700)
     started = time.monotonic()
-    held = []
-
-    # Jobs from the previous wrapper generation hold this lock exclusively.
-    # Shared holders run together but never overlap one of those.
-    legacy = open_lock(queue / "lock")
-    wait_for(legacy, fcntl.LOCK_SH, lambda: "legacy validation to finish", started)
-    held.append(legacy)
-
-    worktree = worktree_root()
-    key = hashlib.sha256(worktree.encode()).hexdigest()
-    # Taken before any global slot, so same-worktree waiters consume no slots.
-    tree = open_lock(queue / "worktrees" / f"{key}.lock")
-    wait_for(tree, fcntl.LOCK_EX, lambda: f"worktree {shlex.quote(worktree)}", started)
-    held.append(tree)
-
+    locks = Locks(queue, started)
+    worktree = lock_worktree(locks)
     job_class = classify(argv)
-
-    def acquire(prefix, count, label):
-        """Hold the first free of COUNT slots; classes go build, heavy, global, so no deadlock."""
-        next_report = time.monotonic() + 10
-        while True:
-            for number in range(1, count + 1):
-                fd = open_lock(queue / f"{prefix}-{number}.lock")
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    os.close(fd)
-                    continue
-                stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                (queue / f"{prefix}-{number}.owner").write_text(
-                    f"pid={os.getpid()} class={job_class} executable={shlex.quote(argv[0])} "
-                    f"worktree={shlex.quote(worktree)} started={stamp}\n")
-                held.append(fd)
-                return number
-            if time.monotonic() >= next_report:
-                say(f"waiting for {label} ({int(time.monotonic() - started)}s)")
-                next_report += 10
-            time.sleep(1)
-
-    classes = []
-    if job_class == "build":
-        n = acquire("build", conf["build_slots"], f"a build slot ({conf['build_slots']} builds at once)")
-        classes.append(f"build {n}/{conf['build_slots']}")
-    if job_class != "light":
-        n = acquire("heavy", conf["heavy_slots"],
-                    f"a heavy slot ({conf['heavy_slots']} whole suites or builds at once)")
-        classes.append(f"heavy {n}/{conf['heavy_slots']}")
-    slot = acquire("slot", conf["slots"], "a global slot")
+    locks.owner = (f"pid={os.getpid()} class={job_class} executable={shlex.quote(argv[0])} "
+                   f"worktree={shlex.quote(worktree)}")
+    slot, classes = acquire_slots(locks, conf, job_class)
 
     prefix, where = launcher(conf)
     detail = f", {', '.join(classes)}" if classes else ""
-    say(f"acquired slot {slot} ({job_class}{detail}) after {int(time.monotonic() - started)}s; "
+    waited = time.monotonic() - started
+    say(f"acquired slot {slot} ({job_class}{detail}) after {int(waited)}s; "
         f"running {shlex.quote(argv[0])} ({where})")
 
     env = dict(os.environ, HOST_CHECK_ACTIVE="1")
     env.setdefault("VITEST_MAX_WORKERS", str(conf["vitest_max_workers"]))
     # The command and its surviving children keep the locks until they exit.
-    for fd in held:
-        os.set_inheritable(fd, True)
     command = [*prefix, *argv]
-    try:
-        os.execvpe(command[0], command, env)
-    except FileNotFoundError:
+    begun = time.gmtime()
+    returncode = run_job(command, env, locks.held)
+    if returncode is None:
         say(f"command not found: {command[0]}")
         return 127
+    log_job(queue, {
+        "start": time.strftime("%Y-%m-%dT%H:%M:%SZ", begun),
+        "label": os.environ.get("HOST_CHECK_LABEL"),
+        "class": job_class,
+        "worktree": worktree,
+        "command": shlex.join(argv)[:500],
+        "wait_s": round(waited, 1),
+        "run_s": round(time.monotonic() - started - waited, 1),
+        "exit": returncode,
+    })
+    return exit_like(returncode)
 
 
 if __name__ == "__main__":
