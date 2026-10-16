@@ -23,6 +23,8 @@ CLAUDE_SETTINGS = Path(__file__).resolve().parents[2] / "config" / "claude-setti
 HOST_CONF = HOME / ".config" / "fleet" / "host.json"  # bin/sync links it to hosts/<host>/host.json
 # Hooks that call scripts from skills fleet no longer installs for every agent.
 RETIRED_HOOKS = ["/skills/impeccable/"]
+# Managed keys merged one entry at a time, so a machine's own entries (a gateway's token) survive.
+MERGED_KEYS = {"env"}
 MESSAGES = {
     "Claude Code": ("hook", "Claude Code: add the guard to {}"),
     "Claude settings": ("set", "Claude Code: write {keys} in {path}"),
@@ -81,10 +83,15 @@ def managed_claude_settings():
     return {k: v for k, v in managed.items() if not k.startswith("$")}
 
 
+def merged(data, managed):
+    """The managed values, with each MERGED_KEYS dict laid over the one already in data."""
+    return {k: {**data.get(k, {}), **v} if k in MERGED_KEYS else v for k, v in managed.items()}
+
+
 def claude_settings():
     path = HOME / ".claude" / "settings.json"
     data = load(path) or {}
-    managed = managed_claude_settings()
+    managed = merged(data, managed_claude_settings())
     changed = [k for k, v in managed.items() if data.get(k) != v]
     if "includeCoAuthoredBy" in data:  # deprecated; attribution replaces it
         changed.append("includeCoAuthoredBy")

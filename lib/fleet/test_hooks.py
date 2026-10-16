@@ -46,6 +46,15 @@ class ClaudeSettings(unittest.TestCase):
         _, data, _ = hooks.claude_settings()
         self.assertEqual(data, {"syncClaudeAiSkills": True, "skillOverrides": {"dataviz": "user-invocable-only"}})
 
+    def test_env_merges_per_variable(self):
+        self.config.write_text(json.dumps({"env": {"ENABLE_TOOL_SEARCH": "true"}}))
+        self.settings.write_text(json.dumps({"env": {"ANTHROPIC_BASE_URL": "http://proxy", "ENABLE_TOOL_SEARCH": "auto"}}))
+        _, data, details = hooks.claude_settings()
+        self.assertEqual(data["env"], {"ANTHROPIC_BASE_URL": "http://proxy", "ENABLE_TOOL_SEARCH": "true"})
+        self.assertEqual(details["keys"], "env")
+        self.settings.write_text(json.dumps(data))
+        self.assertIsNone(hooks.claude_settings())
+
     def test_shipped_config_is_valid(self):
         managed = json.loads((Path(__file__).resolve().parents[2] / "config" / "claude-settings.json").read_text())
         self.assertEqual(managed["attribution"], {"commit": "", "pr": "", "sessionUrl": False})
