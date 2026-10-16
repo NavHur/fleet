@@ -172,6 +172,13 @@ class SchedulerTests(unittest.TestCase):
         self.assertGreaterEqual(first["wait_s"], 0)
         self.assertGreaterEqual(first["run_s"], 0)
 
+    def test_job_killed_by_sigkill_is_logged_and_wrapper_dies_by_it(self):
+        process = self.launch(self.a, "bash", "-c", "kill -KILL $$")
+        process.communicate(timeout=5)
+        self.assertEqual(process.returncode, -signal.SIGKILL)
+        records = [json.loads(line) for line in (self.queue / "jobs.jsonl").read_text().splitlines()]
+        self.assertEqual([r["exit"] for r in records], [-signal.SIGKILL])
+
     def test_nested_wrapper_is_rejected(self):
         process = self.launch(self.a, str(self.wrapper), "true")
         _, stderr = process.communicate(timeout=5)

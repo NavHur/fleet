@@ -125,7 +125,9 @@ def exit_like(returncode):
     """Exit as the job did, dying by its signal so callers see the same status."""
     if returncode >= 0:
         return returncode
-    signal.signal(-returncode, signal.SIG_DFL)
+    # SIGKILL's disposition cannot be changed, and it never needs resetting.
+    if -returncode != signal.SIGKILL:
+        signal.signal(-returncode, signal.SIG_DFL)
     os.kill(os.getpid(), -returncode)
     return 128 - returncode
 
@@ -136,9 +138,11 @@ def log_job(queue, record):
     try:
         fd = os.open(queue / "jobs.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         try:
-            os.write(fd, line)
+            written = os.write(fd, line)
         finally:
             os.close(fd)
+        if written < len(line):
+            say(f"could not log the job: wrote {written} of {len(line)} bytes")
     except OSError as error:
         say(f"could not log the job: {error}")
 
