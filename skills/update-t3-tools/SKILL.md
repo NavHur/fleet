@@ -41,7 +41,8 @@ Filter process output to T3 and its ancestors/children. For every T3 server, ide
 Check the service's effective PATH against the CLI paths above. An interactive shell finding a new CLI does not prove the service can find it. Preserve existing service configuration and drop-ins, including:
 
 - `Linger=yes`, an enabled unit, and `Restart=always` with its existing delay. Linger allows startup at boot and operation after logout. Keep systemd's crash-loop limits.
-- `~/.config/systemd/user/t3code.service.d/listen.conf`, which pins `T3CODE_HOST=127.0.0.1` and the host's fixed `T3CODE_PORT` (3773 on workbox, 3776 on devbox and homebox). Read the drop-in rather than assuming the port.
+- The port drop-in in `~/.config/systemd/user/t3code.service.d/` (`listen.conf` on some hosts, `port.conf` on homebox), which pins `T3CODE_HOST=127.0.0.1` and the host's fixed `T3CODE_PORT` (3773 on workbox, 3776 on devbox and homebox). Read the drop-ins rather than assuming the file name or port.
+- A PATH drop-in such as `path.conf`, which sets the service's PATH to include the provider CLI directories (`~/.local/bin`, `~/.opencode/bin`).
 
 The provisioned relay forwards to that fixed origin. A random service port previously let the homepage respond locally while T3 Connect failed with `endpoint_request_failed`. Preserve agreement between the service listener and relay origin; do not select a fallback port to bypass a conflict.
 
@@ -53,11 +54,14 @@ Use each installation's supported updater and preserve its channel. Confirm flag
 
 | Tool | Update method |
 | --- | --- |
-| T3 Code managed runtime | `t3 update --base-dir ~/.t3 --channel <discovered channel> --yes` (workbox uses `nightly`). This downloads the runtime and switches the installed background service. |
+| T3 Code managed runtime | `t3 update --base-dir ~/.t3 --channel <discovered channel> --yes` (workbox and homebox use `nightly`). This downloads the runtime and switches the installed background service. |
 | Codex standalone | `codex update` |
 | Claude Code native | `claude update` |
-| OpenCode npm | `npm install -g opencode-ai@latest`, preserving any explicitly pinned version/channel. |
+| OpenCode script install (`~/.opencode/bin`, as on homebox) | `~/.opencode/bin/opencode upgrade --method curl` |
+| OpenCode npm | `npm install -g @opencode/cli@latest`, preserving any explicitly pinned version/channel. OpenCode 2.x ships as `@opencode/cli`; the legacy `opencode-ai` package stops at 1.x, so installing it would downgrade. |
 | Cursor Agent | `cursor-agent update`; update once when `agent` is an alias of the same installation. |
+
+`t3` may be missing from the interactive PATH (as on homebox). Then run the managed runtime binary directly, `~/.t3/runtime/versions/<activeVersion>/t3`, taking `activeVersion` from `~/.t3/runtime/service-state.json`; that file's `update.status` also shows whether the last update committed. Before running the updater, compare `activeVersion` with the channel's tag from `npm view t3 dist-tags --json`. If they match, record T3 as already current and skip `t3 update`, since `--yes` may restart the service for no gain.
 
 T3 may have both an npm launcher and a managed runtime. Updating npm alone does not establish that the service runtime changed. If the npm launcher itself needs updating, use its existing channel from `npm view t3 dist-tags --json`, then use the supported runtime updater and verify both resolutions. Do not replace the managed installation with a second server or hard-code a new runtime path into the unit.
 
