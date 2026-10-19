@@ -2,14 +2,13 @@
 Description=Shared validation jobs started through host-check
 
 [Slice]
-# Lower priority than app.slice (weight 1000), which hosts T3 and previews.
-# Share weight 100 with agents.slice; use CPU that services do not need.
+# Weight 250 against app.slice at 1000 (T3, agent sessions, previews): when
+# both want every core, builds get 250/1250 = 20% (about 1.6 of 8 vCPUs), so
+# they keep moving and agents waiting on them are not stalled. Whatever app.slice
+# leaves unused goes to builds too, up to all 8 vCPUs.
+CPUWeight=250
 # IOWeight only takes effect if the io controller is delegated to user@1000.
-CPUWeight=100
 IOWeight=100
-# Allow validation jobs to burst across all 8 vCPUs (t3.2xlarge).
-# Service weights favor T3 and previews when the host is busy.
-CPUQuota=800%
 # Reclaim build memory first, and OOM-kill builds rather than services.
 MemoryHigh=18G
 MemoryMax=22G
