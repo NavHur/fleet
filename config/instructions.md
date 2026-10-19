@@ -10,8 +10,18 @@ Run builds, tests, lint, typechecks, format checks, and benchmarks through
 
 ## Git
 
-- Commit, push, and merge when the work calls for it. Force push `main`,
-  `staging`, or `nightly` only when Pedro says so in that conversation.
+- Commit when the work calls for it. Pushing follows the owner in the
+  `origin` URL. For `PedroNavHur`, push branches whenever the work calls for
+  it, without asking: this is standing approval. For any other owner, push
+  only when Pedro asks in that conversation or a skill he invoked pushes as
+  one of its steps (`review-loop`, `split-stacked-prs` publish or restack).
+- Push to, force push, or merge into `main`, `staging`, or `nightly` only when
+  Pedro says so in that conversation. Other branches are yours to rebase,
+  force push with a lease, and merge into.
+- Merge PRs with a merge commit so every commit is kept: `gh pr merge N
+  --merge`, `gh stack merge --yes --merge`, REST `merge_method=merge`. Never
+  squash or rebase-merge; rebase a branch onto its base instead when it needs
+  it.
 - Commit subjects: a Conventional Commits type, a scope when obvious
   (`fix(vacant-land): …`), imperative, under 72 characters; reasoning in the
   body.

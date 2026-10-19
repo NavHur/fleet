@@ -26,7 +26,9 @@ same target, else ask once:
 
 - **Target**: a PR, a stack (its top PR or branch), or a local branch with its base.
 - **Reviewer** model and effort, and **worker** model and effort for fixes.
-- **Push**: whether a converged loop pushes (default: stop locally and report).
+- **Push**: whether a converged loop pushes (default: push; the user can ask
+  to stop locally and report). Invoking the loop is the ask to push, in work
+  repos too.
 - **Round cap**: default 5, the first full round included.
 
 ## The ledger
@@ -138,7 +140,7 @@ confirmed findings, and fixes made.
   first. Record each ruling with `loop.py outcome "$LOOP" ID ruled --note RULING`.
   A ruling that changes code reopens the loop at step 4 with one more delta
   round, without counting against the cap.
-- **Push** (when authorized, or when the user approves now): for a stack,
+- **Push** (unless the invocation said to stop locally): for a stack,
   follow `split-stacked-prs` section 7 step 5; for a branch, run its gates and
   push.
 - **Comment**: run
