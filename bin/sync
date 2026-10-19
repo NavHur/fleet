@@ -159,7 +159,7 @@ while read -r home_path repo_path condition; do
   before=$(readlink "$HOME/$home_path" 2>/dev/null || true)
   ensure_link "$FLEET/$repo_path" "$HOME/$home_path"
   case "$home_path" in
-    *.slice|*.service|*.timer) [ "$before" = "$FLEET/$repo_path" ] || SLICE_CHANGED=1 ;;
+    *.slice|*.service|*.timer|*.d/*.conf) [ "$before" = "$FLEET/$repo_path" ] || SLICE_CHANGED=1 ;;
   esac
 done < "$FLEET/links"
 

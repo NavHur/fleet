@@ -15,6 +15,8 @@
 .claude/hooks/agent-cli-guard.py        hosts/{host}/claude-hooks/agent-cli-guard.py
 .claude/hooks/migration-guard.py        hosts/{host}/claude-hooks/migration-guard.py
 .config/systemd/user/builds.slice       hosts/{host}/builds.slice
+.config/systemd/user/app-t3code.slice.d/priority.conf  hosts/{host}/systemd/app-t3code.slice.d/priority.conf  if:.config/systemd
+.config/systemd/user/app-t3code-agents.slice.d/priority.conf  hosts/{host}/systemd/app-t3code-agents.slice.d/priority.conf  if:.config/systemd
 .config/systemd/user/idle-compact.service  config/idle-compact/idle-compact.service  if:.config/systemd
 .config/systemd/user/idle-compact.timer    config/idle-compact/idle-compact.timer    if:.config/systemd
 .config/opencode/plugins/host-check.js  lib/host-check/opencode-plugin.js  if:.config/opencode
