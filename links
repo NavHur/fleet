@@ -7,6 +7,7 @@
 .local/bin/bg-job                       bin/bg-job
 .local/bin/idle-compact                 bin/idle-compact
 .local/bin/actions-runners              bin/actions-runners
+.local/bin/file-size                    lib/file-size/file_size.py
 .local/lib/host-check                   lib/host-check
 .config/fleet/host.json                 hosts/{host}/host.json
 .config/fleet/runners.json              hosts/{host}/runners.json
