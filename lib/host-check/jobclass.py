@@ -14,9 +14,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from guard import (  # noqa: E402
     ASSIGNMENT, BENCH_SCRIPT, COMMAND_WORDS, GLOB, HELP, MAX_DEPTH, PREFIXES, SHELLS, WRAPPERS,
-    bg_job_command, expansions, guarded, read_script, runner_invocations, shell_invocation,
+    bg_job_command, guarded, read_script, runner_invocations, shell_invocation,
     shell_script, stored_commands, walk,
 )
+from packages import expansions  # noqa: E402
 
 # Job classes for host-check admission. Builds and whole suites are CPU-heavy
 # (2.5 to 3.3 cores each); targeted tests, lint, format, and typecheck are light.
