@@ -103,9 +103,17 @@ class CommitGuardTest(unittest.TestCase):
         self.write("a.py", "small\nmore\n")
         self.write("big.py", BIG)
         for command in ["git checkout -- a.py && git add big.py && git commit -m x",
-                        "git stash push big.py && git commit -am x", "rm -f big.py && git add -A && git commit -m x"]:
+                        "rm -f big.py && git add -A && git commit -m x"]:
             with self.subTest(command=command):
                 self.assertFalse(self.denied(command))
+        self.write("a.py", BIG)
+        self.assertTrue(self.denied("git commit -am x"))
+        self.assertFalse(self.denied("git stash push a.py && git commit -am x"))
+
+    def test_a_cd_into_a_path_the_walker_cannot_read_ends_the_check(self):
+        self.write("a.py", BIG)
+        self.assertTrue(self.denied("git commit -am x"))
+        self.assertFalse(self.denied('cd "$B" && git commit -am x'))
 
     def test_cd_read_only_git_and_shell_keywords_keep_the_check(self):
         (self.repo / "sub").mkdir()
