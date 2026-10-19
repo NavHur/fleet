@@ -45,14 +45,14 @@ fleet/bin/sync --apply    # pull, link own skills, install and update third-part
 | `~/.local/bin/idle-compact` | `bin/idle-compact`: idle Claude threads in T3 to compact before their prompt cache expires |
 | `~/.local/bin/actions-runners` | `bin/actions-runners`: a self-hosted GitHub Actions runner per repository |
 | `~/.local/bin/shots` | `lib/shots/shots.mjs`: screenshots of a running app as small JPEGs, queued through host-check |
-| `~/.local/lib/host-check/` | `lib/host-check/`: `guard.py` (command guard and job classes), tests, OpenCode plugin |
+| `~/.local/lib/host-check/` | `lib/host-check/`: `guard.py` (command guard and job classes), `merge_method.py` (squash and rebase merge refusal), tests, OpenCode plugin |
 | `~/.config/t3-orchestration.md` | `config/t3-orchestration.md` |
 | `~/.config/host-validation.md` | generated from `config/host-validation.md` plus `hosts/<machine>/host-validation.md` |
 | `~/.config/fleet/host.json` | `hosts/<machine>/host.json`: queue limits and CPU policy |
 | `~/.config/systemd/user/builds.slice` | `hosts/<machine>/builds.slice` (Linux) |
 | `~/.claude/hooks/*-guard.py` | `hosts/workbox/claude-hooks/`: workbox's merge, migration, and agent-CLI guards, which `/etc/claude-code/managed-settings.json` and `~/.codex/hooks.json` run |
 
-The full list of links is in `links`. `bin/sync` also adds the guard to Claude Code, Codex, Cursor, and OpenCode as a pre-command hook. On Linux, host-check runs jobs in `builds.slice`; on macOS it runs them under `taskpolicy -c utility`, which yields the CPU to interactive work and does not limit memory.
+The full list of links is in `links`. `bin/sync` also adds the guard to Claude Code, Codex, Cursor, and OpenCode as a pre-command hook. The guard also refuses PR merges that squash or rebase, and a `gh stack merge` that doesn't name `--merge`, since that one reuses the last method used. On Linux, host-check runs jobs in `builds.slice`; on macOS it runs them under `taskpolicy -c utility`, which yields the CPU to interactive work and does not limit memory.
 
 ### How the queue works
 

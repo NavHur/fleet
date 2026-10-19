@@ -1,5 +1,5 @@
-"""Catch common unqueued validation commands and development servers, and
-classify host-check jobs.
+"""Catch common unqueued validation commands, development servers, and PR
+merges that squash or rebase (merge_method.py), and classify host-check jobs.
 
     python3 guard.py [claude|codex|cursor|opencode] < hook-payload.json
     python3 guard.py --classify COMMAND [ARG ...]    # prints build, heavy, or light
@@ -21,6 +21,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import hostconf  # noqa: E402
+import merge_method  # noqa: E402
 
 REASON = (
     f"Shared CPU queue: run validation through {hostconf.HOST_CHECK}. "
@@ -758,18 +759,23 @@ def hook_cwd(payload, tool_input):
     return os.getcwd()
 
 
+def decision(payload):
+    """(denied, reason) for the hooked shell command."""
+    tool_input = payload.get("tool_input", payload)
+    command = tool_input.get("command", tool_input.get("cmd"))
+    if not isinstance(command, str):
+        raise ValueError("missing shell command")
+    if merge_method.refuses(command, segments(command)):
+        return True, merge_method.REASON
+    if hostconf.load()["deny_dev_servers"] and starts_dev(command):
+        return True, DEV_REASON
+    return needs_queue(command, hook_cwd(payload, tool_input)), REASON
+
+
 def main():
     adapter = sys.argv[1] if len(sys.argv) > 1 else "claude"
     try:
-        payload = json.load(sys.stdin)
-        tool_input = payload.get("tool_input", payload)
-        command = tool_input.get("command", tool_input.get("cmd"))
-        if not isinstance(command, str):
-            raise ValueError("missing shell command")
-        if hostconf.load()["deny_dev_servers"] and starts_dev(command):
-            denied, reason = True, DEV_REASON
-        else:
-            denied, reason = needs_queue(command, hook_cwd(payload, tool_input)), REASON
+        denied, reason = decision(json.load(sys.stdin))
     except (ValueError, TypeError, AttributeError) as exc:
         denied = True
         reason = "Host validation guard could not read the command: " + str(exc)

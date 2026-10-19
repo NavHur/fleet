@@ -35,9 +35,9 @@ class MergeGuardTests(unittest.TestCase):
         self.assertIn("Name the PR number", self.reason("gh stack merge"))
 
     def test_merges_need_chat_approval(self):
-        self.assertIn("hasn't approved merging PR #12", self.reason("gh pr merge 12 --squash"))
+        self.assertIn("hasn't approved merging PR #12", self.reason("gh pr merge 12 --merge"))
         self.say("merge 12")
-        self.assertIsNone(self.reason("gh pr merge 12 --squash"))
+        self.assertIsNone(self.reason("gh pr merge 12 --merge"))
         self.assertIn("#13", self.reason("gh pr merge 12 && gh pr merge 13"))
 
     def test_negation_withholds_approval(self):
