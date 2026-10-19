@@ -306,9 +306,9 @@ def walk_unwrapped(command, cwd, depth=0):
         yield from unwrapped(words, here, depth)
 
 
-def unwrapped_commands(command, depth=0):
+def unwrapped_commands(command):
     """Each command a shell command runs, as words, and the commands in its `bash -c` strings."""
-    for words, _ in walk_unwrapped(command, os.getcwd(), depth):
+    for words, _ in walk_unwrapped(command, os.getcwd()):
         yield words
 
 
