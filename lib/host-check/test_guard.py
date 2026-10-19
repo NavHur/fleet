@@ -5,7 +5,8 @@ import subprocess
 import tempfile
 import unittest
 
-from guard import job_class, needs_queue, starts_dev
+from guard import needs_queue, starts_dev
+from jobclass import job_class
 from hostconf import HOST_CHECK
 
 ROOT = Path(__file__).parent
@@ -287,7 +288,7 @@ class ClassTests(Fixtures):
             (["bash", "-lc", "pnpm lint && pnpm build"], "/", "build"),
             (["pnpm", "lint"], self.app, "light"),
         ]:
-            result = subprocess.run(["/usr/bin/python3", str(ROOT / "guard.py"), "--classify", *argv],
+            result = subprocess.run(["/usr/bin/python3", str(ROOT / "jobclass.py"), *argv],
                                     cwd=cwd, text=True, capture_output=True, check=True)
             with self.subTest(argv=argv):
                 self.assertEqual(result.stdout.strip(), expected)
