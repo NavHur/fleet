@@ -2,8 +2,10 @@
 
 `gh stack merge` without a method reuses the last one used, so it must name
 `--merge`. Like guard.py, this recognizes the common spellings and is not a
-security boundary: GitHub's repository settings are the backstop. A GraphQL
-query read from a file (`query=@file`) goes unchecked.
+security boundary: GitHub's repository settings are the backstop. guard.py
+unwraps the shell command (keywords, assignments, `env`, `bash -c`) into the
+commands it runs; this judges each `gh` call among them. A GraphQL query read
+from a file (`query=@file`) goes unchecked.
 """
 import os
 import re
@@ -18,46 +20,78 @@ REWRITING = {"squash", "rebase"}
 PR_SHORT_METHODS = {"m": "merge", "s": "squash", "r": "rebase"}
 # The flags of a short cluster (`-sd`) before one that takes a value (`-tSubject`).
 PR_SHORT_CLUSTER = re.compile(r"-([^AbFtR]*)")
-ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*=")
+# The long flags of `gh pr merge` that take a value; the short ones are AbFtR above.
+PR_VALUE_OPTIONS = {"--author-email", "--body", "--body-file", "--subject", "--match-head-commit", "--repo"}
 # REST fields (merge_method=squash) and GraphQL inputs (mergeMethod: SQUASH).
 API_METHOD = re.compile(r"merge_?method[\"']?\s*[:=]\s*[\"']?(squash|rebase)\b", re.I)
 
 
-def refuses(command, commands):
-    """Whether the shell command, split into its simple commands' words, squashes or rebases a PR merge."""
+def refuses(command, unwrapped_commands):
+    """Whether a shell command squashes or rebases a PR merge, given the word lists of the commands it runs."""
     if "api.github.com" in command and API_METHOD.search(command):
         return True
-    return any(rewrites(gh_args(words)) for words in commands)
+    return any(refuses_gh_call(gh_args(words)) for words in unwrapped_commands)
 
 
 def gh_args(words):
-    """A `gh` call's arguments after any NAME=value prefixes, or None for another command."""
-    words = list(words)
-    while words and ASSIGNMENT.match(words[0]):
-        words.pop(0)
+    """A `gh` call's arguments, or None for another command."""
     if not words or os.path.basename(words[0]) != "gh":
         return None
     return words[1:]
 
 
-def rewrites(args):
-    if args is None or HELP & set(args):
+def refuses_gh_call(args):
+    """Whether a `gh` call merges a PR by squash or rebase, or leaves `gh stack merge` to reuse its last method."""
+    if args is None:
         return False
     if args[:2] == ["pr", "merge"]:
-        return bool(REWRITING & pr_merge_methods(args[2:]))
+        return pr_merge_refused(args[2:])
     if args[:2] == ["stack", "merge"]:
-        return stack_merge_method(args[2:]) != "merge"
-    return args[:1] == ["api"] and bool(API_METHOD.search(" ".join(args[1:])))
+        return stack_merge_refused(args[2:])
+    return args[:1] == ["api"] and HELP.isdisjoint(args) and bool(API_METHOD.search(" ".join(args[1:])))
 
 
-def pr_merge_methods(args):
-    """The methods a `gh pr merge` names, in long flags or short clusters (`-sd`)."""
-    return {method for arg in args for method in flag_methods(arg)}
+def pr_merge_refused(args):
+    flags = flag_words(args, pr_takes_value)
+    return HELP.isdisjoint(flags) and bool(REWRITING & pr_merge_methods(flags))
+
+
+def stack_merge_refused(args):
+    flags = flag_words(args, stack_takes_value)
+    return HELP.isdisjoint(flags) and stack_merge_method(args) != "merge"
+
+
+def flag_words(args, takes_value):
+    """The arguments that are not the value of a flag reading its value from the next argument."""
+    kept, skip = [], False
+    for arg in args:
+        if not skip:
+            kept.append(arg)
+        skip = not skip and takes_value(arg)
+    return kept
+
+
+def pr_takes_value(arg):
+    """Whether a `gh pr merge` flag takes the next argument as its value, not inline (`--body=x`, `-tSubject`)."""
+    if arg.startswith("--"):
+        return arg in PR_VALUE_OPTIONS
+    cluster = PR_SHORT_CLUSTER.match(arg)
+    return bool(cluster) and len(arg) == cluster.end() + 1
+
+
+def stack_takes_value(arg):
+    return arg == "--merge-method"
+
+
+def pr_merge_methods(flags):
+    """The merge methods named by a `gh pr merge`'s flags, in long flags or short clusters (`-sd`)."""
+    return {method for arg in flags for method in flag_methods(arg)}
 
 
 def flag_methods(arg):
     if arg.startswith("--"):
-        return [arg[2:].split("=", 1)[0]]
+        name = arg[2:].split("=", 1)[0]
+        return [name] if name in PR_SHORT_METHODS.values() else []
     if not arg.startswith("-"):
         return []
     flags = PR_SHORT_CLUSTER.match(arg).group(1)

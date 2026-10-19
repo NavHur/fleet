@@ -46,8 +46,9 @@ Workers share the checkout. Give each explicit file ownership and say that
 other workers are present, so it preserves their edits. For validation,
 include `~/.config/host-validation.md` and require `~/.local/bin/host-check`.
 Authorize commits, pushes, PRs, or service operations only when they belong to
-the user's task, and pushes only as the Git rules allow the parent; a commit still needs format, lint, and typecheck on its
-changed files, and a push's top head the pre-commit skill.
+the user's task, and pushes only as the Git rules allow the parent; a commit
+still needs format, lint, and typecheck on its changed files, and a push's top
+head the pre-commit skill.
 
 A native worktree subagent's isolation guard refuses Bash it cannot prove stays
 in the worktree: heredocs, loops, `cd` chains, and `$(…)`. Brief those workers

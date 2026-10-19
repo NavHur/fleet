@@ -3,14 +3,14 @@ from pathlib import Path
 import subprocess
 import unittest
 
-from guard import segments
+from guard import unwrapped_commands
 from merge_method import refuses
 
 ROOT = Path(__file__).parent
 
 
 def refused(command):
-    return refuses(command, segments(command))
+    return refuses(command, unwrapped_commands(command))
 
 
 class MergeMethodTests(unittest.TestCase):
@@ -23,6 +23,39 @@ class MergeMethodTests(unittest.TestCase):
             ("gh pr merge 12 -tFix -m", False), ("gh pr merge 12 --merge -t 'squash later'", False),
             ("gh pr merge --help", False), ("gh pr view 12 --json mergeable", False),
             ("git fetch && gh pr merge 12 --squash", True), ('echo "$(gh pr merge 12 -s)"', True),
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(refused(command), expected)
+
+    def test_flag_values_are_not_flags(self):
+        for command, expected in [
+            ("gh pr merge 1 --merge -b '-s fixes'", False), ("gh pr merge 1 --merge --body --squash", False),
+            ("gh pr merge 1 -m -tSubject", False), ("gh pr merge 1 -m -t -r", False),
+            ("gh pr merge 1 --merge --subject=--help", False), ("gh pr merge 1 --auto -d --merge", False),
+            ("gh pr merge 1 --squash -t --help", True), ("gh pr merge 1 --squash --subject --help", True),
+            ("gh pr merge 1 -s -b notes -h", False), ("gh pr merge 1 -dt Title -s", True),
+            ("gh stack merge --yes --merge-method --help", True), ("gh stack merge --yes --merge --help", False),
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(refused(command), expected)
+
+    def test_wrapped_calls_are_judged_too(self):
+        for command, expected in [
+            ("env gh pr merge 1 --squash", True), ("env -u FOO BAR=1 gh pr merge 1 -s", True),
+            ("timeout 60 gh pr merge 1 --squash", True), ("timeout -s KILL 60 gh pr merge 1 -s", True),
+            ("nohup gh pr merge 1 -s", True), ("nice -n 5 gh pr merge 1 -s", True),
+            ("command gh pr merge 1 -s", True), ("exec gh pr merge 1 -s", True), ("time gh pr merge 1 -s", True),
+            ("host-check gh pr merge 1 -s", True), ("bg-job start merge -- gh pr merge 1 -s", True),
+            ("if true; then gh pr merge 1 -s; fi", True), ("{ gh pr merge 1 -s; }", True),
+            ("! gh pr merge 1 -s", True), ("FOO+=x gh pr merge 1 -s", True),
+            ("for n in 1 2; do gh pr merge $n --rebase; done", True), ("H=gh; $H pr merge 1 -s", True),
+            ("bash -c 'gh pr merge 1 --squash'", True), ("bash -lc 'gh pr merge 1 -s'", True),
+            ("host-check bash -lc 'gh stack merge --yes'", True),
+            ("bash -c \"bash -c 'gh pr merge 1 -s'\"", True),
+            ("env gh pr merge 1 --merge", False), ("timeout 60 gh pr merge 1 --merge", False),
+            ("bash -lc 'gh pr merge 1 --merge'", False), ("bg-job start merge -- gh pr merge 1 --merge", False),
+            ("if true; then gh pr merge 1 --merge; fi", False), ("env gh pr view 1", False),
+            ("echo gh pr merge 1 --squash", False), ("bash -c 'echo hi'", False),
         ]:
             with self.subTest(command=command):
                 self.assertEqual(refused(command), expected)

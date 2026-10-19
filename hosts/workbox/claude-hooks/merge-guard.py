@@ -38,7 +38,7 @@ MERGE_PATH = re.compile(r"pulls/(\d+)/merge\b")
 NEGATION = re.compile(r"\b(don'?t|do not|never|not yet|wait|hold|stop|no)\b", re.I)
 NOT_HUMAN = ("<task-notification", "<local-command", "<command-name>", "<command-message>")
 HELP = {"-h", "--help"}
-USE_GH = "use `gh pr merge <N>` or `gh stack merge <N>`"
+USE_GH = "use `gh pr merge <N> --merge` or `gh stack merge <N> --yes --merge`"
 CODEX_SESSIONS = os.path.expanduser("~/.codex/sessions")
 # T3 notices and context injections that Codex records as user messages.
 CODEX_NOT_HUMAN = ("Delegated task ", "The user supplied replacement AGENTS.md guidance", "<")

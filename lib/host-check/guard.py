@@ -356,6 +356,55 @@ def shell_invocation(args):
     return ("file", args[i]) if i < len(args) else ("stdin", None)
 
 
+DURATION = re.compile(r"^\d+[smhd]?$")
+# Wrapper options that take the next argument as their value (`env -u NAME`, `timeout -s KILL 60`).
+WRAPPER_VALUE_OPTIONS = {"-u", "-C", "-s", "-k", "-a", "--unset", "--chdir", "--signal", "--kill-after"}
+
+
+def leading_command(words):
+    """The words from the command itself, after assignments and keywords such as `then` and `!`."""
+    start = next((i for i, word in enumerate(words) if not (ASSIGNMENT.match(word) or word in PREFIXES)), len(words))
+    return words[start:]
+
+
+def wrapped_command(args):
+    """What a wrapper (`env`, `timeout 60`, `nice -n 5`) runs: its arguments after its options, assignments, and durations."""
+    while args and (args[0].startswith("-") or ASSIGNMENT.match(args[0]) or DURATION.match(args[0])):
+        args = args[2:] if args[0] in WRAPPER_VALUE_OPTIONS else args[1:]
+    return args
+
+
+def shell_string_commands(args, depth):
+    """The commands in the `-c` string of a shell invocation, up to MAX_DEPTH levels deep."""
+    kind, code = shell_invocation(args)
+    if kind != "string" or depth >= MAX_DEPTH:
+        return
+    try:
+        yield from unwrapped_commands(code, depth + 1)
+    except ValueError:
+        return  # code shlex cannot parse
+
+
+def unwrapped(words, depth):
+    """The command a simple command ends in, found past keywords, assignments, wrappers, and `bg-job`."""
+    words = leading_command(words)
+    name = os.path.basename(words[0]) if words else ""
+    if name in WRAPPERS:
+        yield from unwrapped(wrapped_command(words[1:]), depth)
+    elif name == "bg-job":
+        yield from unwrapped(bg_job_command(words[1:]), depth)
+    elif name in SHELLS:
+        yield from shell_string_commands(words[1:], depth)
+    elif words:
+        yield words
+
+
+def unwrapped_commands(command, depth=0):
+    """Each command a shell command runs, as words, and the commands in its `bash -c` strings."""
+    for words, _ in walk(command, os.getcwd()):
+        yield from unwrapped(words, depth)
+
+
 def shell_script(word, cwd):
     """The path of a shell script run directly by path (`./gates.sh`), or None."""
     if "/" not in word or "$" in word or "node_modules/.bin/" in word:
@@ -765,7 +814,7 @@ def decision(payload):
     command = tool_input.get("command", tool_input.get("cmd"))
     if not isinstance(command, str):
         raise ValueError("missing shell command")
-    if merge_method.refuses(command, segments(command)):
+    if merge_method.refuses(command, unwrapped_commands(command)):
         return True, merge_method.REASON
     if hostconf.load()["deny_dev_servers"] and starts_dev(command):
         return True, DEV_REASON

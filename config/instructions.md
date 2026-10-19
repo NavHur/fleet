@@ -16,8 +16,8 @@ Run builds, tests, lint, typechecks, format checks, and benchmarks through
   only when Pedro asks in that conversation or a skill he invoked pushes as
   one of its steps (`review-loop`, `split-stacked-prs` publish or restack).
 - Push to, force push, or merge into `main`, `staging`, or `nightly` only when
-  Pedro says so in that conversation. Other branches are yours to rebase,
-  force push with a lease, and merge into.
+  Pedro says so in that conversation. Other branches are free to rebase, force
+  push with a lease, and merge into, within the push rule above.
 - Merge PRs with a merge commit so every commit is kept: `gh pr merge N
   --merge`, `gh stack merge --yes --merge`, REST `merge_method=merge`. Never
   squash or rebase-merge; rebase a branch onto its base instead when it needs
@@ -45,7 +45,7 @@ confidence.
   marked ready when Pedro asks in that conversation.
 - Stacks use `gh stack`: fix on the layer that owns the code, `gh stack rebase`
   descendants when their dependencies need it or Pedro asks, and merge with
-  `gh stack merge` on the top PR.
+  `gh stack merge --yes --merge` on the top PR.
 - Size: a PR within 1000 weighted and 2000 raw churn, each commit within 300
   and 600, stack layers 400 to 1000 weighted, at most 5 per stack. Measure
   before pushing per `~/.agents/skills/split-stacked-prs/references/size-policy.md`.

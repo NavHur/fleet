@@ -147,9 +147,9 @@ confirmed findings, and fixes made.
   `python3 "$SKILL_DIR/scripts/loop.py" publish "$LOOP" --checkout "$checkout"`.
   It posts each PR's comment when GitHub's head is the head the last round
   reviewed, once per round, and says which PRs it skipped. A PR skipped for
-  local fixes gets its comment by running `publish` again after an approved
-  push. The comment covers the audits, so post no separate
-  `pedro-best-practices` comment.
+  local fixes gets its comment by running `publish` again after the push. The
+  comment covers the audits, so post no separate `pedro-best-practices`
+  comment.
 - **Report**: whether the loop converged or hit the cap, what is still open,
   each PR's comment URL or why it was skipped, local versus pushed heads, and
   the gate results. `loop.py render "$LOOP" PR --checkout "$checkout"` prints a
