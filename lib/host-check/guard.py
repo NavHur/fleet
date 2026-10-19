@@ -1,5 +1,5 @@
-"""Catch common unqueued validation commands and development servers, and
-classify host-check jobs.
+"""Catch common unqueued validation commands, development servers, and PR
+merges that squash or rebase (merge_method.py), and classify host-check jobs.
 
     python3 guard.py [claude|codex|cursor|opencode] < hook-payload.json
     python3 guard.py --classify COMMAND [ARG ...]    # prints build, heavy, or light
@@ -21,6 +21,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import hostconf  # noqa: E402
+import merge_method  # noqa: E402
 
 REASON = (
     f"Shared CPU queue: run validation through {hostconf.HOST_CHECK}. "
@@ -353,6 +354,52 @@ def shell_invocation(args):
         else:
             break
     return ("file", args[i]) if i < len(args) else ("stdin", None)
+
+
+DURATION = re.compile(r"^\d+[smhd]?$")
+# Wrapper options that take the next argument as their value (`env -u NAME`, `timeout -s KILL 60`).
+WRAPPER_VALUE_OPTIONS = {"-u", "-C", "-s", "-k", "-a", "--unset", "--chdir", "--signal", "--kill-after"}
+
+
+def leading_command(words):
+    """The words from the command itself, after assignments and keywords such as `then` and `!`."""
+    start = next((i for i, word in enumerate(words) if not (ASSIGNMENT.match(word) or word in PREFIXES)), len(words))
+    return words[start:]
+
+
+def wrapped_command(args):
+    """What a wrapper (`env`, `timeout 60`, `nice -n 5`) runs: its arguments after its options, assignments, and durations."""
+    while args and (args[0].startswith("-") or ASSIGNMENT.match(args[0]) or DURATION.match(args[0])):
+        args = args[2:] if args[0] in WRAPPER_VALUE_OPTIONS else args[1:]
+    return args
+
+
+def shell_string_commands(args, depth):
+    """The commands in the `-c` string of a shell invocation, up to MAX_DEPTH levels deep."""
+    kind, code = shell_invocation(args)
+    if kind != "string" or depth >= MAX_DEPTH:
+        return
+    yield from unwrapped_commands(code, depth + 1)
+
+
+def unwrapped(words, depth):
+    """The command a simple command ends in, found past keywords, assignments, wrappers, and `bg-job`."""
+    words = leading_command(words)
+    name = os.path.basename(words[0]) if words else ""
+    if name in WRAPPERS:
+        yield from unwrapped(wrapped_command(words[1:]), depth)
+    elif name == "bg-job":
+        yield from unwrapped(bg_job_command(words[1:]), depth)
+    elif name in SHELLS:
+        yield from shell_string_commands(words[1:], depth)
+    elif words:
+        yield words
+
+
+def unwrapped_commands(command, depth=0):
+    """Each command a shell command runs, as words, and the commands in its `bash -c` strings."""
+    for words, _ in walk(command, os.getcwd()):
+        yield from unwrapped(words, depth)
 
 
 def shell_script(word, cwd):
@@ -758,18 +805,23 @@ def hook_cwd(payload, tool_input):
     return os.getcwd()
 
 
+def decision(payload):
+    """(denied, reason) for the hooked shell command."""
+    tool_input = payload.get("tool_input", payload)
+    command = tool_input.get("command", tool_input.get("cmd"))
+    if not isinstance(command, str):
+        raise ValueError("missing shell command")
+    if merge_method.refuses(command, unwrapped_commands(command)):
+        return True, merge_method.REASON
+    if hostconf.load()["deny_dev_servers"] and starts_dev(command):
+        return True, DEV_REASON
+    return needs_queue(command, hook_cwd(payload, tool_input)), REASON
+
+
 def main():
     adapter = sys.argv[1] if len(sys.argv) > 1 else "claude"
     try:
-        payload = json.load(sys.stdin)
-        tool_input = payload.get("tool_input", payload)
-        command = tool_input.get("command", tool_input.get("cmd"))
-        if not isinstance(command, str):
-            raise ValueError("missing shell command")
-        if hostconf.load()["deny_dev_servers"] and starts_dev(command):
-            denied, reason = True, DEV_REASON
-        else:
-            denied, reason = needs_queue(command, hook_cwd(payload, tool_input)), REASON
+        denied, reason = decision(json.load(sys.stdin))
     except (ValueError, TypeError, AttributeError) as exc:
         denied = True
         reason = "Host validation guard could not read the command: " + str(exc)

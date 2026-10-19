@@ -26,7 +26,9 @@ same target, else ask once:
 
 - **Target**: a PR, a stack (its top PR or branch), or a local branch with its base.
 - **Reviewer** model and effort, and **worker** model and effort for fixes.
-- **Push**: whether a converged loop pushes (default: stop locally and report).
+- **Push**: whether a converged loop pushes (default: push; the user can ask
+  to stop locally and report). Invoking the loop is the ask to push, in work
+  repos too.
 - **Round cap**: default 5, the first full round included.
 
 ## The ledger
@@ -138,16 +140,16 @@ confirmed findings, and fixes made.
   first. Record each ruling with `loop.py outcome "$LOOP" ID ruled --note RULING`.
   A ruling that changes code reopens the loop at step 4 with one more delta
   round, without counting against the cap.
-- **Push** (when authorized, or when the user approves now): for a stack,
+- **Push** (unless the invocation said to stop locally): for a stack,
   follow `split-stacked-prs` section 7 step 5; for a branch, run its gates and
   push.
 - **Comment**: run
   `python3 "$SKILL_DIR/scripts/loop.py" publish "$LOOP" --checkout "$checkout"`.
   It posts each PR's comment when GitHub's head is the head the last round
   reviewed, once per round, and says which PRs it skipped. A PR skipped for
-  local fixes gets its comment by running `publish` again after an approved
-  push. The comment covers the audits, so post no separate
-  `pedro-best-practices` comment.
+  local fixes gets its comment by running `publish` again after the push. The
+  comment covers the audits, so post no separate `pedro-best-practices`
+  comment.
 - **Report**: whether the loop converged or hit the cap, what is still open,
   each PR's comment URL or why it was skipped, local versus pushed heads, and
   the gate results. `loop.py render "$LOOP" PR --checkout "$checkout"` prints a
