@@ -2,8 +2,9 @@
 
     python3 jobclass.py COMMAND [ARG ...]    # prints build, heavy, or light
 
-Uses guard.py's shell parsing: package scripts and shell script files are
-judged by the commands they run, and script names remain the fallback.
+Uses the guard's shell parsing (shell.py, packages.py): package scripts and
+shell script files are judged by the commands they run, and script names
+remain the fallback.
 """
 import functools
 import os
@@ -12,12 +13,14 @@ import shlex
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from guard import (  # noqa: E402
-    ASSIGNMENT, BENCH_SCRIPT, COMMAND_WORDS, GLOB, HELP, MAX_DEPTH, PREFIXES, SHELLS, WRAPPERS,
-    bg_job_command, guarded, read_script, runner_invocations, shell_invocation,
-    shell_script, stored_commands, walk,
-)
+from guard import BENCH_SCRIPT, COMMAND_WORDS, HELP, guarded, runner_invocations, stored_commands  # noqa: E402
 from packages import expansions  # noqa: E402
+from shell import (  # noqa: E402
+    ASSIGNMENT, MAX_DEPTH, PREFIXES, SHELLS, WRAPPERS, bg_job_command, read_script, shell_invocation, shell_script,
+    walk,
+)
+
+GLOB = re.compile(r"[*?[]")
 
 # Job classes for host-check admission. Builds and whole suites are CPU-heavy
 # (2.5 to 3.3 cores each); targeted tests, lint, format, and typecheck are light.

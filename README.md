@@ -45,7 +45,7 @@ fleet/bin/sync --apply    # pull, link own skills, install and update third-part
 | `~/.local/bin/idle-compact` | `bin/idle-compact`: idle Claude threads in T3 to compact before their prompt cache expires |
 | `~/.local/bin/actions-runners` | `bin/actions-runners`: a self-hosted GitHub Actions runner per repository |
 | `~/.local/bin/shots` | `lib/shots/shots.mjs`: screenshots of a running app as small JPEGs, queued through host-check |
-| `~/.local/lib/host-check/` | `lib/host-check/`: `guard.py` (command guard), `packages.py` (the package scripts it reads), `jobclass.py` (job classes), `merge_method.py` (squash and rebase merge refusal), tests, OpenCode plugin |
+| `~/.local/lib/host-check/` | `lib/host-check/`: `guard.py` (command guard), `shell.py` and `packages.py` (the shell parsing and package scripts it reads), `jobclass.py` (job classes), `merge_method.py` (squash and rebase merge refusal), tests, OpenCode plugin |
 | `~/.config/t3-orchestration.md` | `config/t3-orchestration.md` |
 | `~/.config/host-validation.md` | generated from `config/host-validation.md` plus `hosts/<machine>/host-validation.md` |
 | `~/.config/fleet/host.json` | `hosts/<machine>/host.json`: queue limits and CPU policy |
