@@ -40,9 +40,10 @@ tests, sibling layers. The rest of the PR was reviewed in an earlier round.
 its audit workflow on your range, with the reference for each language in
 scope. Measure complexity with its `measure_complexity.py BASE HEAD` over your
 range, through host-check; it works in a temporary directory. The loop
-replaces the skill's "Combined report" and "GitHub publication" sections:
-report in the findings file, and the loop posts one comment per PR. Give
-`coverage` one entry for each row of the skill's coverage table.
+replaces the "Combined report" and "GitHub publication" sections of its
+`references/report.md`: report in the findings file, and the loop posts one
+comment per PR. Give `coverage` one entry for each row of the coverage table
+in that file.
 
 ## Priority and kind
 

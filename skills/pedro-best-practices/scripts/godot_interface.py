@@ -23,7 +23,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from measure_complexity import changed_files, git, read_file
+from revision import changed_files, git, read_file
 
 CAP = 8
 NOT_VARIABLES = {"export_group", "export_subgroup", "export_category"}

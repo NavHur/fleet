@@ -17,6 +17,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from revision import materialize, read_file, run
+
 CONFIG = ".godot-guard.yml"
 BASELINE = ".godot-guard-baseline.json"
 MINIMUM = (0, 2)
@@ -84,8 +86,6 @@ def check(root: Path, head: str | None, files: list[str], notes: list[str]) -> V
 
     None when there is nothing to check, the repository has no config at that revision, or no usable godot-guard.
     """
-    from measure_complexity import materialize, read_file  # measure_complexity imports this module
-
     if not files or read_file(root, head, CONFIG) is None:
         return None
     binary = usable(root, notes)
@@ -100,8 +100,6 @@ def check(root: Path, head: str | None, files: list[str], notes: list[str]) -> V
 
 
 def ask(binary: str, cwd: Path, files: list[str], notes: list[str]) -> Verdicts | None:
-    from measure_complexity import run
-
     result = run([binary, "check", "--json", *files], cwd)
     try:
         report = json.loads(result.stdout)
