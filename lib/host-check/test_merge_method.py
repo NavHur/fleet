@@ -108,6 +108,15 @@ class MergeMethodTests(unittest.TestCase):
                     self.assertEqual(output["permissionDecision"], "deny")
                     self.assertIn("gh pr merge N --merge", output["permissionDecisionReason"])
 
+    def test_hook_denies_a_shell_string_it_cannot_parse(self):
+        command = "host-check bash -lc \"echo $'it\\'s'; gh pr merge 1 --squash\""
+        result = subprocess.run(
+            ["/usr/bin/python3", str(ROOT / "guard.py"), "claude"],
+            input=json.dumps({"tool_input": {"command": command}}), text=True, capture_output=True, check=False, cwd="/",
+        )
+        output = json.loads(result.stdout)["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+
 
 if __name__ == "__main__":
     unittest.main()

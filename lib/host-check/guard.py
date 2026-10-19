@@ -379,10 +379,7 @@ def shell_string_commands(args, depth):
     kind, code = shell_invocation(args)
     if kind != "string" or depth >= MAX_DEPTH:
         return
-    try:
-        yield from unwrapped_commands(code, depth + 1)
-    except ValueError:
-        return  # code shlex cannot parse
+    yield from unwrapped_commands(code, depth + 1)
 
 
 def unwrapped(words, depth):
