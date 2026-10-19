@@ -112,6 +112,7 @@ def without_redirects(words):
 
 class Substituted(list):
     """A command's words from inside `$(...)`, which runs in a subshell."""
+    subshell = True
 
 
 # The quote state after a quote character, keyed by (state before, character).
@@ -303,7 +304,8 @@ def walk_unwrapped(command, cwd, depth=0):
     """Each command a shell command runs, as (words, directory), and the commands in its `bash -c`
     strings, which start in the directory the shell runs in, so a `cd` inside one carries."""
     for words, here in walk(command, cwd):
-        yield from unwrapped(words, here, depth)
+        for inner, where in unwrapped(words, here, depth):
+            yield (Substituted(inner) if isinstance(words, Substituted) else inner), where
 
 
 def unwrapped_commands(command):

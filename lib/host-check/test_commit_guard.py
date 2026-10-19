@@ -98,6 +98,25 @@ class CommitGuardTest(unittest.TestCase):
         self.assertEqual((self.git("rev-parse", "HEAD"), self.index_bytes()), (head, before))
         self.assertEqual(self.git("status", "--porcelain"), "?? big.py\n")
 
+    def test_a_command_the_check_does_not_model_ends_it(self):
+        self.git("add", "a.py")
+        self.write("a.py", "small\nmore\n")
+        self.write("big.py", BIG)
+        for command in ["git checkout -- a.py && git add big.py && git commit -m x",
+                        "git stash push big.py && git commit -am x", "rm -f big.py && git add -A && git commit -m x"]:
+            with self.subTest(command=command):
+                self.assertFalse(self.denied(command))
+
+    def test_cd_read_only_git_and_shell_keywords_keep_the_check(self):
+        (self.repo / "sub").mkdir()
+        self.write("sub/big.py", BIG)
+        message = "\"$(cat <<'EOF'\nsubject\nEOF\n)\""
+        for command in ["cd sub && git status && git add big.py && git commit -m x",
+                        "if true; then git add sub/big.py && git commit -m x; fi",
+                        f"git add sub/big.py && git commit -m {message}"]:
+            with self.subTest(command=command):
+                self.assertTrue(self.denied(command))
+
     def test_commands_in_a_bash_string_run_where_its_cd_leads(self):
         self.write("big.py", BIG)
         with tempfile.TemporaryDirectory() as outside:
