@@ -10,6 +10,7 @@ import os
 import re
 import shlex
 
+
 @functools.lru_cache(maxsize=None)
 def manifest(directory):
     """The parsed package.json in a directory, or None."""

@@ -48,6 +48,8 @@ def load(name, path):
 
 sys.path.insert(0, HOST_CHECK)  # guard.py imports hostconf beside it
 guard = load("host_check_guard", os.path.join(HOST_CHECK, "guard.py"))
+shell = load("host_check_shell", os.path.join(HOST_CHECK, "shell.py"))
+packages = load("host_check_packages", os.path.join(HOST_CHECK, "packages.py"))
 merge_guard = load("merge_guard", os.path.join(HOOKS, "merge-guard.py"))
 
 
@@ -68,12 +70,12 @@ def runner(words):
 
 def nested_commands(words, here):
     """(command, directory) pairs a segment runs: a shell's -c string, or a package script's body."""
-    shell = launched(words, guard.SHELLS)
-    if shell:
-        kind, value = guard.shell_invocation(shell[1])
+    invoked = launched(words, shell.SHELLS)
+    if invoked:
+        kind, value = shell.shell_invocation(invoked[1])
         return [(value, here)] if kind == "string" else []
     found = runner(words)
-    return guard.expansions(*found, here) if found else []
+    return packages.expansions(*found, here) if found else []
 
 
 def migrates(words):
@@ -85,7 +87,7 @@ def migrates(words):
 
 def migration_dirs(command, cwd, depth=0):
     """Each directory a migration in the command runs from, following shells and package scripts."""
-    return [d for words, here in guard.walk(command, cwd) for d in segment_dirs(words, here, depth)]
+    return [d for words, here in shell.walk(command, cwd) for d in segment_dirs(words, here, depth)]
 
 
 def segment_dirs(words, here, depth):
