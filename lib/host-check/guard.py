@@ -1,5 +1,6 @@
-"""Catch common unqueued validation commands, development servers, and PR
-merges that squash or rebase (merge_method.py).
+"""Catch common unqueued validation commands, development servers, PR merges
+that squash or rebase (merge_method.py), and agent commits that put a
+file over the size cap (commit_guard.py).
 
     python3 guard.py [claude|codex|cursor|opencode] < hook-payload.json
 
@@ -20,7 +21,9 @@ import re
 import shlex
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path[:0] = [HERE, os.path.join(HERE, "..", "file-size")]
+import commit_guard  # noqa: E402
 import hostconf  # noqa: E402
 import merge_method  # noqa: E402
 
@@ -787,7 +790,11 @@ def decision(payload):
         return True, merge_method.REASON
     if hostconf.load()["deny_dev_servers"] and starts_dev(command):
         return True, DEV_REASON
-    return needs_queue(command, hook_cwd(payload, tool_input)), REASON
+    cwd = hook_cwd(payload, tool_input)
+    if needs_queue(command, cwd):
+        return True, REASON
+    refusal = commit_guard.commit_refusal(walk(command, cwd))
+    return refusal is not None, refusal
 
 
 def main():
