@@ -24,7 +24,8 @@ Run deterministic repository checks directly. Do not spawn subagents or launch e
    For a pnpm repository this is `host-check bash -lc 'pnpm format && pnpm lint && pnpm typecheck && pnpm test'`. host-check admits one job per worktree, so this single command is the whole gate; wait for it to exit. Read its output when it exits rather than polling logs. On a host without `host-check`, run the same `bash -lc '…'` chain directly.
 2. If a command cannot start or a step has no command, inspect only the configuration relevant to that step and run the repository-supported equivalent with existing tools and environments, again as one job (through `host-check` when available). Do not install packages.
 3. Pass a step only when a real check ran and returned success. Fail the gate if any step fails, is missing, cannot start, or cannot be verified. A missing check is not a pass. After fixing a failure, rerun the whole chain once.
-4. Inspect the final worktree status. Report the command, each step's result, any missing tooling or manual equivalent, and formatter-created changes. Leave committing and pushing to the caller.
+4. Run `~/.local/bin/file-size check --base <default branch>` from the root. It fails the gate when the branch adds a file over 20,000 bytes or grows one already over; split as its output explains.
+5. Inspect the final worktree status. Report the command, each step's result, any missing tooling or manual equivalent, and formatter-created changes. Leave committing and pushing to the caller.
 
 ## Check mapping
 

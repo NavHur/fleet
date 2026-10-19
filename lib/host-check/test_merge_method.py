@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess
 import unittest
 
-from guard import unwrapped_commands
+from shell import unwrapped_commands
 from merge_method import refuses
 
 ROOT = Path(__file__).parent

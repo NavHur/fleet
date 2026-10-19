@@ -59,6 +59,14 @@ threads, auto-merge, the merge queue, and marking files viewed; `gh stack` is
 exempt. On a rate-limit error, check `gh api rate_limit` once, keep the PR, and
 wait for the reset.
 
+## File size
+
+- Files at most 20,000 bytes (about 5,000 tokens), lockfiles and generated or
+  vendored files aside. A file already over may not grow. The guard refuses a
+  `git commit` that breaks this; `~/.local/bin/file-size check --base <branch>`
+  checks a branch. Split along a seam as the refusal explains, never by
+  squeezing lines.
+
 ## Code (React, Svelte, Godot, Python, PHP)
 
 - At most eight application-defined props per UI component, or configuration

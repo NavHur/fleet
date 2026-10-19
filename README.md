@@ -45,7 +45,7 @@ fleet/bin/sync --apply    # pull, link own skills, install and update third-part
 | `~/.local/bin/idle-compact` | `bin/idle-compact`: idle Claude threads in T3 to compact before their prompt cache expires |
 | `~/.local/bin/actions-runners` | `bin/actions-runners`: a self-hosted GitHub Actions runner per repository |
 | `~/.local/bin/shots` | `lib/shots/shots.mjs`: screenshots of a running app as small JPEGs, queued through host-check |
-| `~/.local/lib/host-check/` | `lib/host-check/`: `guard.py` (command guard and job classes), `merge_method.py` (squash and rebase merge refusal), tests, OpenCode plugin |
+| `~/.local/lib/host-check/` | `lib/host-check/`: `guard.py` (command guard), `shell.py` and `packages.py` (the shell parsing and package scripts it reads), `jobclass.py` (job classes), `merge_method.py` (squash and rebase merge refusal), tests, OpenCode plugin |
 | `~/.config/t3-orchestration.md` | `config/t3-orchestration.md` |
 | `~/.config/host-validation.md` | generated from `config/host-validation.md` plus `hosts/<machine>/host-validation.md` |
 | `~/.config/fleet/host.json` | `hosts/<machine>/host.json`: queue limits and CPU policy |
@@ -84,6 +84,31 @@ To set one up, open a Haiku thread on the machine and send it:
 A janitor created with a 5-minute interval instead can be switched in place: send its thread "Change the schedule of the scheduled task titled "Idle compaction" to `{"type":"webhook"}` with update_scheduled_task."
 
 `idle-compact report` lists each compaction from the last week with its size and whether it ran before the cache expired.
+
+## File-size cap
+
+Agents read a whole file before editing it, so files stay under 20,000 bytes, about 5,000 tokens at four bytes per token. `lib/file-size/file_size.py` (linked as `~/.local/bin/file-size`) is a ratchet: it fails on a file over the cap that is new or grew, and warns about one already over that did not grow. It skips binary and minified files, lockfiles, files with an `@generated` or Go `Code generated ... DO NOT EDIT.` line in their first five lines, and paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes`. Its failure message explains how to split a file.
+
+- **Agent commits.** The host-check guard runs the check on what each agent `git commit` (or `git commit -a`) records and refuses the commit when it fails. It follows wrappers and `bash -c` strings, and checks a commit only when every command before it in the same command line is `cd` or `pushd` to a path it can read, `true`, a shell keyword, read-only git (`status`, `log`, `show`, `diff`, `rev-parse`, `ls-files`, without `--output`), or a modelled `git add`, `git restore --staged`, `git rm --cached`, or `git reset`, which it replays, with shell globs expanded for `git add`, on a copy of the index. Any other command ends the check there, and so does an index command whose paths or source come from a `$` expansion, and a `git reset` that moves HEAD or rewrites the worktree, a `git restore` or `git rm` that writes the worktree, globs taken from another revision, paths read from a file, or an option the replay does not model (for that repository). It misses pathspec commits (`git commit FILE`), commits whose paths a `$` expansion builds (`git commit $F`), commands inside `$(...)` (taken as read-only), output redirections, quoted globs in `git add` that match below the current directory, unquoted globs in `git reset`, `git restore --staged`, and `git rm --cached` (passed to git as typed, so the replay also unstages their matches below the current directory), and a commit in a directory that is not yet a repository when the hook runs.
+- **Branches.** The `pre-commit` skill runs `file-size check --base <branch>`.
+- **CI in personal repositories.** `.github/actions/file-size` checks a pull request against its base and a push against the commit it replaced. Fleet runs it in `test.yml`; another repository adds this workflow, a private repository on its homebox runner, `runs-on: [self-hosted, homebox]` (see Actions runners):
+
+```yaml
+name: file size
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  file-size:
+    name: max 5k tokens per file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: PedroNavHur/fleet/.github/actions/file-size@main
+```
 
 ## Actions runners
 

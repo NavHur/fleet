@@ -19,3 +19,11 @@ jobs:
         working-directory: skills/pedro-best-practices
       - run: pip install "gdtoolkit==4.*"
       - run: PBP_GDTOOLKIT_PYTHON=$(command -v python3) bin/test
+  file-size:
+    name: max 5k tokens per file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/file-size

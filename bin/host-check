@@ -77,8 +77,8 @@ def classify(argv):
     chosen = os.environ.get("HOST_CHECK_CLASS")
     if chosen not in CLASSES:
         try:
-            import guard
-            chosen = guard.job_class(shlex.join(argv))
+            import jobclass
+            chosen = jobclass.job_class(shlex.join(argv))
         except Exception:  # an unreadable command is treated as heavy
             chosen = "heavy"
     return chosen if chosen in CLASSES else "heavy"
