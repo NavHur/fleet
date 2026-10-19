@@ -9,7 +9,7 @@ so an agent can read a whole file in one call.
 
 check is a ratchet: it fails on a file over the cap that is new or grew, and
 warns about one that was already over and did not grow. Binary files, lockfiles,
-minified files, submodules, files that carry an `@generated` or Go
+minified files, CONTEXT.md domain glossaries, submodules, files that carry an `@generated` or Go
 `Code generated ... DO NOT EDIT.` line in their first lines, and paths marked
 linguist-generated or linguist-vendored in .gitattributes are skipped. Exit
 status: 0 pass, 1 a file over the cap, 2 a usage or Git error.
@@ -35,6 +35,9 @@ EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 SKIPPED_NAMES = ("*.lock", "*-lock.json", "*-lock.yaml", "*.lockb", "go.sum", "*.min.js", "*.min.css",
                  "*.map", "*.snap", "npm-shrinkwrap.json", "packages.lock.json", "gradle.lockfile",
                  "Package.resolved")
+# A domain glossary is one vocabulary that agents read whole on purpose; splitting
+# it would scatter the terms each entry defines against the others.
+GLOSSARY_NAMES = ("CONTEXT.md",)
 SKIP_ATTRIBUTES = ("linguist-generated", "linguist-vendored")
 SPLIT_ADVICE = """\
 Agents read a whole file before editing it, so each file has to fit in one read.
@@ -170,7 +173,8 @@ def changes(comparison, root):
 
 
 def skipped_by_name(path):
-    return any(fnmatch.fnmatch(os.path.basename(path), pattern) for pattern in SKIPPED_NAMES)
+    return any(fnmatch.fnmatch(os.path.basename(path), pattern)
+               for pattern in SKIPPED_NAMES + GLOSSARY_NAMES)
 
 
 def skipped_by_attribute(paths, cached, root, env):
