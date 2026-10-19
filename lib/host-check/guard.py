@@ -26,7 +26,7 @@ import merge_method  # noqa: E402
 from packages import expansions  # noqa: E402
 from shell import (  # noqa: E402
     ASSIGNMENT, MAX_DEPTH, PREFIXES, SHELLS, WRAPPERS, bg_job_command, read_script, segments, shell_invocation,
-    shell_script, unwrapped, unwrapped_commands, walk,
+    shell_script, unwrapped_commands, walk, walk_unwrapped,
 )
 
 REASON = (
@@ -256,8 +256,7 @@ def decision(payload):
     cwd = hook_cwd(payload, tool_input)
     if needs_queue(command, cwd):
         return True, REASON
-    commands = [(inner, here) for words, here in walk(command, cwd) for inner in unwrapped(words, 0)]
-    refusal = commit_guard.commit_refusal(commands)
+    refusal = commit_guard.commit_refusal(walk_unwrapped(command, cwd))
     return refusal is not None, refusal
 
 

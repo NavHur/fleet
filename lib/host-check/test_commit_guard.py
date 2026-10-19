@@ -79,6 +79,28 @@ class CommitGuardTest(unittest.TestCase):
         self.assertEqual(self.index_bytes(), before)
         self.assertEqual(self.git("diff", "--cached", "--name-only"), "")
 
+    def test_unstaging_in_the_same_command_is_replayed_in_order(self):
+        self.write("big.py", BIG)
+        head, before = self.git("rev-parse", "HEAD"), self.index_bytes()
+        for command in ["git add -A && git reset big.py && git commit -m x",
+                        "git add -A && git reset HEAD -- big.py && git commit -m x",
+                        "git add -A && git restore --staged big.py && git commit -m x",
+                        "git add -A && git rm -q --cached big.py && git commit -m x"]:
+            with self.subTest(command=command):
+                self.assertFalse(self.denied(command))
+        self.assertTrue(self.denied("git add -A && git reset --soft && git commit -m x"))
+        self.assertTrue(self.denied("git add -A && git restore --staged --worktree big.py && git commit -m x"))
+        self.assertTrue(self.denied("git add big.py && git reset -q big.py && git add big.py && git commit -m x"))
+        self.assertEqual((self.git("rev-parse", "HEAD"), self.index_bytes()), (head, before))
+        self.assertEqual(self.git("status", "--porcelain"), "?? big.py\n")
+
+    def test_commands_in_a_bash_string_run_where_its_cd_leads(self):
+        self.write("big.py", BIG)
+        with tempfile.TemporaryDirectory() as outside:
+            command = f"bash -c 'cd {self.repo} && git add big.py && git commit -m x'"
+            self.assertTrue(self.denied(command, cwd=outside))
+            self.assertFalse(self.denied(f"bash -c 'cd {outside} && git add big.py && git commit -m x'"))
+
     def test_interactive_staging_is_not_replayed(self):
         self.write("big.py", BIG)
         self.assertFalse(self.denied("git add -p big.py && git commit -m add"))

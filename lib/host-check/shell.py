@@ -277,32 +277,39 @@ def wrapped_command(args):
     return args
 
 
-def shell_string_commands(args, depth):
+def shell_string_commands(args, here, depth):
     """The commands in the `-c` string of a shell invocation, up to MAX_DEPTH levels deep."""
     kind, code = shell_invocation(args)
     if kind != "string" or depth >= MAX_DEPTH:
         return
-    yield from unwrapped_commands(code, depth + 1)
+    yield from walk_unwrapped(code, here, depth + 1)
 
 
-def unwrapped(words, depth):
-    """The command a simple command ends in, found past keywords, assignments, wrappers, and `bg-job`."""
+def unwrapped(words, here, depth):
+    """The (command, directory) a simple command ends in, found past keywords, assignments, wrappers, and `bg-job`."""
     words = leading_command(words)
     name = os.path.basename(words[0]) if words else ""
     if name in WRAPPERS:
-        yield from unwrapped(wrapped_command(words[1:]), depth)
+        yield from unwrapped(wrapped_command(words[1:]), here, depth)
     elif name == "bg-job":
-        yield from unwrapped(bg_job_command(words[1:]), depth)
+        yield from unwrapped(bg_job_command(words[1:]), here, depth)
     elif name in SHELLS:
-        yield from shell_string_commands(words[1:], depth)
+        yield from shell_string_commands(words[1:], here, depth)
     elif words:
-        yield words
+        yield words, here
+
+
+def walk_unwrapped(command, cwd, depth=0):
+    """Each command a shell command runs, as (words, directory), and the commands in its `bash -c`
+    strings, which start in the directory the shell runs in, so a `cd` inside one carries."""
+    for words, here in walk(command, cwd):
+        yield from unwrapped(words, here, depth)
 
 
 def unwrapped_commands(command, depth=0):
     """Each command a shell command runs, as words, and the commands in its `bash -c` strings."""
-    for words, _ in walk(command, os.getcwd()):
-        yield from unwrapped(words, depth)
+    for words, _ in walk_unwrapped(command, os.getcwd(), depth):
+        yield words
 
 
 def shell_script(word, cwd):
