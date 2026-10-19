@@ -85,6 +85,30 @@ A janitor created with a 5-minute interval instead can be switched in place: sen
 
 `idle-compact report` lists each compaction from the last week with its size and whether it ran before the cache expired.
 
+## File-size cap
+
+Agents read a whole file before editing it, so files stay under 20,000 bytes, about 5,000 tokens at four bytes per token. `lib/file-size/file_size.py` (linked as `~/.local/bin/file-size`) is a ratchet: it fails on a file over the cap that is new or grew, and warns about one already over that did not grow. It skips binary and minified files, lockfiles, files with an `@generated` or Go `Code generated ... DO NOT EDIT.` line in their first five lines, and paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes`. Its failure message explains how to split a file.
+
+- **Branches.** The `pre-commit` skill runs `file-size check --base <branch>`.
+- **CI in personal repositories.** `.github/actions/file-size` checks a pull request against its base and a push against the commit it replaced. Fleet runs it in `test.yml`; another repository adds this workflow, a private repository on its homebox runner, `runs-on: [self-hosted, homebox]` (see Actions runners):
+
+```yaml
+name: file size
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  file-size:
+    name: max 5k tokens per file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: PedroNavHur/fleet/.github/actions/file-size@main
+```
+
 ## Actions runners
 
 A machine with `hosts/<machine>/runners.json` (devbox) runs a self-hosted GitHub Actions runner for each repository listed there, so pushes and pull requests get CI without GitHub-hosted minutes. A personal account has no account-level runners, so each repository registers its own. `bin/sync` registers any that are missing.
