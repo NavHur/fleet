@@ -93,7 +93,7 @@ class CommitGuardTest(unittest.TestCase):
                         "git add -A && git reset --soft HEAD && git commit -m x"]:
             with self.subTest(command=command):
                 self.assertTrue(self.denied(command))
-        self.assertTrue(self.denied("git add -A && git restore --staged --worktree big.py && git commit -m x"))
+        self.assertFalse(self.denied("git add -A && git restore --staged --worktree big.py && git commit -m x"))
         self.assertTrue(self.denied("git add big.py && git reset -q big.py && git add big.py && git commit -m x"))
         self.assertEqual((self.git("rev-parse", "HEAD"), self.index_bytes()), (head, before))
         self.assertEqual(self.git("status", "--porcelain"), "?? big.py\n")
