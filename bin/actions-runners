@@ -30,7 +30,7 @@ CACHE = Path(os.environ.get("ACTIONS_RUNNERS_CACHE") or Path.home() / ".cache" /
 # The runner service starts with systemd's bare PATH; jobs need the user's tools.
 JOB_PATH = f"{Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin"
 # pnpm/action-setup installs pnpm into ~/setup-pnpm and reinstalls it every run,
-# taking a store kept beside it along; pin the store to the one devbox already has.
+# taking a store kept beside it along; pin the store to the machine's own.
 JOB_ENV = {"npm_config_store_dir": f"{Path.home()}/.local/share/pnpm/store"}
 ARCH = {"x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}
 
