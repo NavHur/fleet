@@ -46,9 +46,10 @@ PR_CEILINGS = (48_000, 96_000)
 COMMIT_CEILINGS = (12_000, 24_000)
 DELETION_WEIGHT = 0.25
 BYTES_PER_TOKEN = 4
-# git lists files in the same order for --numstat and the patch, so the two zip together
+# --numstat and the patch list the same files in the same order, one entry per path
+# (a type change is one entry but two adjacent patch sections), so the two zip together
 DIFF_OPTIONS = ("--find-renames", "--find-copies", "--no-ext-diff", "--no-textconv", "--no-color")
-# a hunk line's marker stands in for the newline git strips from it
+# maps a hunk marker to its [added, deleted] slot
 CHANGE_SIDES = {b"+": 0, b"-": 1}
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
@@ -104,14 +105,19 @@ def parse_numstat(raw: bytes) -> list[tuple[str | None, str, bool]]:
 def parse_patch(raw: bytes) -> list[list[int]]:
     """[added bytes, deleted bytes] per file of a -U0 patch, in git's file order."""
     sizes: list[list[int]] = []
+    previous_header = None
     in_hunk = False
     for line in raw.split(b"\n"):
         if line.startswith(b"diff --git "):
-            sizes.append([0, 0])
+            # a type change (file to symlink or submodule) is two sections under one header
+            if line != previous_header:
+                sizes.append([0, 0])
+            previous_header = line
             in_hunk = False
         elif line.startswith(b"@@ "):
             in_hunk = True
         elif in_hunk and line[:1] in CHANGE_SIDES:
+            # the marker stands in for the newline git strips from the line
             sizes[-1][CHANGE_SIDES[line[:1]]] += len(line)
     return sizes
 

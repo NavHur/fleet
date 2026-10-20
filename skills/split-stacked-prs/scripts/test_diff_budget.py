@@ -155,6 +155,30 @@ class DiffBudgetTests(unittest.TestCase):
         self.assertEqual(report["weighted_deleted_bytes"], 100 * LINE_BYTES)
         self.assertEqual(report["weighted_size"], 125 * LINE_BYTES)
 
+    def test_content_lines_that_look_like_file_headers_are_counted(self):
+        """`--- x` and `+++ x` inside a hunk are a deleted `-- x` and an added `++ x`."""
+        self.base = self.tree({"app.ts": "-- x\n"})
+        report = self.run_budget({"app.ts": "++ y\n"})
+        self.assertEqual(report["weighted_added_bytes"], len("+++ y"))
+        self.assertEqual(report["weighted_deleted_bytes"], len("--- x"))
+
+    def test_type_change_is_one_file_with_both_sides_counted(self):
+        """Git patches a file turned symlink as two sections under one header."""
+        self.base = self.tree({"app.ts": self.lines(2)})
+        (self.root / "app.ts").unlink()
+        os.symlink("target.ts", self.root / "app.ts")
+        self.git("add", "--all")
+        head = self.git("write-tree")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), self.base, head, "--json"],
+            cwd=self.root, text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        report = json.loads(result.stdout)
+        self.assertEqual(len(report["files"]), 1)
+        self.assertEqual(report["weighted_added_bytes"], len("+target.ts"))
+        self.assertEqual(report["weighted_deleted_bytes"], 2 * LINE_BYTES)
+
     def test_binary_files_are_counted_but_not_measured(self):
         report = self.run_budget({"app.ts": self.lines(1), "logo.bin": "\0" * 100})
         self.assertEqual(report["included_binary_files"], 1)
