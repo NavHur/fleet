@@ -14,8 +14,8 @@ findings file is the only thing it reads, so everything you found goes in it.
 - Run a check only when it settles a finding, through
   `~/.local/bin/host-check <command>`, one focused command at a time. The
   packet lists the checks that already passed.
-- The ledger and `outcomes.jsonl` hold settled findings and the user's
-  rulings. Raise a settled item again only with new evidence that its recorded
+- The context file's ledger and settled findings hold what earlier rounds
+  decided and the user's rulings. Raise a settled item again only with new evidence that its recorded
   reason is wrong, and put that evidence first.
 - Report what you verified in the code at the pinned head. A suspicion you
   could not confirm goes in `coverage` or nowhere.
@@ -32,7 +32,7 @@ standards. Your report is the findings file below, with no word limit.
 packet names. Missing behavior gets a finding with `file` and `line` null.
 
 **delta**: Both axes, on the delta only. For each fix in it, find the finding
-it answers in `outcomes.jsonl` or the ledger, and confirm the fix is correct
+it answers in the settled findings, and confirm the fix is correct
 and complete. Then look for regressions the fix causes around it: callers,
 tests, sibling layers. The rest of the PR was reviewed in an earlier round.
 
@@ -44,6 +44,23 @@ replaces the "Combined report" and "GitHub publication" sections of its
 `references/report.md`: report in the findings file, and the loop posts one
 comment per PR. Give `coverage` one entry for each row of the coverage table
 in that file.
+
+## Lanes
+
+Each defect has one owner, so it is reported once:
+
+| Lane | Owns |
+| --- | --- |
+| **audit** | Every `pedro/...` rule: the interface cap and ownership, complexity and its evasions, long comments, the construction rules (catch and except handling, mode parameters, comments beside changed lines), nested conditionals, and performance |
+| **spec** | Behavior the spec names: missing, partial, or contradicted |
+| **standards** | Correctness bugs in behavior the spec does not name, the repository's documented standards, the smell baseline, and the packet's engineering principles |
+| **delta** | The standards and spec lanes on the delta: each fix's correctness and completeness, and the regressions it causes |
+
+Report what you verify in your lane. A defect a `pedro/...` rule names is the
+audit's, even when an engineering principle or a standard covers it too. A
+lane whose owner is missing from "Reviewers this round" is yours as well: in a
+delta round with no audit for a PR, the delta reviewer applies Pedro's rules
+to that PR's delta. Outside your lanes, only a P1 goes in your file.
 
 ## Priority and kind
 
