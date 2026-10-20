@@ -17,6 +17,7 @@ import fnmatch
 import json
 import subprocess
 import sys
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from pathlib import PurePosixPath
 
@@ -102,24 +103,53 @@ def parse_numstat(raw: bytes) -> list[tuple[str | None, str, bool]]:
     return entries
 
 
-def parse_patch(raw: bytes) -> list[list[int]]:
-    """[added bytes, deleted bytes] per file of a -U0 patch, in git's file order."""
-    sizes: list[list[int]] = []
+def name_status(start: str, head: str) -> dict[str, str]:
+    """Status letter per changed path; a rename or copy is keyed by its new path."""
+    fields = git("diff", "--name-status", "-z", *DIFF_OPTIONS, start, head, "--", text=False).split(b"\0")
+    statuses: dict[str, str] = {}
+    index = 0
+    while index < len(fields) and fields[index]:
+        step = 3 if fields[index].startswith((b"R", b"C")) else 2
+        path = fields[index + step - 1].decode("utf-8", errors="surrogateescape")
+        statuses[path] = fields[index][:1].decode()
+        index += step
+    return statuses
+
+
+def file_sections(raw: bytes) -> Iterator[list[bytes]]:
+    """The lines of each file's section of a patch, in git's file order."""
+    section: list[bytes] = []
     previous_header = None
-    in_hunk = False
     for line in raw.split(b"\n"):
         if line.startswith(b"diff --git "):
             # a type change (file to symlink or submodule) is two sections under one header
-            if line != previous_header:
-                sizes.append([0, 0])
+            if previous_header is not None and line != previous_header:
+                yield section
+                section = []
             previous_header = line
+        section.append(line)
+    if previous_header is not None:
+        yield section
+
+
+def section_bytes(section: list[bytes]) -> list[int]:
+    """[added bytes, deleted bytes] of the hunk lines in one file's section."""
+    sizes = [0, 0]
+    in_hunk = False
+    for line in section:
+        if line.startswith(b"diff --git "):
             in_hunk = False
         elif line.startswith(b"@@ "):
             in_hunk = True
         elif in_hunk and line[:1] in CHANGE_SIDES:
             # the marker stands in for the newline git strips from the line
-            sizes[-1][CHANGE_SIDES[line[:1]]] += len(line)
+            sizes[CHANGE_SIDES[line[:1]]] += len(line)
     return sizes
+
+
+def parse_patch(raw: bytes) -> list[list[int]]:
+    """[added bytes, deleted bytes] per file of a -U0 patch, in git's file order."""
+    return [section_bytes(section) for section in file_sections(raw)]
 
 
 def changed_files(start: str, head: str) -> list[tuple[str | None, str, int | None, int | None]]:
