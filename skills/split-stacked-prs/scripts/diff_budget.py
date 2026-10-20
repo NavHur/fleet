@@ -234,6 +234,13 @@ def kilobytes(size: float) -> str:
     return f"{size / 1000:.1f} KB"
 
 
+def weighted_bytes(entry: DiffEntry) -> float:
+    """Added bytes plus a quarter of deleted bytes; zero for an excluded file or a test."""
+    if entry.excluded or entry.test:
+        return 0
+    return (entry.added_bytes or 0) + (entry.deleted_bytes or 0) * DELETION_WEIGHT
+
+
 def summarize(
     entries: list[DiffEntry], cap: int, raw_cap: int, exemption: str | None = None
 ) -> dict[str, object]:
@@ -242,9 +249,7 @@ def summarize(
     weighted = [entry for entry in included if not entry.test]
     excluded = [entry for entry in entries if entry.excluded]
     raw_churn = sum(entry.bytes for entry in included)
-    weighted_size = sum(
-        (entry.added_bytes or 0) + (entry.deleted_bytes or 0) * DELETION_WEIGHT for entry in weighted
-    )
+    weighted_size = sum(weighted_bytes(entry) for entry in entries)
     if exemption:
         status = exemption
     elif weighted_size > cap or raw_churn > raw_cap:

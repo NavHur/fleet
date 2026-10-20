@@ -79,6 +79,20 @@ class ImportGraphTests(unittest.TestCase):
         self.assertIn("X", next(line for line in text.splitlines() if "yarn.lock" in line)[:4])
         self.assertIn("T", next(line for line in text.splitlines() if "src/spec/case.ts" in line)[:4])
 
+    def test_weights_sum_to_diff_budget_weighted_size(self):
+        before = {"src/app.ts": BODY}
+        after = {"src/app.ts": BODY[40:] + "export const extra = 1;\n", "src/new.ts": BODY,
+                 "yarn.lock": BODY, "src/app.test.ts": BODY}
+        _, graph = self.run_graph(before, after)
+        budget = subprocess.run(
+            [sys.executable, str(SCRIPT.with_name("diff_budget.py")), self.tree(before), self.tree(after), "--json"],
+            cwd=self.root, text=True, capture_output=True,
+        )
+        self.assertEqual(budget.returncode, 0, budget.stderr or budget.stdout)
+        weighted = sum(node["weighted"] for node in graph.values())
+        self.assertGreater(weighted, 0)
+        self.assertEqual(weighted, json.loads(budget.stdout)["weighted_size"])
+
     def test_generated_glob_weighs_zero(self):
         _, graph = self.run_graph({}, {"src/app.ts": BODY, "gen/api.ts": BODY}, "--generated", "gen/*")
         self.assertEqual(graph["gen/api.ts"]["weighted"], 0)

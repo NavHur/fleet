@@ -25,7 +25,7 @@ import os
 import re
 import sys
 
-from diff_budget import DELETION_WEIGHT, DiffEntry, changed_files, classify, git, name_status
+from diff_budget import DiffEntry, changed_files, classify, git, name_status, weighted_bytes
 
 IMPORT = re.compile(
     r"""(?:import|export)\s[^'"]*?from\s+['"]([^'"]+)['"]"""
@@ -80,12 +80,6 @@ def dependencies(path: str, tip: str, aliases: list[list[str]], changed: set[str
     return sorted(deps)
 
 
-def weigh(entry: DiffEntry) -> float:
-    if entry.excluded or entry.test:
-        return 0
-    return (entry.added_bytes or 0) + (entry.deleted_bytes or 0) * DELETION_WEIGHT
-
-
 def build_node(entry: DiffEntry, status: str, deps: list[str]) -> dict[str, object]:
     return {
         "status": status,
@@ -95,13 +89,21 @@ def build_node(entry: DiffEntry, status: str, deps: list[str]) -> dict[str, obje
         "reason": entry.reason,
         "added": entry.added_bytes or 0,
         "deleted": entry.deleted_bytes or 0,
-        "weighted": weigh(entry),
+        "weighted": weighted_bytes(entry),
         "deps": deps,
     }
 
 
+def row_marker(node: dict[str, object]) -> str:
+    if node["excluded"]:
+        return "X"
+    if node["test"]:
+        return "T"
+    return " "
+
+
 def print_node(path: str, node: dict[str, object]) -> None:
-    marker = "X" if node["excluded"] else "T" if node["test"] else " "
+    marker = row_marker(node)
     origin = f" (from {node['old_path']})" if node["old_path"] else ""
     deps = ", ".join(node["deps"])
     print(
