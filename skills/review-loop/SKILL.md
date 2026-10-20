@@ -130,7 +130,19 @@ go to step 5. Otherwise:
    ownership, its findings, and the ledger; workers run no checks.
 2. Read each worker's diff as a reviewer would, then run the light check from
    `split-stacked-prs` section 7 step 4 (for a single branch, the same check
-   on that branch).
+   on that branch). Before committing, measure Pedro's two mechanical rules
+   on the uncommitted fixes, in the same host-check job, with `PBP` the
+   `pedro-best-practices` scripts directory and `$fixed` the fixed source's
+   checkout (`HEAD` as the base measures only the uncommitted edits):
+
+   ```bash
+   python3 "$PBP/measure_complexity.py" HEAD --repo "$fixed" --over-only
+   python3 "$PBP/long_comments.py" HEAD --repo "$fixed"
+   ```
+
+   An excess or long comment the fixes introduced or worsened goes back to the
+   worker, so the next round's audit spends no turn on it. One already
+   recorded as a decision stays with that decision.
 3. Commit. For a stack, carry the fixes into their layers with
    `fix_layers.sh`. Record each fix with
    `loop.py outcome "$LOOP" ID fixed --commit SHA`, using the commit on the
