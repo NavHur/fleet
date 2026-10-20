@@ -142,7 +142,7 @@ def print_table(rows):
         )
 
 
-def main():
+def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--manifests", required=True)
     parser.add_argument("--prefix", default="")
@@ -152,20 +152,86 @@ def main():
     parser.add_argument("--update-prs", action="store_true")
     parser.add_argument("--generated", action="append")
     parser.add_argument("--test", action="append", default=[])
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    names = sorted(
-        f for f in os.listdir(args.manifests)
-        if not f.startswith(".") and os.path.isfile(os.path.join(args.manifests, f))
+
+def budget_flags(args):
+    flags = []
+    for glob in args.generated or DEFAULT_GENERATED:
+        flags += ["--generated", glob]
+    for glob in args.test:
+        flags += ["--test", glob]
+    return flags
+
+
+def size_line(size, commits):
+    excluded = f", excluded {kilobytes(size['excluded_bytes'])}" if size["excluded_bytes"] else ""
+    return (
+        f"{SIZE_PREFIX} weighted {kilobytes(size['weighted_size'])}, raw churn {kilobytes(size['raw_churn'])}"
+        f" (tests {kilobytes(size['test_churn'])}{excluded}) in {len(commits)} commits."
     )
+
+
+def layer_pr(manifest, repo, branch):
+    pr = header(manifest, "pr")
+    if pr:
+        return int(pr)
+    return find_pr(repo, branch) if repo else None
+
+
+def patch_body(name, repo, pr, new, line):
+    """PATCH the body, read it back; 1 when the size line did not take, else 0."""
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
+        fh.write(new)
+    run("gh", "api", "-X", "PATCH", f"repos/{repo}/pulls/{pr}", "-F", f"body=@{fh.name}", "--jq", ".number")
+    os.unlink(fh.name)
+    back = run("gh", "api", f"repos/{repo}/pulls/{pr}", "--jq", ".body").stdout
+    if line in back:
+        print(f"{name}: PR #{pr} body updated")
+        return 0
+    print(f"{name}: PR #{pr} body did not take the new size line", file=sys.stderr)
+    return 1
+
+
+def sync_body(name, branch, pr, repo, line, gate_text, update_prs):
+    """Show or apply the new size and gate lines of a PR body; the number of errors."""
+    if pr is None or repo is None:
+        print(f"{name}: no open PR for {branch}" if repo else f"{name}: no GitHub origin; pass --repo", file=sys.stderr)
+        return int(update_prs)
+    body = run("gh", "api", f"repos/{repo}/pulls/{pr}", "--jq", ".body").stdout
+    body = body[:-1] if body.endswith("\n") else body
+    new = set_line(body, SIZE_PREFIX, line)
+    if gate_text:
+        new = set_line(new, GATES_PREFIX, gate_text)
+    if new == body:
+        print(f"{name}: PR #{pr} body already current")
+        return 0
+    if update_prs:
+        return patch_body(name, repo, pr, new, line)
+    diff = difflib.unified_diff(body.split("\n"), new.split("\n"), f"#{pr}", f"#{pr} new", lineterm="", n=0)
+    print("\n".join(diff))
+    return 0
+
+
+def manifest_names(directory):
+    return sorted(
+        f for f in os.listdir(directory)
+        if not f.startswith(".") and os.path.isfile(os.path.join(directory, f))
+    )
+
+
+def stack_base(args, names):
     base = args.base or header(os.path.join(args.manifests, names[0]), "base")
     if not base:
         sys.exit("no --base and no '# base:' header in the first manifest")
-    budget_flags = []
-    for glob in args.generated or DEFAULT_GENERATED:
-        budget_flags += ["--generated", glob]
-    for glob in args.test:
-        budget_flags += ["--test", glob]
+    return base
+
+
+def main():
+    args = parse_args()
+    names = manifest_names(args.manifests)
+    base = stack_base(args, names)
+    flags = budget_flags(args)
     repo = repo_slug(args.repo)
 
     over, errors, parent = False, 0, base
@@ -175,46 +241,14 @@ def main():
         branch = header(manifest, "branch") or args.prefix + name
         head = git("rev-parse", branch)
         fork = git("merge-base", parent, branch)
-        size = budget(fork, head, budget_flags)
-        commits = budget(fork, head, ["--per-commit", *budget_flags])["commits"]
+        size = budget(fork, head, flags)
+        commits = budget(fork, head, ["--per-commit", *flags])["commits"]
         status = layer_status(size, commits)
         over |= status in ("cap-violation", "commit-over")
-        excluded = f", excluded {kilobytes(size['excluded_bytes'])}" if size["excluded_bytes"] else ""
-        size_line = (
-            f"{SIZE_PREFIX} weighted {kilobytes(size['weighted_size'])}, raw churn {kilobytes(size['raw_churn'])}"
-            f" (tests {kilobytes(size['test_churn'])}{excluded}) in {len(commits)} commits."
-        )
         gate_text, gate_note = gates_line(args.gates, name, head) if args.gates else (None, "")
-        pr = header(manifest, "pr")
-        pr = int(pr) if pr else (find_pr(repo, branch) if repo else None)
+        pr = layer_pr(manifest, repo, branch)
         rows.append((name, pr, size, commits, status, gate_note))
-
-        if pr is None or repo is None:
-            print(f"{name}: no open PR for {branch}" if repo else f"{name}: no GitHub origin; pass --repo", file=sys.stderr)
-            errors += args.update_prs
-        else:
-            body = run("gh", "api", f"repos/{repo}/pulls/{pr}", "--jq", ".body").stdout
-            body = body[:-1] if body.endswith("\n") else body
-            new = set_line(body, SIZE_PREFIX, size_line)
-            if gate_text:
-                new = set_line(new, GATES_PREFIX, gate_text)
-            if new == body:
-                print(f"{name}: PR #{pr} body already current")
-            elif not args.update_prs:
-                diff = difflib.unified_diff(body.split("\n"), new.split("\n"), f"#{pr}", f"#{pr} new", lineterm="", n=0)
-                print("\n".join(diff))
-            else:
-                slug = repo
-                with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
-                    fh.write(new)
-                run("gh", "api", "-X", "PATCH", f"repos/{slug}/pulls/{pr}", "-F", f"body=@{fh.name}", "--jq", ".number")
-                os.unlink(fh.name)
-                back = run("gh", "api", f"repos/{slug}/pulls/{pr}", "--jq", ".body").stdout
-                if size_line in back:
-                    print(f"{name}: PR #{pr} body updated")
-                else:
-                    print(f"{name}: PR #{pr} body did not take the new size line", file=sys.stderr)
-                    errors += 1
+        errors += sync_body(name, branch, pr, repo, size_line(size, commits), gate_text, args.update_prs)
         parent = branch
 
     print_table(rows)
