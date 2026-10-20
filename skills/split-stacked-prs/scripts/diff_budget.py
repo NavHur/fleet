@@ -81,6 +81,14 @@ def git(*args: str, text: bool = True) -> str | bytes:
     return result.stdout
 
 
+def rename_paths(parts: list[bytes], index: int) -> tuple[str, str, int]:
+    """(old path, path, next index) from the two NUL-separated paths of a rename or copy."""
+    if index + 1 >= len(parts):
+        raise RuntimeError("truncated rename/copy in git --numstat output")
+    old_path, path = (part.decode("utf-8", errors="surrogateescape") for part in parts[index : index + 2])
+    return old_path, path, index + 2
+
+
 def parse_numstat(raw: bytes) -> list[tuple[str | None, str, bool]]:
     """(old path, path, binary) per changed file; old path only for a rename or copy."""
     parts = raw.split(b"\0")
@@ -94,11 +102,7 @@ def parse_numstat(raw: bytes) -> list[tuple[str | None, str, bool]]:
         index += 1
         old_path: str | None = None
         if path == "":
-            if index + 1 >= len(parts):
-                raise RuntimeError("truncated rename/copy in git --numstat output")
-            old_path = parts[index].decode("utf-8", errors="surrogateescape")
-            path = parts[index + 1].decode("utf-8", errors="surrogateescape")
-            index += 2
+            old_path, path, index = rename_paths(parts, index)
         entries.append((old_path, path, added_raw == "-" and deleted_raw == "-"))
     return entries
 
@@ -198,6 +202,17 @@ def linguist_generated(paths: list[str]) -> set[str]:
     return generated
 
 
+def exclusion_reason(candidates: list[str], attributed: set[str], generated_patterns: list[str]) -> str | None:
+    """Why every path of a file is excluded from the ceilings, or None."""
+    if all(is_lockfile(candidate) for candidate in candidates):
+        return "lockfile"
+    if all(candidate in attributed for candidate in candidates):
+        return "linguist-generated"
+    if all(matches_any(candidate, generated_patterns) for candidate in candidates):
+        return "verified-generated-pattern"
+    return None
+
+
 def classify(
     parsed: list[tuple[str | None, str, int | None, int | None]],
     generated_patterns: list[str],
@@ -208,13 +223,7 @@ def classify(
     entries: list[DiffEntry] = []
     for old_path, path, added, deleted in parsed:
         candidates = [candidate for candidate in (old_path, path) if candidate]
-        reason: str | None = None
-        if all(is_lockfile(candidate) for candidate in candidates):
-            reason = "lockfile"
-        elif all(candidate in attributed for candidate in candidates):
-            reason = "linguist-generated"
-        elif all(matches_any(candidate, generated_patterns) for candidate in candidates):
-            reason = "verified-generated-pattern"
+        reason = exclusion_reason(candidates, attributed, generated_patterns)
         entries.append(
             DiffEntry(
                 path=path,
@@ -241,43 +250,65 @@ def weighted_bytes(entry: DiffEntry) -> float:
     return (entry.added_bytes or 0) + (entry.deleted_bytes or 0) * DELETION_WEIGHT
 
 
+def totals(entries: list[DiffEntry]) -> tuple[int, int, int]:
+    """(added, deleted, added + deleted) bytes of the entries; a binary file counts zero."""
+    added = sum(entry.added_bytes or 0 for entry in entries)
+    deleted = sum(entry.deleted_bytes or 0 for entry in entries)
+    return added, deleted, added + deleted
+
+
+def binary_files(entries: list[DiffEntry]) -> int:
+    return sum(entry.added_bytes is None for entry in entries)
+
+
+def size_status(weighted_size: float, raw_churn: int, cap: int, raw_cap: int, exemption: str | None) -> str:
+    if exemption:
+        return exemption
+    return "cap-violation" if weighted_size > cap or raw_churn > raw_cap else "within-cap"
+
+
 def summarize(
     entries: list[DiffEntry], cap: int, raw_cap: int, exemption: str | None = None
 ) -> dict[str, object]:
     included = [entry for entry in entries if not entry.excluded]
+    excluded = [entry for entry in entries if entry.excluded]
     tests = [entry for entry in included if entry.test]
     weighted = [entry for entry in included if not entry.test]
-    excluded = [entry for entry in entries if entry.excluded]
-    raw_churn = sum(entry.bytes for entry in included)
     weighted_size = sum(weighted_bytes(entry) for entry in entries)
-    if exemption:
-        status = exemption
-    elif weighted_size > cap or raw_churn > raw_cap:
-        status = "cap-violation"
-    else:
-        status = "within-cap"
+    budgeted_added, budgeted_deleted, raw_churn = totals(included)
+    excluded_added, excluded_deleted, excluded_bytes = totals(excluded)
+    weighted_added, weighted_deleted, _ = totals(weighted)
+    _, _, test_churn = totals(tests)
     return {
-        "status": status,
+        "status": size_status(weighted_size, raw_churn, cap, raw_cap, exemption),
         "hard_cap": cap,
         "raw_cap": raw_cap,
         "weighted_size": weighted_size,
         "raw_churn": raw_churn,
-        "test_churn": sum(entry.bytes for entry in tests),
-        "weighted_added_bytes": sum(entry.added_bytes or 0 for entry in weighted),
-        "weighted_deleted_bytes": sum(entry.deleted_bytes or 0 for entry in weighted),
-        "budgeted_added_bytes": sum(entry.added_bytes or 0 for entry in included),
-        "budgeted_deleted_bytes": sum(entry.deleted_bytes or 0 for entry in included),
-        "excluded_bytes": sum(entry.bytes for entry in excluded),
-        "excluded_added_bytes": sum(entry.added_bytes or 0 for entry in excluded),
-        "excluded_deleted_bytes": sum(entry.deleted_bytes or 0 for entry in excluded),
-        "included_binary_files": sum(
-            entry.added_bytes is None and not entry.excluded for entry in entries
-        ),
-        "excluded_binary_files": sum(
-            entry.added_bytes is None and entry.excluded for entry in entries
-        ),
+        "test_churn": test_churn,
+        "weighted_added_bytes": weighted_added,
+        "weighted_deleted_bytes": weighted_deleted,
+        "budgeted_added_bytes": budgeted_added,
+        "budgeted_deleted_bytes": budgeted_deleted,
+        "excluded_bytes": excluded_bytes,
+        "excluded_added_bytes": excluded_added,
+        "excluded_deleted_bytes": excluded_deleted,
+        "included_binary_files": binary_files(included),
+        "excluded_binary_files": binary_files(excluded),
         "files": [asdict(entry) for entry in entries],
     }
+
+
+def file_row(entry: dict[str, object]) -> str:
+    path = f"{entry['old_path']} -> {entry['path']}" if entry["old_path"] else entry["path"]
+    churn = "binary" if entry["added_bytes"] is None else f"{entry['bytes']:,}"
+    if entry["excluded"]:
+        classification = f"excluded:{entry['reason']}"
+    elif entry["test"]:
+        classification = "test:raw-only"
+    else:
+        classification = "weighted-and-raw"
+    return f"  {churn:>9}  {classification:<36} {path}"
 
 
 def print_text(summary: dict[str, object]) -> None:
@@ -302,19 +333,8 @@ def print_text(summary: dict[str, object]) -> None:
             f"{summary['excluded_binary_files']} excluded"
         )
     print("Files:")
-    for raw_entry in summary["files"]:
-        entry = raw_entry
-        path = entry["path"]
-        if entry["old_path"]:
-            path = f"{entry['old_path']} -> {path}"
-        churn = "binary" if entry["added_bytes"] is None else f"{entry['bytes']:,}"
-        if entry["excluded"]:
-            classification = f"excluded:{entry['reason']}"
-        elif entry["test"]:
-            classification = "test:raw-only"
-        else:
-            classification = "weighted-and-raw"
-        print(f"  {churn:>9}  {classification:<36} {path}")
+    for entry in summary["files"]:
+        print(file_row(entry))
 
 
 def parse_args() -> argparse.Namespace:
