@@ -193,11 +193,11 @@ def patch_body(name, repo, pr, new, line):
     return 1
 
 
-def sync_body(name, branch, pr, repo, line, gate_text, update_prs):
-    """Show or apply the new size and gate lines of a PR body; the number of errors."""
+def pending_body(name, branch, pr, repo, line, gate_text):
+    """The (current, new) PR body when the size and gate lines change it; else None, after saying why."""
     if pr is None or repo is None:
         print(f"{name}: no open PR for {branch}" if repo else f"{name}: no GitHub origin; pass --repo", file=sys.stderr)
-        return int(update_prs)
+        return None
     body = run("gh", "api", f"repos/{repo}/pulls/{pr}", "--jq", ".body").stdout
     body = body[:-1] if body.endswith("\n") else body
     new = set_line(body, SIZE_PREFIX, line)
@@ -205,12 +205,26 @@ def sync_body(name, branch, pr, repo, line, gate_text, update_prs):
         new = set_line(new, GATES_PREFIX, gate_text)
     if new == body:
         print(f"{name}: PR #{pr} body already current")
-        return 0
-    if update_prs:
-        return patch_body(name, repo, pr, new, line)
-    diff = difflib.unified_diff(body.split("\n"), new.split("\n"), f"#{pr}", f"#{pr} new", lineterm="", n=0)
-    print("\n".join(diff))
+        return None
+    return body, new
+
+
+def show_body_change(name, branch, pr, repo, line, gate_text):
+    """Print the diff of a PR body's new size and gate lines; no errors."""
+    change = pending_body(name, branch, pr, repo, line, gate_text)
+    if change:
+        body, new = change
+        diff = difflib.unified_diff(body.split("\n"), new.split("\n"), f"#{pr}", f"#{pr} new", lineterm="", n=0)
+        print("\n".join(diff))
     return 0
+
+
+def apply_body_change(name, branch, pr, repo, line, gate_text):
+    """PATCH a PR body's new size and gate lines; the number of errors, a missing PR included."""
+    change = pending_body(name, branch, pr, repo, line, gate_text)
+    if change is None:
+        return int(pr is None or repo is None)
+    return patch_body(name, repo, pr, change[1], line)
 
 
 def manifest_names(directory):
@@ -233,6 +247,7 @@ def main():
     base = stack_base(args, names)
     flags = budget_flags(args)
     repo = repo_slug(args.repo)
+    sync = apply_body_change if args.update_prs else show_body_change
 
     over, errors, parent = False, 0, base
     rows = []
@@ -248,7 +263,7 @@ def main():
         gate_text, gate_note = gates_line(args.gates, name, head) if args.gates else (None, "")
         pr = layer_pr(manifest, repo, branch)
         rows.append((name, pr, size, commits, status, gate_note))
-        errors += sync_body(name, branch, pr, repo, size_line(size, commits), gate_text, args.update_prs)
+        errors += sync(name, branch, pr, repo, size_line(size, commits), gate_text)
         parent = branch
 
     print_table(rows)
