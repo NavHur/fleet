@@ -44,7 +44,8 @@ DEV_TASK = re.compile(r"^dev([:.-].*)?$")
 # Gate scripts that boot `next dev` themselves unless given a server.
 DEV_BOOTING_SCRIPTS = {"a11y-pages.ts", "smoke-local.ts"}
 TASK = re.compile(r"^(build|test|lint|typecheck|type-check|check|format|fmt|bench|benchmark|verify|validate|precommit|pre-commit)([:.-].*)?$")
-DIRECT = {"vitest", "jest", "tsc", "eslint", "oxlint", "prettier", "biome", "vue-tsc", "tsgo", "hyperfine"}
+DIRECT = {"vitest", "jest", "tsc", "eslint", "oxlint", "prettier", "biome", "vue-tsc", "tsgo", "tsrs", "svelte-check",
+          "oxfmt", "hyperfine"}
 # Script runners, and the script paths that boot a Next server and a browser
 # (axe page gates, smoke runs, visual and screenshot captures).
 RUNNERS = {"tsx", "node", "ts-node", "vite-node", "bun", "deno"}
