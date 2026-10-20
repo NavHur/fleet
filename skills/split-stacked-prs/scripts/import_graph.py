@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Print each changed file's size and its imports among the changed files.
 
+Sizes are bytes of added and deleted lines, as diff_budget.py counts them;
+weighted counts deletions at a quarter and tests as zero. A renamed file is
+listed under its new path, and a binary file counts as zero bytes.
+
 Use it to design whole-file layers: a file's layer must sit at or above the
 layers of every changed file it imports. Only JS/TS import, export-from,
 dynamic import() and vi.mock() specifiers are followed.
@@ -15,6 +19,8 @@ import os
 import re
 import subprocess
 import sys
+
+from diff_budget import DELETION_WEIGHT, DIFF_OPTIONS, changed_files
 
 TEST = re.compile(r"\.(test|spec)\.[cm]?[jt]sx?$")
 IMPORT = re.compile(
@@ -39,15 +45,16 @@ def main():
     args = parser.parse_args()
 
     aliases = [a.split("=", 1) for a in args.alias]
-    numstat = {}
-    for line in git("diff", "--numstat", "--no-renames", args.base, args.tip).splitlines():
-        added, deleted, path = line.split("\t")
-        numstat[path] = (int(added) if added != "-" else 0, int(deleted) if deleted != "-" else 0)
+    sizes = {path: (added or 0, deleted or 0) for _, path, added, deleted in changed_files(args.base, args.tip)}
     status = {}
-    for line in git("diff", "--name-status", "--no-renames", args.base, args.tip).splitlines():
-        code, path = line.split("\t", 1)
-        status[path] = code
-    changed = set(numstat)
+    fields = git("diff", "--name-status", "-z", *DIFF_OPTIONS, args.base, args.tip).split("\0")
+    index = 0
+    while index < len(fields) and fields[index]:
+        code = fields[index]
+        step = 3 if code[0] in "RC" else 2
+        status[fields[index + step - 1]] = code[0]
+        index += step
+    changed = set(sizes)
 
     def resolve(src, spec):
         candidate = None
@@ -74,14 +81,14 @@ def main():
                 target = resolve(path, spec)
                 if target and target != path:
                     deps.add(target)
-        added, deleted = numstat[path]
+        added, deleted = sizes[path]
         is_test = bool(TEST.search(path))
         graph[path] = {
             "status": status.get(path, "?"),
             "test": is_test,
             "added": added,
             "deleted": deleted,
-            "weighted": 0 if is_test else added + deleted / 4,
+            "weighted": 0 if is_test else added + deleted * DELETION_WEIGHT,
             "deps": sorted(deps),
         }
 
@@ -91,8 +98,8 @@ def main():
     for path, v in graph.items():
         deps = ", ".join(v["deps"])
         print(
-            f"{v['status']} {'T' if v['test'] else ' '} +{v['added']:5d} -{v['deleted']:5d}"
-            f" w{v['weighted']:7.1f}  {path}" + (f"  <- {deps}" if deps else "")
+            f"{v['status']} {'T' if v['test'] else ' '} +{v['added']:7,d} -{v['deleted']:7,d}"
+            f" w{v['weighted']:9,.0f}  {path}" + (f"  <- {deps}" if deps else "")
         )
     return 0
 

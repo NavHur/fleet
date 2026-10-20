@@ -57,8 +57,9 @@ python3 "$SKILL_DIR/scripts/diff_budget.py" "$merge_base" "$source_tip" --genera
 python3 "$SKILL_DIR/scripts/import_graph.py" "$merge_base" "$source_tip" --alias '@/=apps/web/src/'
 ```
 
-`import_graph.py` (JS/TS) prints each changed file's size and its imports among
-the changed files; a file's layer sits at or above the layers of what it imports.
+`import_graph.py` (JS/TS) prints each changed file's size in bytes, counted as
+`diff_budget.py` does, and its imports among the changed files; a file's layer
+sits at or above the layers of what it imports.
 
 ## 3. Design atomic layers
 
