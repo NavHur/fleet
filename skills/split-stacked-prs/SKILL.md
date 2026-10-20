@@ -58,8 +58,10 @@ python3 "$SKILL_DIR/scripts/import_graph.py" "$merge_base" "$source_tip" --alias
 ```
 
 `import_graph.py` (JS/TS) prints each changed file's size in bytes, counted as
-`diff_budget.py` does, and its imports among the changed files; a file's layer
-sits at or above the layers of what it imports.
+`diff_budget.py` does (weighted is zero for tests and excluded files; it takes
+the same `--generated` and `--test` globs), a renamed file's old path, and its
+imports among the changed files; a file's layer sits at or above the layers of
+what it imports.
 
 ## 3. Design atomic layers
 
