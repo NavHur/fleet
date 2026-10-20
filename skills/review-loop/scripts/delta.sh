@@ -9,7 +9,8 @@
 # without, the delta is the whole PREV_HEAD..HEAD diff. A rebase shows up as the
 # base's changes merged into those files, which is what a hand-resolved conflict
 # looks like. Writes DIR/delta-<PR>.diff for every non-empty delta and prints
-# PR, layer, changed lines and whether files pedro-best-practices audits changed
+# PR, layer, changed size (bytes of added and deleted lines, as diff_budget.py
+# counts them) and whether files pedro-best-practices audits changed
 # (JS/TS, Svelte, Vue, Astro, GDScript, Python, PHP).
 set -euo pipefail
 prev= heads= out= manifests= repo=.
@@ -20,7 +21,7 @@ while (($#)); do
     --out) out=$2; shift 2 ;;
     --manifests) manifests=$2; shift 2 ;;
     --repo) repo=$2; shift 2 ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -46,9 +47,13 @@ while IFS=$'\t' read -r pr layer _base head; do
     echo "$pr $layer: no delta"
     continue
   fi
-  lines=$(git diff --numstat "$old" "$head" -- "${paths[@]}" | awk '{ n += $1 + $2 } END { print n + 0 }')
+  size=$(git diff -U0 --find-renames --find-copies --no-ext-diff --no-textconv --no-color "$old" "$head" -- "${paths[@]}" | LC_ALL=C awk '
+    /^diff --git / { hunk = 0; next }
+    /^@@ / { hunk = 1; next }
+    hunk && /^[-+]/ { n += length($0) }
+    END { printf "%.1f KB", n / 1000 }')
   audit=no
   git diff --name-only "$old" "$head" -- "${paths[@]}" |
     grep -qE '\.([cm]?[jt]sx?|svelte|vue|astro|gd|py|php)$' && audit=yes
-  echo "$pr $layer: $lines lines, audit=$audit -> $file"
+  echo "$pr $layer: $size, audit=$audit -> $file"
 done <"$heads"

@@ -4,7 +4,7 @@
 Run after each fix round. Every layer in the manifest directory is covered,
 so none is left out. For each layer it runs diff_budget.py against the
 merge-base with its parent, and again with --per-commit for the layer's own
-commits, and prints a table; a layer under the 300 weighted floor shows as
+commits, and prints a table; a layer under the 12 KB weighted floor shows as
 "small" and needs a stated reason. With --gates LOG_DIR (from
 layer_gates.sh) it also reports each layer's gate verdicts, but only for
 results recorded at the branch's current commit.
@@ -39,7 +39,7 @@ DEFAULT_GENERATED = [
     "prisma/migrations/*", "*/prisma/migrations/*", "*.geojson",
 ]
 SIZE_PREFIX = "Size against its base:"
-LAYER_FLOOR = 300
+LAYER_FLOOR = 12_000  # weighted bytes: one full commit
 GATES_PREFIX = "Layer gates at"
 
 
@@ -113,20 +113,36 @@ def gates_line(log_dir, name, head):
     return text, verdicts
 
 
+def kb_figure(size):
+    return f"{size / 1000:.1f}"
+
+
+def kilobytes(size):
+    return f"{kb_figure(size)} KB"
+
+
 def print_table(rows):
     w = max(len(r[0]) for r in rows)
-    print(f"\n{'layer':<{w}} {'PR':>5} {'weighted':>9} {'raw':>6} {'tests':>6} {'excl':>5} {'commits':>7}  status   gates")
+    print(
+        f"\n{'layer':<{w}} {'PR':>5} {'weighted KB':>11} {'raw KB':>7} {'tests KB':>9}"
+        f" {'excl KB':>8} {'commits':>7}  status   gates"
+    )
     for name, pr, size, commits, status, gate_note in rows:
         print(
-            f"{name:<{w}} {('#' + str(pr)) if pr else '-':>5} {size['weighted_size']:>9g} {size['raw_churn']:>6}"
-            f" {size['test_churn']:>6} {size['excluded_lines']:>5} {len(commits):>7}  {status:<8} {gate_note}"
+            f"{name:<{w}} {('#' + str(pr)) if pr else '-':>5} {kb_figure(size['weighted_size']):>11}"
+            f" {kb_figure(size['raw_churn']):>7} {kb_figure(size['test_churn']):>9}"
+            f" {kb_figure(size['excluded_bytes']):>8} {len(commits):>7}  {status:<8} {gate_note}"
         )
     over = [(row[0], c) for row in rows for c in row[3] if c["status"] == "cap-violation"]
     for name, c in over:
-        print(f"{name}: commit {c['commit'][:9]} weighted {c['weighted_size']:g}, raw {c['raw_churn']} over 300/600: {c['subject']}")
+        print(
+            f"{name}: commit {c['commit'][:9]} weighted {kilobytes(c['weighted_size'])},"
+            f" raw {kilobytes(c['raw_churn'])} over "
+            f"{kb_figure(c['hard_cap'])}/{kilobytes(c['raw_cap'])}: {c['subject']}"
+        )
 
 
-def main():
+def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--manifests", required=True)
     parser.add_argument("--prefix", default="")
@@ -136,21 +152,102 @@ def main():
     parser.add_argument("--update-prs", action="store_true")
     parser.add_argument("--generated", action="append")
     parser.add_argument("--test", action="append", default=[])
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    names = sorted(
-        f for f in os.listdir(args.manifests)
-        if not f.startswith(".") and os.path.isfile(os.path.join(args.manifests, f))
+
+def budget_flags(args):
+    flags = []
+    for glob in args.generated or DEFAULT_GENERATED:
+        flags += ["--generated", glob]
+    for glob in args.test:
+        flags += ["--test", glob]
+    return flags
+
+
+def size_line(size, commits):
+    excluded = f", excluded {kilobytes(size['excluded_bytes'])}" if size["excluded_bytes"] else ""
+    return (
+        f"{SIZE_PREFIX} weighted {kilobytes(size['weighted_size'])}, raw churn {kilobytes(size['raw_churn'])}"
+        f" (tests {kilobytes(size['test_churn'])}{excluded}) in {len(commits)} commits."
     )
+
+
+def layer_pr(manifest, repo, branch):
+    pr = header(manifest, "pr")
+    if pr:
+        return int(pr)
+    return find_pr(repo, branch) if repo else None
+
+
+def patch_body(name, repo, pr, new, line):
+    """PATCH the body, read it back; 1 when the size line did not take, else 0."""
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
+        fh.write(new)
+    run("gh", "api", "-X", "PATCH", f"repos/{repo}/pulls/{pr}", "-F", f"body=@{fh.name}", "--jq", ".number")
+    os.unlink(fh.name)
+    back = run("gh", "api", f"repos/{repo}/pulls/{pr}", "--jq", ".body").stdout
+    if line in back:
+        print(f"{name}: PR #{pr} body updated")
+        return 0
+    print(f"{name}: PR #{pr} body did not take the new size line", file=sys.stderr)
+    return 1
+
+
+def pending_body(name, branch, pr, repo, line, gate_text):
+    """The (current, new) PR body when the size and gate lines change it; else None, after saying why."""
+    if pr is None or repo is None:
+        print(f"{name}: no open PR for {branch}" if repo else f"{name}: no GitHub origin; pass --repo", file=sys.stderr)
+        return None
+    body = run("gh", "api", f"repos/{repo}/pulls/{pr}", "--jq", ".body").stdout
+    body = body[:-1] if body.endswith("\n") else body
+    new = set_line(body, SIZE_PREFIX, line)
+    if gate_text:
+        new = set_line(new, GATES_PREFIX, gate_text)
+    if new == body:
+        print(f"{name}: PR #{pr} body already current")
+        return None
+    return body, new
+
+
+def show_body_change(name, branch, pr, repo, line, gate_text):
+    """Print the diff of a PR body's new size and gate lines; no errors."""
+    change = pending_body(name, branch, pr, repo, line, gate_text)
+    if change:
+        body, new = change
+        diff = difflib.unified_diff(body.split("\n"), new.split("\n"), f"#{pr}", f"#{pr} new", lineterm="", n=0)
+        print("\n".join(diff))
+    return 0
+
+
+def apply_body_change(name, branch, pr, repo, line, gate_text):
+    """PATCH a PR body's new size and gate lines; the number of errors, a missing PR included."""
+    change = pending_body(name, branch, pr, repo, line, gate_text)
+    if change is None:
+        return int(pr is None or repo is None)
+    return patch_body(name, repo, pr, change[1], line)
+
+
+def manifest_names(directory):
+    return sorted(
+        f for f in os.listdir(directory)
+        if not f.startswith(".") and os.path.isfile(os.path.join(directory, f))
+    )
+
+
+def stack_base(args, names):
     base = args.base or header(os.path.join(args.manifests, names[0]), "base")
     if not base:
         sys.exit("no --base and no '# base:' header in the first manifest")
-    budget_flags = []
-    for glob in args.generated or DEFAULT_GENERATED:
-        budget_flags += ["--generated", glob]
-    for glob in args.test:
-        budget_flags += ["--test", glob]
+    return base
+
+
+def main():
+    args = parse_args()
+    names = manifest_names(args.manifests)
+    base = stack_base(args, names)
+    flags = budget_flags(args)
     repo = repo_slug(args.repo)
+    sync = apply_body_change if args.update_prs else show_body_change
 
     over, errors, parent = False, 0, base
     rows = []
@@ -159,46 +256,14 @@ def main():
         branch = header(manifest, "branch") or args.prefix + name
         head = git("rev-parse", branch)
         fork = git("merge-base", parent, branch)
-        size = budget(fork, head, budget_flags)
-        commits = budget(fork, head, ["--per-commit", *budget_flags])["commits"]
+        size = budget(fork, head, flags)
+        commits = budget(fork, head, ["--per-commit", *flags])["commits"]
         status = layer_status(size, commits)
         over |= status in ("cap-violation", "commit-over")
-        excluded = f", excluded {size['excluded_lines']:,}" if size["excluded_lines"] else ""
-        size_line = (
-            f"{SIZE_PREFIX} weighted {size['weighted_size']:g}, raw churn {size['raw_churn']:,}"
-            f" (tests {size['test_churn']:,}{excluded}) in {len(commits)} commits."
-        )
         gate_text, gate_note = gates_line(args.gates, name, head) if args.gates else (None, "")
-        pr = header(manifest, "pr")
-        pr = int(pr) if pr else (find_pr(repo, branch) if repo else None)
+        pr = layer_pr(manifest, repo, branch)
         rows.append((name, pr, size, commits, status, gate_note))
-
-        if pr is None or repo is None:
-            print(f"{name}: no open PR for {branch}" if repo else f"{name}: no GitHub origin; pass --repo", file=sys.stderr)
-            errors += args.update_prs
-        else:
-            body = run("gh", "api", f"repos/{repo}/pulls/{pr}", "--jq", ".body").stdout
-            body = body[:-1] if body.endswith("\n") else body
-            new = set_line(body, SIZE_PREFIX, size_line)
-            if gate_text:
-                new = set_line(new, GATES_PREFIX, gate_text)
-            if new == body:
-                print(f"{name}: PR #{pr} body already current")
-            elif not args.update_prs:
-                diff = difflib.unified_diff(body.split("\n"), new.split("\n"), f"#{pr}", f"#{pr} new", lineterm="", n=0)
-                print("\n".join(diff))
-            else:
-                slug = repo
-                with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
-                    fh.write(new)
-                run("gh", "api", "-X", "PATCH", f"repos/{slug}/pulls/{pr}", "-F", f"body=@{fh.name}", "--jq", ".number")
-                os.unlink(fh.name)
-                back = run("gh", "api", f"repos/{slug}/pulls/{pr}", "--jq", ".body").stdout
-                if size_line in back:
-                    print(f"{name}: PR #{pr} body updated")
-                else:
-                    print(f"{name}: PR #{pr} body did not take the new size line", file=sys.stderr)
-                    errors += 1
+        errors += sync(name, branch, pr, repo, size_line(size, commits), gate_text)
         parent = branch
 
     print_table(rows)

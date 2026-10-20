@@ -1,6 +1,6 @@
 ---
 name: split-stacked-prs
-description: Native GitHub stacked PRs, layers of small commits within Pedro's churn ceilings. Use to split a large branch into dependency-ordered layers, to carry review fixes through, gate, or re-measure an existing stack, or to restack one that fell behind its base. Not for code review.
+description: Native GitHub stacked PRs, layers of small commits within Pedro's byte-size ceilings. Use to split a large branch into dependency-ordered layers, to carry review fixes through, gate, or re-measure an existing stack, or to restack one that fell behind its base. Not for code review.
 ---
 
 # Split Stacked PRs
@@ -21,7 +21,7 @@ generated-data exemptions, retirement exceptions, the stack length,
 whole-file splits. Apply it only to Pedro's pull requests.
 
 - Measure each layer against its direct parent and each commit against its
-  own parent, under the policy's ceilings. Explain any layer under 300
+  own parent, under the policy's ceilings. Explain any layer under 12 KB
   weighted.
 - Keep each behavior change with its tests. Fixtures, helpers, setup and test
   infrastructure count toward both ceilings.
@@ -54,11 +54,14 @@ generated files with the evidence for each.
 
 ```bash
 python3 "$SKILL_DIR/scripts/diff_budget.py" "$merge_base" "$source_tip" --generated 'src/generated/**'
-python3 "$SKILL_DIR/scripts/import_graph.py" "$merge_base" "$source_tip" --alias '@/=apps/web/src/'
+python3 "$SKILL_DIR/scripts/import_graph.py" "$merge_base" "$source_tip" --alias '@/=apps/web/src/' --generated 'src/generated/**'
 ```
 
-`import_graph.py` (JS/TS) prints each changed file's size and its imports among
-the changed files; a file's layer sits at or above the layers of what it imports.
+`import_graph.py` (JS/TS) prints each changed file's size in bytes, counted as
+`diff_budget.py` does (weighted is zero for tests and excluded files; pass it
+the same `--generated` and `--test` globs as `diff_budget.py`), a renamed
+file's old path, and its imports among the changed files; a file's layer sits
+at or above the layers of what it imports.
 
 ## 3. Design atomic layers
 
@@ -256,5 +259,5 @@ squash-merged into the base. Finish with `restack.py clean STATE_DIR`.
 
 Return the stack bottom to top with PR links, parents, commits, weighted size,
 raw churn, test churn, excluded churn, validation status, the reason for any
-layer under 300 and any `Size-Exception` trailer. State the disposition of the original PR, source branch,
+layer under 12 KB and any `Size-Exception` trailer. State the disposition of the original PR, source branch,
 temporary worktree and safety branch.

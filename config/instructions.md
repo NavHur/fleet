@@ -46,9 +46,10 @@ confidence.
 - Stacks use `gh stack`: fix on the layer that owns the code, `gh stack rebase`
   descendants when their dependencies need it or Pedro asks, and merge with
   `gh stack merge --yes --merge` on the top PR.
-- Size: a PR within 1000 weighted and 2000 raw churn, each commit within 300
-  and 600, stack layers 400 to 1000 weighted, at most 5 per stack. Measure
-  before pushing per `~/.agents/skills/split-stacked-prs/references/size-policy.md`.
+- Size, in bytes of added and deleted lines: a PR or stack layer within 48 KB
+  weighted and 96 KB raw churn, each commit within 12 KB and 24 KB, a layer at
+  least 12 KB weighted, at most 5 per stack. Measure before pushing per
+  `~/.agents/skills/split-stacked-prs/references/size-policy.md`.
   The rule is personal: it stays out of repositories.
 
 ## GitHub API
