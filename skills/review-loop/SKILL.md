@@ -48,6 +48,10 @@ memory:
   only to numbered PRs.
 - `rN/reviewers.tsv` and `rN/<reviewer>.json`: written by `loop.py brief` and
   by the reviewers.
+- `rN/context.md`: rewritten by every `loop.py brief`. It quotes
+  `reviewer.md`, `rN/common.md`, and the ledger, then lists the round's
+  reviewers and the settled findings: the one file each reviewer reads before
+  its role's own, so the shared reading costs one turn.
 
 Update the ledger at the end of every step that changes it.
 
@@ -81,7 +85,9 @@ Pick the reviewers:
 - **Delta**: one `delta` reviewer for the PRs with a delta, and one
   `audit --delta` per PR whose delta has `audit=yes`.
 
-For each, generate its task:
+Update the ledger for the round first, then generate every reviewer's task
+before launching any, so the context file every brief rewrites carries the
+same ledger and the full reviewer list:
 
 ```bash
 python3 "$SKILL_DIR/scripts/loop.py" brief "$LOOP" N ROLE --model "MODEL EFFORT" \

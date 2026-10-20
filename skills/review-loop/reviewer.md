@@ -14,8 +14,8 @@ findings file is the only thing it reads, so everything you found goes in it.
 - Run a check only when it settles a finding, through
   `~/.local/bin/host-check <command>`, one focused command at a time. The
   packet lists the checks that already passed.
-- The ledger and `outcomes.jsonl` hold settled findings and the user's
-  rulings. Raise a settled item again only with new evidence that its recorded
+- The context file's ledger and settled findings hold what earlier rounds
+  decided and the user's rulings. Raise a settled item again only with new evidence that its recorded
   reason is wrong, and put that evidence first.
 - Report what you verified in the code at the pinned head. A suspicion you
   could not confirm goes in `coverage` or nowhere.
@@ -32,7 +32,7 @@ standards. Your report is the findings file below, with no word limit.
 packet names. Missing behavior gets a finding with `file` and `line` null.
 
 **delta**: Both axes, on the delta only. For each fix in it, find the finding
-it answers in `outcomes.jsonl` or the ledger, and confirm the fix is correct
+it answers in the settled findings, and confirm the fix is correct
 and complete. Then look for regressions the fix causes around it: callers,
 tests, sibling layers. The rest of the PR was reviewed in an earlier round.
 

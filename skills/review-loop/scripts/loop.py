@@ -12,7 +12,9 @@ number; round N lives in LOOP/rN with its heads.tsv
 (PR<TAB>LAYER<TAB>BASE_SHA<TAB>HEAD_SHA, bottom to top).
 
 brief prints the task for one reviewer (ROLE is standards, spec, delta, or
-audit) and registers it in rN/reviewers.tsv. The reviewer writes
+audit), registers it in rN/reviewers.tsv, and rewrites rN/context.md: reviewer.md,
+rN/common.md, the ledger, the round's reviewers, and the settled findings, the one
+file every reviewer in the round reads first. The reviewer writes
 rN/<name>.json in the format reviewer.md describes. check validates every
 registered reviewer's file and prints the round's findings. outcome appends a
 finding's triage result (fixed, declined, decision, or ruled) to
@@ -33,7 +35,7 @@ from pathlib import Path
 
 from comment import github_repo, render
 from loop_state import (COVERAGE, ROLES, LoopError, Reviewer, all_findings, findings_path, heads, id_prefix, location,
-                        read_findings, register, reviewers, round_dir, rounds)
+                        outcomes, read_findings, register, reviewers, round_dir, rounds)
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 PRIORITIES = ("P1", "P2", "P3")
@@ -48,10 +50,10 @@ REQUIRED = ("id", "pr", "priority", "kind", "rule", "title", "evidence", "recomm
 BRIEF = """\
 You are the {role} reviewer in round {n} of a review loop.
 
-Read these in full before you start:
-1. {skill}/reviewer.md: your rules, the method for the {role} role, and the output format.
-2. The round packet: {round_dir}/common.md
-3. The ledger, {loop}/ledger.md, and the settled findings in {loop}/outcomes.jsonl.
+Read {context} in full before anything else. It holds your rules, the method for the {role} role, and the
+output format (reviewer.md), the round packet, this round's reviewers, the ledger, and the settled findings.
+Then read every file your role names in one turn, and keep batching independent reads and commands into one
+turn throughout.
 
 Your scope:
 {scope}
@@ -85,12 +87,71 @@ def scope_line(loop, n, pr, reviewer):
     return f"- PR {pr} ({head.layer}): the fixes since round {n - 1}, in `{diff}` ({previous.head} to {head.head})."
 
 
+CONTEXT = """\
+# Review loop, round {n}: shared context
+
+Every reviewer in round {n} reads this file first. `loop.py brief` assembles it from the files it quotes;
+edit those, not this.
+
+{files}
+
+## Reviewers this round
+
+{reviewers}
+
+## Settled findings
+
+The last outcome of every finding from earlier rounds; a round's `<reviewer>.json` holds the full record.
+A finding fixed in the previous round carries the recommendation its fix answers.
+
+{settled}
+"""
+
+
+def quoted_file(path):
+    if not path.exists():
+        raise LoopError(f"write {path} before the briefs")
+    return f'<file path="{path}">\n{path.read_text().strip()}\n</file>'
+
+
+def settled_line(finding, outcome, previous):
+    status = outcome["status"]
+    result = f"fixed in {outcome['commit'][:9]}" if status == "fixed" else f"{status}: {outcome['note']}"
+    line = (f"- {finding['id']} ({finding['priority']} {finding['kind']}, PR {finding['pr']}, {location(finding)}) "
+            f"{result}. {finding['title']}")
+    if status == "fixed" and finding["round"] == previous:
+        line += f"\n  Recommendation: {finding['recommendation']}"
+    return line
+
+
+def settled_lines(loop, n):
+    recorded = outcomes(loop)
+    earlier = [f for f in all_findings(loop) if f["round"] < n and f["id"] in recorded]
+    return [settled_line(f, recorded[f["id"]], n - 1) for f in earlier] or ["None yet."]
+
+
+def quoted_files(loop, n):
+    paths = (SKILL_DIR / "reviewer.md", round_dir(loop, n) / "common.md", loop / "ledger.md")
+    return "\n\n".join(quoted_file(path) for path in paths)
+
+
+def write_context(loop, n, files):
+    """Write rN/context.md, the one file every reviewer in round n reads before its role's own files."""
+    roster = [f"- {r.name}: {r.role}, {r.scope}, PR {', '.join(r.prs)}" for r in reviewers(loop, n)]
+    text = CONTEXT.format(n=n, files=files, reviewers="\n".join(roster), settled="\n".join(settled_lines(loop, n)))
+    path = round_dir(loop, n) / "context.md"
+    path.write_text(text)
+    return path
+
+
 def brief(loop, n, role, prs, delta, model, checkout):
     reviewer = new_reviewer(loop, n, role, prs, delta, model)
     scope = "\n".join(scope_line(loop, n, pr, reviewer) for pr in reviewer.prs)
+    files = quoted_files(loop, n)
     register(loop, n, reviewer)
     (loop / "outcomes.jsonl").touch()
-    return BRIEF.format(role=role, n=n, skill=SKILL_DIR, round_dir=round_dir(loop, n), loop=loop, scope=scope,
+    context = write_context(loop, n, files)
+    return BRIEF.format(role=role, n=n, context=context, scope=scope, skill=SKILL_DIR, loop=loop,
                         out=findings_path(loop, n, reviewer), prefix=id_prefix(n, reviewer), name=reviewer.name,
                         checkout=f" --checkout {checkout}" if checkout else "")
 
