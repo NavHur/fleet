@@ -12,7 +12,8 @@ IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NA
 
 
 def lines(count, prefix="line"):
-    return "".join(f"{prefix} {index}\n" for index in range(count))
+    """`count` distinct 48-byte lines: 250 fill a commit's weighted ceiling."""
+    return "".join(f"{prefix} {index}".ljust(47) + "\n" for index in range(count))
 
 
 class RefreshStackTests(unittest.TestCase):
@@ -58,21 +59,21 @@ class RefreshStackTests(unittest.TestCase):
 
     def test_layer_of_small_commits_passes(self):
         result = self.stack(
-            {"a.ts": lines(250), "b.ts": lines(250)},
+            {"a.ts": lines(200), "b.ts": lines(200)},
             {"01-feature": "# commit: feat: add a\na.ts\n# commit: feat: add b\nb.ts\n"},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.row(result, "01-feature")[2:8], ["500", "500", "0", "0", "2", "within-cap"])
+        self.assertEqual(self.row(result, "01-feature")[2:8], ["19.2", "19.2", "0.0", "0.0", "2", "within-cap"])
 
     def test_one_commit_over_the_commit_ceiling_fails_the_layer(self):
-        result = self.stack({"a.ts": lines(500)}, {"01-feature": "a.ts\n"})
+        result = self.stack({"a.ts": lines(300)}, {"01-feature": "a.ts\n"})
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertEqual(self.row(result, "01-feature")[7], "commit-over")
-        self.assertIn("weighted 500, raw 500 over 300/600: wip: 01-feature", result.stdout)
+        self.assertIn("weighted 14.4 KB, raw 14.4 KB over 12.0/24.0: wip: 01-feature", result.stdout)
 
     def test_layer_under_the_floor_is_small_but_passes(self):
         result = self.stack(
-            {"a.ts": lines(200), "b.ts": lines(200), "c.ts": lines(100)},
+            {"a.ts": lines(200), "b.ts": lines(200), "c.ts": lines(200)},
             {"01-ab": "# commit: feat: a\na.ts\n# commit: feat: b\nb.ts\n", "02-c": "c.ts\n"},
         )
         self.assertEqual(result.returncode, 0, result.stdout)

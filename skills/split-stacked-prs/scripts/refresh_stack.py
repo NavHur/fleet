@@ -4,7 +4,7 @@
 Run after each fix round. Every layer in the manifest directory is covered,
 so none is left out. For each layer it runs diff_budget.py against the
 merge-base with its parent, and again with --per-commit for the layer's own
-commits, and prints a table; a layer under the 300 weighted floor shows as
+commits, and prints a table; a layer under the 12 KB weighted floor shows as
 "small" and needs a stated reason. With --gates LOG_DIR (from
 layer_gates.sh) it also reports each layer's gate verdicts, but only for
 results recorded at the branch's current commit.
@@ -39,7 +39,7 @@ DEFAULT_GENERATED = [
     "prisma/migrations/*", "*/prisma/migrations/*", "*.geojson",
 ]
 SIZE_PREFIX = "Size against its base:"
-LAYER_FLOOR = 300
+LAYER_FLOOR = 12_000  # weighted bytes: one full commit
 GATES_PREFIX = "Layer gates at"
 
 
@@ -113,17 +113,25 @@ def gates_line(log_dir, name, head):
     return text, verdicts
 
 
+def kilobytes(size):
+    return f"{size / 1000:.1f}"
+
+
 def print_table(rows):
     w = max(len(r[0]) for r in rows)
-    print(f"\n{'layer':<{w}} {'PR':>5} {'weighted':>9} {'raw':>6} {'tests':>6} {'excl':>5} {'commits':>7}  status   gates")
+    print(f"\n{'layer':<{w}} {'PR':>5} {'weighted':>9} {'raw':>6} {'tests':>6} {'excl':>5} {'commits':>7}  status   gates  (KB)")
     for name, pr, size, commits, status, gate_note in rows:
         print(
-            f"{name:<{w}} {('#' + str(pr)) if pr else '-':>5} {size['weighted_size']:>9g} {size['raw_churn']:>6}"
-            f" {size['test_churn']:>6} {size['excluded_lines']:>5} {len(commits):>7}  {status:<8} {gate_note}"
+            f"{name:<{w}} {('#' + str(pr)) if pr else '-':>5} {kilobytes(size['weighted_size']):>9}"
+            f" {kilobytes(size['raw_churn']):>6} {kilobytes(size['test_churn']):>6}"
+            f" {kilobytes(size['excluded_bytes']):>5} {len(commits):>7}  {status:<8} {gate_note}"
         )
     over = [(row[0], c) for row in rows for c in row[3] if c["status"] == "cap-violation"]
     for name, c in over:
-        print(f"{name}: commit {c['commit'][:9]} weighted {c['weighted_size']:g}, raw {c['raw_churn']} over 300/600: {c['subject']}")
+        print(
+            f"{name}: commit {c['commit'][:9]} weighted {kilobytes(c['weighted_size'])} KB,"
+            f" raw {kilobytes(c['raw_churn'])} KB over {kilobytes(c['hard_cap'])}/{kilobytes(c['raw_cap'])}: {c['subject']}"
+        )
 
 
 def main():
@@ -163,10 +171,10 @@ def main():
         commits = budget(fork, head, ["--per-commit", *budget_flags])["commits"]
         status = layer_status(size, commits)
         over |= status in ("cap-violation", "commit-over")
-        excluded = f", excluded {size['excluded_lines']:,}" if size["excluded_lines"] else ""
+        excluded = f", excluded {kilobytes(size['excluded_bytes'])} KB" if size["excluded_bytes"] else ""
         size_line = (
-            f"{SIZE_PREFIX} weighted {size['weighted_size']:g}, raw churn {size['raw_churn']:,}"
-            f" (tests {size['test_churn']:,}{excluded}) in {len(commits)} commits."
+            f"{SIZE_PREFIX} weighted {kilobytes(size['weighted_size'])} KB, raw churn {kilobytes(size['raw_churn'])} KB"
+            f" (tests {kilobytes(size['test_churn'])} KB{excluded}) in {len(commits)} commits."
         )
         gate_text, gate_note = gates_line(args.gates, name, head) if args.gates else (None, "")
         pr = header(manifest, "pr")

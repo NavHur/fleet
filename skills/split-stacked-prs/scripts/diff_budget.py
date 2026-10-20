@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Measure review-line churn between two Git revisions.
+"""Measure review churn in bytes between two Git revisions.
 
-Tests count toward raw churn only. Lockfiles and verified generated files are
+A change's size is the bytes of its added and deleted lines, about four bytes
+per token, the unit the 20,000-byte file cap uses. Tests count toward raw churn
+only. Lockfiles and verified generated files are
 excluded from both ceilings. With --per-commit, every commit in the range is
 measured against its parent under the commit ceilings; a commit carrying a
 `Size-Exception: <reason>` trailer is exempt. Exit with status 2 when a ceiling
@@ -39,8 +41,15 @@ LOCKFILE_NAMES = {
     "uv.lock",
     "yarn.lock",
 }
-PR_CEILINGS = (1000, 2000)
-COMMIT_CEILINGS = (300, 600)
+# (weighted, raw) bytes: a pull request or stack layer, and one commit in it
+PR_CEILINGS = (48_000, 96_000)
+COMMIT_CEILINGS = (12_000, 24_000)
+DELETION_WEIGHT = 0.25
+BYTES_PER_TOKEN = 4
+# git lists files in the same order for --numstat and the patch, so the two zip together
+DIFF_OPTIONS = ("--find-renames", "--find-copies", "--no-ext-diff", "--no-textconv", "--no-color")
+# a hunk line's marker stands in for the newline git strips from it
+CHANGE_SIDES = {b"+": 0, b"-": 1}
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 
@@ -48,9 +57,9 @@ EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 class DiffEntry:
     path: str
     old_path: str | None
-    additions: int | None
-    deletions: int | None
-    lines: int
+    added_bytes: int | None
+    deleted_bytes: int | None
+    bytes: int
     excluded: bool
     reason: str | None
     test: bool
@@ -70,9 +79,10 @@ def git(*args: str, text: bool = True) -> str | bytes:
     return result.stdout
 
 
-def parse_numstat(raw: bytes) -> list[tuple[str | None, str, int | None, int | None]]:
+def parse_numstat(raw: bytes) -> list[tuple[str | None, str, bool]]:
+    """(old path, path, binary) per changed file; old path only for a rename or copy."""
     parts = raw.split(b"\0")
-    entries: list[tuple[str | None, str, int | None, int | None]] = []
+    entries: list[tuple[str | None, str, bool]] = []
     index = 0
     while index < len(parts) and parts[index]:
         fields = parts[index].decode("utf-8", errors="surrogateescape").split("\t", 2)
@@ -87,10 +97,35 @@ def parse_numstat(raw: bytes) -> list[tuple[str | None, str, int | None, int | N
             old_path = parts[index].decode("utf-8", errors="surrogateescape")
             path = parts[index + 1].decode("utf-8", errors="surrogateescape")
             index += 2
-        additions = None if added_raw == "-" else int(added_raw)
-        deletions = None if deleted_raw == "-" else int(deleted_raw)
-        entries.append((old_path, path, additions, deletions))
+        entries.append((old_path, path, added_raw == "-" and deleted_raw == "-"))
     return entries
+
+
+def parse_patch(raw: bytes) -> list[list[int]]:
+    """[added bytes, deleted bytes] per file of a -U0 patch, in git's file order."""
+    sizes: list[list[int]] = []
+    in_hunk = False
+    for line in raw.split(b"\n"):
+        if line.startswith(b"diff --git "):
+            sizes.append([0, 0])
+            in_hunk = False
+        elif line.startswith(b"@@ "):
+            in_hunk = True
+        elif in_hunk and line[:1] in CHANGE_SIDES:
+            sizes[-1][CHANGE_SIDES[line[:1]]] += len(line)
+    return sizes
+
+
+def changed_files(start: str, head: str) -> list[tuple[str | None, str, int | None, int | None]]:
+    """(old path, path, added bytes, deleted bytes) per file; a binary file has no byte counts."""
+    listed = parse_numstat(git("diff", "--numstat", "-z", *DIFF_OPTIONS, start, head, "--", text=False))
+    sizes = parse_patch(git("diff", "-U0", *DIFF_OPTIONS, start, head, "--", text=False))
+    if len(sizes) != len(listed):
+        raise RuntimeError(f"git listed {len(listed)} changed files but patched {len(sizes)}")
+    return [
+        (old_path, path, None, None) if binary else (old_path, path, added, deleted)
+        for (old_path, path, binary), (added, deleted) in zip(listed, sizes)
+    ]
 
 
 def is_lockfile(path: str) -> bool:
@@ -135,7 +170,7 @@ def classify(
     paths = sorted({path for old, new, _, _ in parsed for path in (old, new) if path})
     attributed = linguist_generated(paths)
     entries: list[DiffEntry] = []
-    for old_path, path, additions, deletions in parsed:
+    for old_path, path, added, deleted in parsed:
         candidates = [candidate for candidate in (old_path, path) if candidate]
         reason: str | None = None
         if all(is_lockfile(candidate) for candidate in candidates):
@@ -144,20 +179,23 @@ def classify(
             reason = "linguist-generated"
         elif all(matches_any(candidate, generated_patterns) for candidate in candidates):
             reason = "verified-generated-pattern"
-        lines = 0 if additions is None or deletions is None else additions + deletions
         entries.append(
             DiffEntry(
                 path=path,
                 old_path=old_path,
-                additions=additions,
-                deletions=deletions,
-                lines=lines,
+                added_bytes=added,
+                deleted_bytes=deleted,
+                bytes=(added or 0) + (deleted or 0),
                 excluded=reason is not None,
                 reason=reason,
                 test=all(is_test(candidate, test_patterns) for candidate in candidates),
             )
         )
     return entries
+
+
+def kilobytes(size: float) -> str:
+    return f"{size / 1000:.1f} KB"
 
 
 def summarize(
@@ -167,14 +205,13 @@ def summarize(
     tests = [entry for entry in included if entry.test]
     weighted = [entry for entry in included if not entry.test]
     excluded = [entry for entry in entries if entry.excluded]
-    budgeted_lines = sum(entry.lines for entry in included)
-    excluded_lines = sum(entry.lines for entry in excluded)
+    raw_churn = sum(entry.bytes for entry in included)
     weighted_size = sum(
-        (entry.additions or 0) + (entry.deletions or 0) / 4 for entry in weighted
+        (entry.added_bytes or 0) + (entry.deleted_bytes or 0) * DELETION_WEIGHT for entry in weighted
     )
     if exemption:
         status = exemption
-    elif weighted_size > cap or budgeted_lines > raw_cap:
+    elif weighted_size > cap or raw_churn > raw_cap:
         status = "cap-violation"
     else:
         status = "within-cap"
@@ -183,43 +220,43 @@ def summarize(
         "hard_cap": cap,
         "raw_cap": raw_cap,
         "weighted_size": weighted_size,
-        "raw_churn": budgeted_lines,
-        "test_churn": sum(entry.lines for entry in tests),
-        "weighted_additions": sum(entry.additions or 0 for entry in weighted),
-        "weighted_deletions": sum(entry.deletions or 0 for entry in weighted),
-        "budgeted_lines": budgeted_lines,
-        "budgeted_additions": sum(entry.additions or 0 for entry in included),
-        "budgeted_deletions": sum(entry.deletions or 0 for entry in included),
-        "excluded_lines": excluded_lines,
-        "excluded_additions": sum(entry.additions or 0 for entry in excluded),
-        "excluded_deletions": sum(entry.deletions or 0 for entry in excluded),
+        "raw_churn": raw_churn,
+        "test_churn": sum(entry.bytes for entry in tests),
+        "weighted_added_bytes": sum(entry.added_bytes or 0 for entry in weighted),
+        "weighted_deleted_bytes": sum(entry.deleted_bytes or 0 for entry in weighted),
+        "budgeted_added_bytes": sum(entry.added_bytes or 0 for entry in included),
+        "budgeted_deleted_bytes": sum(entry.deleted_bytes or 0 for entry in included),
+        "excluded_bytes": sum(entry.bytes for entry in excluded),
+        "excluded_added_bytes": sum(entry.added_bytes or 0 for entry in excluded),
+        "excluded_deleted_bytes": sum(entry.deleted_bytes or 0 for entry in excluded),
         "included_binary_files": sum(
-            entry.additions is None and not entry.excluded for entry in entries
+            entry.added_bytes is None and not entry.excluded for entry in entries
         ),
         "excluded_binary_files": sum(
-            entry.additions is None and entry.excluded for entry in entries
+            entry.added_bytes is None and entry.excluded for entry in entries
         ),
         "files": [asdict(entry) for entry in entries],
     }
 
 
 def print_text(summary: dict[str, object]) -> None:
+    weighted = summary["weighted_size"]
     print(
-        f"Weighted: {summary['weighted_size']:g}/{summary['hard_cap']} "
-        "(tests excluded)\nRaw churn: "
-        f"{summary['budgeted_lines']} lines "
-        f"(+{summary['budgeted_additions']} / -{summary['budgeted_deletions']}, "
-        f"cap {summary['raw_cap']}, tests {summary['test_churn']})"
+        f"Weighted: {kilobytes(weighted)}/{kilobytes(summary['hard_cap'])} "
+        f"(~{weighted / BYTES_PER_TOKEN / 1000:.1f}k tokens, tests excluded)\nRaw churn: "
+        f"{kilobytes(summary['raw_churn'])} "
+        f"(+{summary['budgeted_added_bytes']:,} / -{summary['budgeted_deleted_bytes']:,} bytes, "
+        f"cap {kilobytes(summary['raw_cap'])}, tests {kilobytes(summary['test_churn'])})"
     )
     print(
         "Excluded: "
-        f"{summary['excluded_lines']} lines "
-        f"(+{summary['excluded_additions']} / -{summary['excluded_deletions']})"
+        f"{kilobytes(summary['excluded_bytes'])} "
+        f"(+{summary['excluded_added_bytes']:,} / -{summary['excluded_deleted_bytes']:,} bytes)"
     )
     print(f"Status: {summary['status']}")
     if summary["included_binary_files"] or summary["excluded_binary_files"]:
         print(
-            "Binary files (not line-counted): "
+            "Binary files (not measured): "
             f"{summary['included_binary_files']} included, "
             f"{summary['excluded_binary_files']} excluded"
         )
@@ -229,19 +266,19 @@ def print_text(summary: dict[str, object]) -> None:
         path = entry["path"]
         if entry["old_path"]:
             path = f"{entry['old_path']} -> {path}"
-        churn = "binary" if entry["additions"] is None else str(entry["lines"])
+        churn = "binary" if entry["added_bytes"] is None else f"{entry['bytes']:,}"
         if entry["excluded"]:
             classification = f"excluded:{entry['reason']}"
         elif entry["test"]:
             classification = "test:raw-only"
         else:
             classification = "weighted-and-raw"
-        print(f"  {churn:>7}  {classification:<36} {path}")
+        print(f"  {churn:>9}  {classification:<36} {path}")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Measure weighted size and raw churn between two Git revisions."
+        description="Measure weighted size and raw churn in bytes between two Git revisions."
     )
     parser.add_argument(
         "base", help="parent/base revision; commits measure from merge-base(base, head)",
@@ -267,11 +304,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--cap", type=int,
-        help="weighted size ceiling (default: 1000, or 300 with --per-commit)",
+        help="weighted size ceiling in bytes (default: 48000, or 12000 with --per-commit)",
     )
     parser.add_argument(
         "--raw-cap", type=int,
-        help="raw churn ceiling (default: 2000, or 600 with --per-commit)",
+        help="raw churn ceiling in bytes (default: 96000, or 24000 with --per-commit)",
     )
     parser.add_argument("--json", action="store_true", help="emit JSON")
     args = parser.parse_args()
@@ -308,11 +345,7 @@ def retirement_only(base: str, head: str) -> bool:
 def measure(
     start: str, head: str, args: argparse.Namespace, exemption: str | None = None
 ) -> dict[str, object]:
-    raw = git(
-        "diff", "--numstat", "-z", "--find-renames", "--find-copies", start, head, "--",
-        text=False,
-    )
-    entries = classify(parse_numstat(raw), args.generated, args.test)
+    entries = classify(changed_files(start, head), args.generated, args.test)
     if exemption is None and retirement_only(start, head):
         exemption = "exempt-retirement"
     return summarize(entries, args.cap, args.raw_cap, exemption)
@@ -335,11 +368,11 @@ def measure_commits(start: str, head: str, args: argparse.Namespace) -> list[dic
 
 
 def print_commits(summaries: list[dict[str, object]], cap: int, raw_cap: int) -> None:
-    print(f"Commits: {len(summaries)} (ceilings: weighted {cap}, raw {raw_cap})")
+    print(f"Commits: {len(summaries)} (ceilings: weighted {kilobytes(cap)}, raw {kilobytes(raw_cap)})")
     for summary in summaries:
         print(
-            f"  {str(summary['commit'])[:9]}  weighted {summary['weighted_size']:>7g}"
-            f"  raw {summary['raw_churn']:>5}  {summary['status']:<17} {summary['subject']}"
+            f"  {str(summary['commit'])[:9]}  weighted {kilobytes(summary['weighted_size']):>9}"
+            f"  raw {kilobytes(summary['raw_churn']):>9}  {summary['status']:<17} {summary['subject']}"
         )
 
 
