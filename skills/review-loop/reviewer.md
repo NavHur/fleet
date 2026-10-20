@@ -45,6 +45,23 @@ replaces the "Combined report" and "GitHub publication" sections of its
 comment per PR. Give `coverage` one entry for each row of the coverage table
 in that file.
 
+## Lanes
+
+Each defect has one owner, so it is reported once:
+
+| Lane | Owns |
+| --- | --- |
+| **audit** | Every `pedro/...` rule: the interface cap and ownership, complexity and its evasions, long comments, the construction rules (catch and except handling, mode parameters, comments beside changed lines), nested conditionals, and performance |
+| **spec** | Behavior the spec names: missing, partial, or contradicted |
+| **standards** | Correctness bugs in behavior the spec does not name, the repository's documented standards, the smell baseline, and the packet's engineering principles |
+| **delta** | The standards and spec lanes on the delta: each fix's correctness and completeness, and the regressions it causes |
+
+Report what you verify in your lane. A defect a `pedro/...` rule names is the
+audit's, even when an engineering principle or a standard covers it too. A
+lane whose owner is missing from "Reviewers this round" is yours as well: in a
+delta round with no audit for a PR, the delta reviewer applies Pedro's rules
+to that PR's delta. Outside your lanes, only a P1 goes in your file.
+
 ## Priority and kind
 
 | Priority | Meaning | pedro-best-practices |
