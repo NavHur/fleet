@@ -29,6 +29,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import guard_oracle  # noqa: E402
 import measure_complexity  # noqa: E402
+import measure_js  # noqa: E402
 
 OXLINT = SKILL / "node_modules" / ".bin" / "oxlint"
 PICK = """\
@@ -118,8 +119,8 @@ class PHPAnalyzer(unittest.TestCase):
 class OxlintPlugin(unittest.TestCase):
     def lint(self, fixture: str) -> dict[int, dict[str, int]]:
         config = {
-            "categories": {c: "off" for c in measure_complexity.CATEGORIES},
-            "jsPlugins": [str(measure_complexity.PLUGIN)],
+            "categories": {c: "off" for c in measure_js.CATEGORIES},
+            "jsPlugins": [str(measure_js.PLUGIN)],
             "rules": {"pbp/cognitive-complexity": ["warn", {"max": 0}], "complexity": ["warn", {"max": 0}]},
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -131,7 +132,7 @@ class OxlintPlugin(unittest.TestCase):
         for diagnostic in json.loads(result.stdout)["diagnostics"]:
             line = diagnostic["labels"][0]["span"]["line"]
             metric = "cognitive" if "cognitive" in diagnostic["code"] else "cyclomatic"
-            score = int(measure_complexity.SCORE.search(diagnostic["message"]).group(1))
+            score = int(measure_js.SCORE.search(diagnostic["message"]).group(1))
             rows.setdefault(line, {}).setdefault(metric, score)
         return rows
 

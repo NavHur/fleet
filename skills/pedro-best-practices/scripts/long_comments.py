@@ -38,8 +38,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 import godot_guard
-from measure_complexity import (changed_files, changed_lines, git, is_off, language_of, owning_config,
-                                read_file, strip_jsonc)
+from measure_js import is_off, owning_config, strip_jsonc
+from revision import changed_files, changed_lines, git, language_of, read_file
 
 CAP = 2
 GUARD_RULE = "long-comment"
