@@ -113,24 +113,32 @@ def gates_line(log_dir, name, head):
     return text, verdicts
 
 
-def kilobytes(size):
+def kb_figure(size):
     return f"{size / 1000:.1f}"
+
+
+def kilobytes(size):
+    return f"{kb_figure(size)} KB"
 
 
 def print_table(rows):
     w = max(len(r[0]) for r in rows)
-    print(f"\n{'layer':<{w}} {'PR':>5} {'weighted':>9} {'raw':>6} {'tests':>6} {'excl':>5} {'commits':>7}  status   gates  (KB)")
+    print(
+        f"\n{'layer':<{w}} {'PR':>5} {'weighted KB':>11} {'raw KB':>7} {'tests KB':>9}"
+        f" {'excl KB':>8} {'commits':>7}  status   gates"
+    )
     for name, pr, size, commits, status, gate_note in rows:
         print(
-            f"{name:<{w}} {('#' + str(pr)) if pr else '-':>5} {kilobytes(size['weighted_size']):>9}"
-            f" {kilobytes(size['raw_churn']):>6} {kilobytes(size['test_churn']):>6}"
-            f" {kilobytes(size['excluded_bytes']):>5} {len(commits):>7}  {status:<8} {gate_note}"
+            f"{name:<{w}} {('#' + str(pr)) if pr else '-':>5} {kb_figure(size['weighted_size']):>11}"
+            f" {kb_figure(size['raw_churn']):>7} {kb_figure(size['test_churn']):>9}"
+            f" {kb_figure(size['excluded_bytes']):>8} {len(commits):>7}  {status:<8} {gate_note}"
         )
     over = [(row[0], c) for row in rows for c in row[3] if c["status"] == "cap-violation"]
     for name, c in over:
         print(
-            f"{name}: commit {c['commit'][:9]} weighted {kilobytes(c['weighted_size'])} KB,"
-            f" raw {kilobytes(c['raw_churn'])} KB over {kilobytes(c['hard_cap'])}/{kilobytes(c['raw_cap'])}: {c['subject']}"
+            f"{name}: commit {c['commit'][:9]} weighted {kilobytes(c['weighted_size'])},"
+            f" raw {kilobytes(c['raw_churn'])} over "
+            f"{kb_figure(c['hard_cap'])}/{kilobytes(c['raw_cap'])}: {c['subject']}"
         )
 
 
@@ -171,10 +179,10 @@ def main():
         commits = budget(fork, head, ["--per-commit", *budget_flags])["commits"]
         status = layer_status(size, commits)
         over |= status in ("cap-violation", "commit-over")
-        excluded = f", excluded {kilobytes(size['excluded_bytes'])} KB" if size["excluded_bytes"] else ""
+        excluded = f", excluded {kilobytes(size['excluded_bytes'])}" if size["excluded_bytes"] else ""
         size_line = (
-            f"{SIZE_PREFIX} weighted {kilobytes(size['weighted_size'])} KB, raw churn {kilobytes(size['raw_churn'])} KB"
-            f" (tests {kilobytes(size['test_churn'])} KB{excluded}) in {len(commits)} commits."
+            f"{SIZE_PREFIX} weighted {kilobytes(size['weighted_size'])}, raw churn {kilobytes(size['raw_churn'])}"
+            f" (tests {kilobytes(size['test_churn'])}{excluded}) in {len(commits)} commits."
         )
         gate_text, gate_note = gates_line(args.gates, name, head) if args.gates else (None, "")
         pr = header(manifest, "pr")

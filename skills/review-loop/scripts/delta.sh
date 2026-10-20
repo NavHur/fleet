@@ -47,7 +47,7 @@ while IFS=$'\t' read -r pr layer _base head; do
     echo "$pr $layer: no delta"
     continue
   fi
-  size=$(git diff -U0 --no-color --no-ext-diff "$old" "$head" -- "${paths[@]}" | LC_ALL=C awk '
+  size=$(git diff -U0 --find-renames --find-copies --no-ext-diff --no-textconv --no-color "$old" "$head" -- "${paths[@]}" | LC_ALL=C awk '
     /^diff --git / { hunk = 0; next }
     /^@@ / { hunk = 1; next }
     hunk && /^[-+]/ { n += length($0) }

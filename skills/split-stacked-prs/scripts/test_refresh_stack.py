@@ -69,7 +69,7 @@ class RefreshStackTests(unittest.TestCase):
         result = self.stack({"a.ts": lines(300)}, {"01-feature": "a.ts\n"})
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertEqual(self.row(result, "01-feature")[7], "commit-over")
-        self.assertIn("weighted 14.4 KB, raw 14.4 KB over 12.0/24.0: wip: 01-feature", result.stdout)
+        self.assertIn("weighted 14.4 KB, raw 14.4 KB over 12.0/24.0 KB: wip: 01-feature", result.stdout)
 
     def test_layer_under_the_floor_is_small_but_passes(self):
         result = self.stack(
