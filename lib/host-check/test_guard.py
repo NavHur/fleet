@@ -95,6 +95,8 @@ class GuardTests(Fixtures):
             # A descriptor goes with its operator, leaving the command.
             "0<<EOF pnpm test\nx\nEOF", "3<<'EOF' eslint .\nx\nEOF", "{fd}<<EOF pnpm test\nx\nEOF",
             "bash -c '0<<EOF pnpm test\nx\nEOF'", "bash -c \"3<<EOF eslint .\nx\nEOF\"",
+            # The Rust typechecker, svelte-check, and Oxc's formatter.
+            "tsrs --noEmit", "npx tsrs", "pnpm exec svelte-check --tsconfig ./tsconfig.json", "oxfmt --check .",
         ]:
             with self.subTest(command=command):
                 self.assertTrue(needs_queue(command))
@@ -106,7 +108,7 @@ class GuardTests(Fixtures):
             "host-check bash -lc 'pnpm lint && pnpm test'",
             "host-check pnpm build && host-check pnpm test",
             "rg 'pnpm build' package.json", "echo 'pnpm test'", "git status",
-            "pnpm install", "vitest --help", "tsc --version",
+            "pnpm install", "vitest --help", "tsc --version", "tsrs --version", "oxfmt --help",
             "bash -lc 'host-check pnpm build'",
             "oxlint --version 2>/dev/null", "echo a#b", "cat debug-eng1903.ts",
             "tsx scripts/build-parcels.ts", "rg perf node", "bash /nonexistent/x.sh",
