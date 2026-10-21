@@ -230,12 +230,17 @@ elif command -v systemctl >/dev/null && ! systemctl --user is-enabled --quiet id
   systemctl --user enable --now idle-compact.timer
 fi
 
-# Registers a runner for each repository in hosts/<machine>/runners.json (bin/actions-runners).
+# Registers a runner for each repository in hosts/<machine>/runners.json (bin/actions-runners),
+# and refreshes installed runners whose job environment changed since they were registered.
 echo "== Actions runners"
 if [ -e "$HOME/.config/fleet/runners.json" ] && command -v systemctl >/dev/null; then
   for name in $("$FLEET/bin/actions-runners" missing); do
     step register "$name" || continue
     "$FLEET/bin/actions-runners" install "$name"
+  done
+  for name in $("$FLEET/bin/actions-runners" stale); do
+    step refresh "$name" || continue
+    "$FLEET/bin/actions-runners" refresh "$name"
   done
 fi
 
