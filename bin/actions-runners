@@ -4,6 +4,8 @@
   actions-runners status               each runner's service and GitHub state
   actions-runners missing              the names with no runner installed yet
   actions-runners install [NAME ...]   register and start the runners not installed yet
+  actions-runners stale                the installed runners whose job environment is out of date
+  actions-runners refresh NAME         rewrite a runner's job environment and restart it, unless busy
   actions-runners remove NAME          stop a runner and deregister it from GitHub
 
 The repositories are in ~/.config/fleet/runners.json (hosts/<machine>/runners.json
@@ -31,7 +33,13 @@ CACHE = Path(os.environ.get("ACTIONS_RUNNERS_CACHE") or Path.home() / ".cache" /
 JOB_PATH = f"{Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin"
 # pnpm/action-setup installs pnpm into ~/setup-pnpm and reinstalls it every run,
 # taking a store kept beside it along; pin the store to the machine's own.
-JOB_ENV = {"npm_config_store_dir": f"{Path.home()}/.local/share/pnpm/store"}
+# Node bundles its own root CAs, so the runner's externals and setup-node builds
+# lag the system store; --use-openssl-ca makes them trust the patched system store
+# (the 2026-10 eMudhra intermediate compromise left runner 2.338.0's Node trusting them).
+JOB_ENV = {
+    "npm_config_store_dir": f"{Path.home()}/.local/share/pnpm/store",
+    "NODE_OPTIONS": "--use-openssl-ca",
+}
 ARCH = {"x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}
 
 
@@ -76,12 +84,34 @@ def token(repo, kind):
     return gh("api", "-X", "POST", f"repos/{repo}/actions/runners/{kind}-token", "--jq", ".token")
 
 
-def write_env(folder):
+def wanted_env(folder):
     """runsvc.sh exports .path and the runner reads .env; config.sh fills both from the shell that ran it."""
-    (folder / ".path").write_text(JOB_PATH + "\n")
     lines = [line for line in (folder / ".env").read_text().splitlines() if line.split("=")[0] not in JOB_ENV]
     lines += [f"{key}={value}" for key, value in JOB_ENV.items()]
-    (folder / ".env").write_text("\n".join(lines) + "\n")
+    return {".path": JOB_PATH + "\n", ".env": "\n".join(lines) + "\n"}
+
+
+def write_env(folder):
+    for file, text in wanted_env(folder).items():
+        (folder / file).write_text(text)
+
+
+def stale():
+    """Installed runners whose .path or .env predate the current JOB_PATH and JOB_ENV."""
+    def drifted(folder):
+        return any((folder / file).read_text() != text for file, text in wanted_env(folder).items())
+    return [name for name in config()["repos"] if installed(name) and drifted(ROOT / name)]
+
+
+def refresh(name, repo):
+    """Rewrite a runner's environment and restart it; a busy runner keeps its job and waits for the next sync."""
+    if github_state(name, repo) == "busy":
+        print(f"{name}: busy, refresh on the next sync")
+        return 0
+    write_env(ROOT / name)
+    systemctl("restart", f"actions-runner@{name}.service")
+    print(f"{name}: environment refreshed")
+    return 0
 
 
 def install(name, repo, labels):
@@ -142,8 +172,13 @@ def main(argv):
     if argv == ["missing"]:
         print("\n".join(missing()))
         return 0
+    if argv == ["stale"]:
+        print("\n".join(stale()))
+        return 0
     if argv[:1] == ["install"]:
         return install_all(argv[1:])
+    if argv[:1] == ["refresh"] and len(argv) == 2:
+        return refresh(argv[1], config()["repos"][argv[1]])
     if argv[:1] == ["remove"] and len(argv) == 2:
         return remove(argv[1], config()["repos"][argv[1]])
     print(__doc__, file=sys.stderr)
