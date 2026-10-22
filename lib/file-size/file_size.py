@@ -23,12 +23,14 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from typing import Optional
 
 LIMIT_BYTES = 20_000
 BYTES_PER_TOKEN = 4
 BINARY_SNIFF_BYTES = 8000  # Git's heuristic: a NUL byte this early means binary
+SKIP_CHUNK_BYTES = 64 * 1024  # how much of a large blob to read and drop at a time
 GENERATED_SNIFF_LINES = 5  # a generated-code marker belongs in a file's first lines
 GENERATED_MARKER = re.compile(rb"@generated\b|^// Code generated .* DO NOT EDIT\.\s*$")
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -236,10 +238,49 @@ def old_sizes(comparison, changed, root):
     return {c.path: size for c, size in zip(existing, sizes)}
 
 
-def new_head(comparison, path, root):
-    """The start of the new version, enough to tell binary from text and to see a generated-code marker."""
-    if comparison.new_side is not NewSide.WORKTREE:
-        return git("cat-file", "blob", comparison.new_ref(path), cwd=root, env=comparison.env)[:BINARY_SNIFF_BYTES]
+def skip_bytes(stream, count, ref):
+    """Read and drop count bytes of the object `ref`, so a large blob is never held in memory."""
+    while count > 0:
+        chunk = stream.read(min(count, SKIP_CHUNK_BYTES))
+        if not chunk:
+            raise GitError(f"git cat-file --batch ended inside {ref}")
+        count -= len(chunk)
+
+
+def read_object_head(stream, ref):
+    """The first BINARY_SNIFF_BYTES of the next object in `git cat-file --batch` output."""
+    header = stream.readline().rstrip(b"\n").rsplit(b" ", 2)  # "<oid> <type> <size>", or "<ref> missing"
+    if len(header) != 3 or not header[2].isdigit():
+        raise GitError(f"git cat-file --batch could not read {ref}")
+    size = int(header[2])
+    head = stream.read(min(size, BINARY_SNIFF_BYTES))
+    skip_bytes(stream, size - len(head) + 1, ref)  # the rest of the object, and the newline that ends it
+    return head
+
+
+def object_heads(refs, root, env):
+    """The start of each object named `REV:path`, streamed from one `git cat-file --batch`."""
+    if not refs:
+        return []
+    with tempfile.TemporaryFile() as stdin:  # a file, so a long ref list cannot fill a pipe while git waits on us
+        stdin.write("".join(f"{ref}\n" for ref in refs).encode("utf-8", "surrogateescape"))
+        stdin.seek(0)
+        with subprocess.Popen(["git", "cat-file", "--batch"], cwd=root, stdin=stdin, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, env=env) as proc:
+            try:
+                heads = [read_object_head(proc.stdout, ref) for ref in refs]
+            except GitError as exc:
+                proc.kill()
+                detail = proc.communicate()[1].decode(errors="replace").strip()
+                raise GitError(f"{exc}: {detail}" if detail else str(exc)) from exc
+            _, stderr = proc.communicate()
+    if proc.returncode != 0:
+        raise GitError(f"git cat-file --batch: {stderr.decode(errors='replace').strip()}")
+    return heads
+
+
+def worktree_head(root, path):
+    """The start of a worktree file, or of a symlink's text as Git stores it."""
     full = os.path.join(root, path)
     if os.path.islink(full):
         return os.fsencode(os.readlink(full))[:BINARY_SNIFF_BYTES]
@@ -247,11 +288,20 @@ def new_head(comparison, path, root):
         return f.read(BINARY_SNIFF_BYTES)
 
 
+def new_heads(comparison, paths, root):
+    """The start of each path's new version, enough to tell binary from text and to see a generated-code marker."""
+    if comparison.new_side is NewSide.WORKTREE:
+        return {path: worktree_head(root, path) for path in paths}
+    heads = object_heads([comparison.new_ref(path) for path in paths], root, comparison.env)
+    return dict(zip(paths, heads))
+
+
 def findings_over_cap(comparison, changed, root):
     """A Finding for each change whose new version is an authored text file over the cap."""
     sizes = new_sizes(comparison, [c.path for c in changed], root)
     over = [c for c in changed if sizes[c.path] > LIMIT_BYTES]
-    authored = [c for c in over if is_authored(new_head(comparison, c.path, root))]
+    heads = new_heads(comparison, [c.path for c in over], root)
+    authored = [c for c in over if is_authored(heads[c.path])]
     old = old_sizes(comparison, authored, root)
     return [Finding(c.path, sizes[c.path], old.get(c.path)) for c in authored]
 
