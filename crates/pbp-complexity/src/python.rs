@@ -11,12 +11,17 @@
 //!
 //! A file is rejected exactly when CPython 3.15's `ast.parse` rejects it; see syntax.rs.
 
+mod source;
 mod syntax;
+mod walk;
 
 use crate::scorer::Function;
 
-/// Parsing only for now: a file CPython rejects carries its error, any other scores no functions yet.
 pub fn analyze(source: &str) -> Result<Vec<Function>, String> {
-    syntax::parse(source)?;
-    Ok(Vec::new())
+    let source = source::universal_newlines(source);
+    let parsed = syntax::parse(&source)?;
+    let lines = source::Lines::new(&source);
+    let mut analyzer = walk::Analyzer::new(&lines, parsed.tokens());
+    analyzer.body(parsed.suite());
+    Ok(analyzer.finish())
 }
