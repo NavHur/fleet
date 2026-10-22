@@ -18,7 +18,7 @@ Plain classes and functions have no numeric cap; apply the ownership criteria in
 
 ## Complexity mapping
 
-`measure_complexity.py` runs `scripts/complexity_php.py`, which parses PHP's own token stream (`php` must be on `PATH`). Mappings beyond the shared rules:
+`measure_complexity.py` runs fleet's `pbp-complexity php`, which lexes PHP into the token stream PHP's own tokenizer produces and rejects the files PHP rejects; PHP itself is not needed. Mappings beyond the shared rules:
 
 - `elseif` and `else if` are else-ifs (+1 flat); `else` is +1 flat; the alternative syntax (`if (...):` ... `endif;`) scores the same.
 - `switch` and `match` are one structural increment each; every `case` and every non-default `match` condition is a cyclomatic decision.

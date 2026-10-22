@@ -12,7 +12,7 @@ No numeric cap: the eight-input cap covers UI components and scene scripts, not 
 
 ## Complexity mapping
 
-`measure_complexity.py` runs `scripts/complexity_python.py` under the newest Python it finds (the repository's virtualenv first), so newer syntax parses. Mappings beyond the shared rules:
+`measure_complexity.py` runs fleet's `pbp-complexity python`, which parses as CPython 3.15's `ast.parse` does, so every older syntax parses too. Mappings beyond the shared rules:
 
 - `elif` is an else-if (+1 flat); `else` on `if`, `for`, and `while` is +1 flat.
 - `try`, `else` on `try`, and `finally` are free; each `except` is structural.

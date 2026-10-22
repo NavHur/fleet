@@ -36,12 +36,12 @@ The ownership criteria in `SKILL.md` apply; in Godot they usually take these for
 
 ## Complexity mapping
 
-`measure_complexity.py` runs `scripts/complexity_gdscript.py` with gdtoolkit's parser. Mappings beyond the shared rules:
+`measure_complexity.py` runs godot-guard's `complexity --json`, the same scorer godot-guard's `check` enforces. Mappings beyond the shared rules:
 
 - `elif` is an else-if (+1 flat); `else` is +1 flat.
 - `match` is one structural increment; each non-wildcard branch is a cyclomatic decision, and a `when` guard adds 1 to both metrics.
 - `and`/`&&` and `or`/`||` are the same operators; `not` ends a chain.
-- Lambdas nest like any nested function; property getters and setters score as their own functions.
+- Lambdas nest like any nested function, named after the enclosing function (`outer.<lambda#2>`, `outer.named`); property getters and setters score as their own functions (`health.set`).
 - Recursion: a call to the function's own name, or `self.` plus that name.
 
 ## Performance

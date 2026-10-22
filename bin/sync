@@ -8,7 +8,8 @@
 # Cursor, and OpenCode read, and into ~/.claude/skills for Claude Code.
 # Third-party skills (third-party.json) are installed and updated with
 # `npx skills`. The files listed in `links` are symlinked into place,
-# ~/.config/host-validation.md is generated, the host-check guard is
+# ~/.config/host-validation.md is generated, the release binaries in
+# binaries.json are installed into ~/.local/bin, the host-check guard is
 # registered as a hook for each agent, and OpenCode servers older than their
 # plugins are restarted when idle. NAME picks hosts/NAME; it is needed
 # only when this machine's hostname is not listed in a hosts/*/host.json.
@@ -27,7 +28,7 @@ while [ $# -gt 0 ]; do
     --apply) APPLY=1 ;;
     --host) HOST=${2:-}; shift ;;
     --host=*) HOST=${1#--host=} ;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -242,6 +243,15 @@ if [ -e "$HOME/.config/fleet/runners.json" ] && command -v systemctl >/dev/null;
     step refresh "$name" || continue
     "$FLEET/bin/actions-runners" refresh "$name"
   done
+fi
+
+echo "== Release binaries"
+binary_args=("$FLEET/binaries.json" "$BACKUP")
+[ "$APPLY" = 1 ] && binary_args+=(--apply)
+binary_plan=$(python3 "$FLEET/lib/fleet/binaries.py" "${binary_args[@]}")
+if [ -n "$binary_plan" ]; then
+  echo "$binary_plan"
+  PLANNED=$((PLANNED + $(echo "$binary_plan" | grep -cE '^  (binary|replace) ' || true)))
 fi
 
 echo "== Node dependencies"

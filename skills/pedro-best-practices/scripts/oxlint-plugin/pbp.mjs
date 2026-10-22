@@ -1,5 +1,5 @@
 // Oxlint JS plugin `pbp`: Cognitive Complexity per the SonarSource whitepaper
-// (G. Ann Campbell, v1.7), scored the same way as complexity_core.py.
+// (G. Ann Campbell, v1.7), scored the same way as fleet's pbp-complexity (crates/pbp-complexity/src/scorer.rs).
 // measure_complexity.py loads it for repositories whose oxlint config has no
 // cognitive-complexity rule of its own.
 

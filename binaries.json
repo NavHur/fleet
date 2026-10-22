@@ -1,0 +1,13 @@
+{
+  "$comment": "Release binaries bin/sync installs into ~/.local/bin (lib/fleet/binaries.py). Each asset is <name>-<target>.tar.gz on the repository's release <tag>; sha256 pins it per target.",
+  "binaries": {
+    "godot-guard": {
+      "repo": "PedroNavHur/godot-guard",
+      "tag": "v0.6.0",
+      "sha256": {
+        "aarch64-apple-darwin": "654bbf19865b89f8bd92a0342d39ccaba01050f54f2e54e93145d3202061d3e6",
+        "x86_64-unknown-linux-gnu": "6a30a9f2bcbcda2bea3aa72763ebb8d36da5274b70484c4fde2b9543dabf27fe"
+      }
+    }
+  }
+}
