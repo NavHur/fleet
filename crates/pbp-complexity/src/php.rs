@@ -2,7 +2,8 @@
 //!
 //! mago's lexer tokenizes each file into the stream `PhpToken::tokenize($source, TOKEN_PARSE)` yields
 //! (tokens.rs), and a parser ported line for line from complexity_php.py walks it into statements and
-//! expressions. A heredoc PHP's lexer rejects (heredoc.rs) is reported as an error. Language mappings:
+//! expressions. A file PHP's parser rejects is reported as an error, as PHP's ParseError is: mago's parser
+//! decides (syntax.rs), plus PHP's heredoc indentation (heredoc.rs). Language mappings:
 //! - `elseif` and `else if` are else-ifs (+1 flat); `else` is +1 flat; the alternative syntax
 //!   (`if (...):` ... `endif;`) scores the same.
 //! - `switch` and `match` are one structural increment each; every `case` and every non-default `match`
@@ -19,12 +20,14 @@ mod expressions;
 mod heredoc;
 mod names;
 mod parser;
+mod syntax;
 pub mod tokens;
 
 use crate::scorer::Function;
 
-/// Score every function in a PHP file, or fail with its lexer error.
+/// Score every function in a PHP file, or fail with its syntax error.
 pub fn analyze(source: &str) -> Result<Vec<Function>, String> {
+    syntax::check(source)?;
     let tokens = tokens::tokenize(source)?;
     parser::Parser::new(tokens).run()
 }
