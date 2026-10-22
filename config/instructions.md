@@ -10,14 +10,15 @@ Run builds, tests, lint, typechecks, format checks, and benchmarks through
 
 ## Git
 
-- Commit when the work calls for it. Pushing follows the owner in the
-  `origin` URL. For `PedroNavHur`, push branches whenever the work calls for
-  it, without asking: this is standing approval. For any other owner, push
-  only when Pedro asks in that conversation or a skill he invoked pushes as
-  one of its steps (`review-loop`, `split-stacked-prs` publish or restack).
-- Push to, force push, or merge into `main`, `staging`, or `nightly` only when
-  Pedro says so in that conversation. Other branches are free to rebase, force
-  push with a lease, and merge into, within the push rule above.
+- Commit when the work calls for it. Push Pedro's own branches whenever the
+  work calls for it, without asking, in any repo and under either account:
+  this is standing approval. A branch is his when he or his agents created it,
+  or its PR's author is `PedroNavHur` or `PedroNavHurDCA`. His branches are
+  free to rebase, force push with a lease, and merge into.
+- Push to, force push, or merge into `main`, `staging`, `nightly`, or a
+  coworker's branch (a PR someone else opened, or a branch carrying their
+  commits beyond its base) only when Pedro says so in that conversation. When
+  it is unclear whose branch it is, ask.
 - Merge PRs with a merge commit so every commit is kept: `gh pr merge N
   --merge`, `gh stack merge --yes --merge`, REST `merge_method=merge`. Never
   squash or rebase-merge; rebase a branch onto its base instead when it needs

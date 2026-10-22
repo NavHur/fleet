@@ -27,8 +27,8 @@ same target, else ask once:
 - **Target**: a PR, a stack (its top PR or branch), or a local branch with its base.
 - **Reviewer** model and effort, and **worker** model and effort for fixes.
 - **Push**: whether a converged loop pushes (default: push; the user can ask
-  to stop locally and report). Invoking the loop is the ask to push, in work
-  repos too.
+  to stop locally and report). Pedro's own branches push without asking, in
+  work repos too; a coworker's branch waits for his say at step 5.
 - **Round cap**: default 5, the first full round included.
 
 ## The ledger
@@ -160,7 +160,7 @@ confirmed findings, and fixes made.
   round, without counting against the cap.
 - **Push** (unless the invocation said to stop locally): for a stack,
   follow `split-stacked-prs` section 7 step 5; for a branch, run its gates and
-  push.
+  push. On a coworker's branch, add the push to the open decisions instead.
 - **Comment**: run
   `python3 "$SKILL_DIR/scripts/loop.py" publish "$LOOP" --checkout "$checkout"`.
   It posts each PR's comment when GitHub's head is the head the last round
