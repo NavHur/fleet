@@ -30,6 +30,7 @@ from typing import Optional
 LIMIT_BYTES = 20_000
 BYTES_PER_TOKEN = 4
 BINARY_SNIFF_BYTES = 8000  # Git's heuristic: a NUL byte this early means binary
+SKIP_CHUNK_BYTES = 64 * 1024  # how much of a large blob to read and drop at a time
 GENERATED_SNIFF_LINES = 5  # a generated-code marker belongs in a file's first lines
 GENERATED_MARKER = re.compile(rb"@generated\b|^// Code generated .* DO NOT EDIT\.\s*$")
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -237,12 +238,12 @@ def old_sizes(comparison, changed, root):
     return {c.path: size for c, size in zip(existing, sizes)}
 
 
-def skip_bytes(stream, count):
-    """Read and drop count bytes, so a large blob is never held in memory."""
+def skip_bytes(stream, count, ref):
+    """Read and drop count bytes of the object `ref`, so a large blob is never held in memory."""
     while count > 0:
-        chunk = stream.read(min(count, 1 << 16))
+        chunk = stream.read(min(count, SKIP_CHUNK_BYTES))
         if not chunk:
-            raise GitError("git cat-file --batch ended inside an object")
+            raise GitError(f"git cat-file --batch ended inside {ref}")
         count -= len(chunk)
 
 
@@ -253,7 +254,7 @@ def read_object_head(stream, ref):
         raise GitError(f"git cat-file --batch could not read {ref}")
     size = int(header[2])
     head = stream.read(min(size, BINARY_SNIFF_BYTES))
-    skip_bytes(stream, size - len(head) + 1)  # the rest of the object, and the newline that ends it
+    skip_bytes(stream, size - len(head) + 1, ref)  # the rest of the object, and the newline that ends it
     return head
 
 
@@ -268,9 +269,10 @@ def object_heads(refs, root, env):
                               stderr=subprocess.PIPE, env=env) as proc:
             try:
                 heads = [read_object_head(proc.stdout, ref) for ref in refs]
-            except GitError:
+            except GitError as exc:
                 proc.kill()
-                raise
+                detail = proc.communicate()[1].decode(errors="replace").strip()
+                raise GitError(f"{exc}: {detail}" if detail else str(exc)) from exc
             _, stderr = proc.communicate()
     if proc.returncode != 0:
         raise GitError(f"git cat-file --batch: {stderr.decode(errors='replace').strip()}")
