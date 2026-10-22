@@ -7,6 +7,11 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+mago-allocator = "=1.58.2"
+mago-database = "=1.58.2"
+mago-span = "=1.58.2"
+mago-syntax = "=1.58.2"
+mago-syntax-core = "=1.58.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 ruff_python_ast = "=0.0.18"
