@@ -2,7 +2,7 @@
 
 Usage:
   python3 complexity_parity.py --reference CMD --candidate CMD [--gdscript-names]
-                               (--repo DIR --glob PATTERN... | FILE...)
+                               (--repo DIR --glob PATTERN... | --files-from LIST | FILE...)
 
 Each CMD is a shell-quoted analyzer command that takes FILE... and prints the
 JSON measure_complexity.py reads: {path: [function] or {"error": message}}.
@@ -93,6 +93,8 @@ def describe(value: object) -> str:
 
 
 def files_from(args) -> list[str]:
+    if args.files_from:
+        return [str(Path(f).resolve()) for f in Path(args.files_from).read_text().splitlines() if f]
     if not args.repo:
         return [str(Path(f).resolve()) for f in args.files]
     listed = subprocess.run(["git", "-C", args.repo, "ls-files", "--", *args.glob],
@@ -107,6 +109,7 @@ def main() -> int:
     parser.add_argument("--gdscript-names", action="store_true")
     parser.add_argument("--repo")
     parser.add_argument("--glob", nargs="+", default=[])
+    parser.add_argument("--files-from", help="a file listing one path per line, for corpora outside git")
     parser.add_argument("files", nargs="*")
     args = parser.parse_args()
     files = files_from(args)
