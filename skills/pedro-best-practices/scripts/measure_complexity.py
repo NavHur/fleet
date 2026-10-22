@@ -27,11 +27,12 @@ Languages and how each is measured:
   repository's real rules tags each excess `[lint: error]`, `[lint: warning]`,
   or `[lint passes]`, and reports functions the repository's stricter max
   catches.
-- Python, GDScript, PHP: this skill's analyzers (complexity_*.py), tagged
-  `[not lint-checked]`. GDScript needs a Python with gdtoolkit: the
-  repository's virtualenv, PBP_GDTOOLKIT_PYTHON, or the venv the coverage
-  note names. Python limits in ruff/flake8 (`max-complexity`) or
-  complexipy (`max-complexity-allowed`) config count as repository limits.
+- Python, PHP: fleet's pbp-complexity (PBP_COMPLEXITY, PATH, or this fleet
+  checkout's target/release); GDScript: godot-guard's `complexity --json`
+  (0.6+; PBP_GODOT_GUARD, the repository's .venv, or PATH). bin/sync installs
+  both. Tagged `[not lint-checked]`. Python limits in ruff/flake8
+  (`max-complexity`) or complexipy (`max-complexity-allowed`) config count as
+  repository limits.
   In a Godot repository with a `.godot-guard.yml`, godot-guard 0.2+
   (PBP_GODOT_GUARD, the repository's .venv, or PATH) reports its limits,
   which count too, and its verdict on each GDScript function it checks.
@@ -47,7 +48,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -58,52 +58,29 @@ from measured_function import PEDRO_LIMITS, Function
 from revision import LANGUAGES, changed_files, changed_lines, git, language_of, materialize, read_file, run
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
-SCRIPTS = SKILL_DIR / "scripts"
-GDTOOLKIT_VENV = Path.home() / ".cache" / "pedro-best-practices" / "venv"
 
 
-# Python, GDScript, PHP: this skill's analyzers
+# Python, GDScript, PHP: Rust analyzers
+
+FLEET_BUILD = SKILL_DIR.parent.parent / "target" / "release" / "pbp-complexity"
+LANGUAGE_NAMES = {"python": "Python", "gdscript": "GDScript", "php": "PHP"}
+INSTALL = "run fleet's `bin/sync --apply`"
 
 
-def python_version(binary: str) -> tuple[int, int] | None:
-    try:
-        result = subprocess.run([binary, "-c", "import sys; print(sys.version_info[0], sys.version_info[1])"],
-                                capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    parts = result.stdout.split()
-    return (int(parts[0]), int(parts[1])) if result.returncode == 0 and len(parts) == 2 else None
+def pbp_complexity() -> str | None:
+    """PBP_COMPLEXITY, then PATH (bin/sync installs it), then a release build in this fleet checkout."""
+    paths = [os.environ.get("PBP_COMPLEXITY", ""), shutil.which("pbp-complexity") or "", str(FLEET_BUILD)]
+    return next((p for p in paths if p and os.access(p, os.X_OK)), None)
 
 
-def has_gdtoolkit(binary: str) -> bool:
-    try:
-        return subprocess.run([binary, "-c", "import gdtoolkit"], capture_output=True, timeout=20).returncode == 0
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        return False
-
-
-def python_candidates(root: Path) -> list[str]:
-    names = [str(root / d / "bin" / "python") for d in (".venv", "venv", "env")]
-    names += [f"python3.{minor}" for minor in range(20, 7, -1)] + ["python3", sys.executable]
-    found = []
-    for name in names:
-        path = name if os.path.isabs(name) else shutil.which(name)
-        if path and os.path.exists(path) and path not in found:
-            found.append(path)
-    return found
-
-
-def pick_python(root: Path) -> str:
-    """The newest Python available: it parses every older syntax."""
-    versioned = [(python_version(p), p) for p in python_candidates(root)]
-    versioned = [(v, p) for v, p in versioned if v]
-    return max(versioned)[1] if versioned else sys.executable
-
-
-def pick_gdtoolkit_python(root: Path) -> str | None:
-    candidates = [os.environ.get("PBP_GDTOOLKIT_PYTHON", ""), str(GDTOOLKIT_VENV / "bin" / "python")]
-    candidates += python_candidates(root)
-    return next((p for p in candidates if p and os.path.exists(p) and has_gdtoolkit(p)), None)
+def analyzer(language: str, root: Path) -> tuple[list[str] | None, str]:
+    """The command that scores `language` files, or None and what is missing."""
+    if language == "gdscript":
+        binary = godot_guard.scorer(root)
+        missing = f"no godot-guard with `complexity --json` (0.6+; PBP_GODOT_GUARD, {root / '.venv/bin/godot-guard'}, PATH)"
+        return ([binary, "complexity", "--json"] if binary else None), missing
+    binary = pbp_complexity()
+    return ([binary, language] if binary else None), f"no pbp-complexity (PBP_COMPLEXITY, PATH, {FLEET_BUILD})"
 
 
 def repo_python_limits(root: Path, head: str | None) -> tuple[dict[str, int], list[str]]:
@@ -124,25 +101,11 @@ def repo_python_limits(root: Path, head: str | None) -> tuple[dict[str, int], li
 
 def measure_external(language: str, root: Path, head: str | None, files: list[str], tree: Path,
                      notes: list[str], unmeasured: list[str]) -> list[Function]:
-    if language == "python":
-        interpreter = pick_python(root)
-        command = [interpreter, str(SCRIPTS / "complexity_python.py")]
-    elif language == "gdscript":
-        interpreter = pick_gdtoolkit_python(root)
-        if interpreter is None:
-            notes.append(f"GDScript: no Python with gdtoolkit; {len(files)} file(s) not measured. Use the "
-                         "repository's lint setup, or run: python3 -m venv "
-                         f"{GDTOOLKIT_VENV} && {GDTOOLKIT_VENV}/bin/pip install 'gdtoolkit==4.*'")
-            unmeasured += files
-            return []
-        command = [interpreter, str(SCRIPTS / "complexity_gdscript.py")]
-    else:
-        php = shutil.which("php")
-        if php is None:
-            notes.append(f"PHP: no `php` on PATH; {len(files)} file(s) not measured")
-            unmeasured += files
-            return []
-        command = [sys.executable, str(SCRIPTS / "complexity_php.py"), "--php", php]
+    command, missing = analyzer(language, root)
+    if command is None:
+        notes.append(f"{LANGUAGE_NAMES[language]}: {missing}; {len(files)} file(s) not measured; {INSTALL}")
+        unmeasured += files
+        return []
     materialize(root, head, files, tree)
     result = run([*command, *[str(tree / f) for f in files]], tree)
     try:

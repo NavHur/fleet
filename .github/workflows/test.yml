@@ -14,11 +14,15 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-      # The pedro-best-practices analyzers skip their tests without these.
+      # The skill's oxlint tests skip without its node_modules.
       - run: pnpm install --frozen-lockfile
         working-directory: skills/pedro-best-practices
-      - run: pip install "gdtoolkit==4.*"
-      - run: PBP_GDTOOLKIT_PYTHON=$(command -v python3) bin/test
+      # The pedro-best-practices analyzers: pbp-complexity from this checkout, godot-guard as bin/sync pins it.
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p pbp-complexity
+      - run: python3 lib/fleet/binaries.py binaries.json "$RUNNER_TEMP/backup" --apply
+      - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: bin/test
   rust:
     runs-on: ubuntu-latest
     steps:

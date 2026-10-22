@@ -1,8 +1,9 @@
 """Behavior tests for the complexity analyzers and measure_complexity.py.
 
 Run from this directory: python3 -m unittest test_complexity
-Languages whose toolchain is missing (gdtoolkit, php, the skill's oxlint) are
-skipped with a reason, never silently passed.
+Languages whose analyzer is missing (pbp-complexity, a godot-guard with
+`complexity --json`, the skill's oxlint) are skipped with a reason, never
+silently passed. `cargo build --release` in fleet provides pbp-complexity.
 
 The probe fixtures hold the same functions in each language, so their scores
 cross-check: `pick` is cognitive 14 and cyclomatic 10 in every language.
@@ -27,6 +28,7 @@ SCRIPTS = SKILL / "scripts"
 FIXTURES = HERE / "fixtures"
 sys.path.insert(0, str(SCRIPTS))
 
+import godot_guard  # noqa: E402
 import guard_oracle  # noqa: E402
 import measure_complexity  # noqa: E402
 import measure_js  # noqa: E402
@@ -50,9 +52,16 @@ def scores(command: list[str], fixture: str) -> dict[tuple[str, int], tuple[int 
     return {(f["name"], f["line"]): (f["cognitive"], f["cyclomatic"]) for f in functions}
 
 
+PBP_COMPLEXITY = measure_complexity.pbp_complexity()
+NO_PBP_COMPLEXITY = "no pbp-complexity; run `cargo build --release` in fleet or set PBP_COMPLEXITY"
+GDSCRIPT_SCORER = godot_guard.scorer(SKILL)
+NO_GDSCRIPT_SCORER = "no godot-guard with `complexity --json`; set PBP_GODOT_GUARD to one (0.6+)"
+
+
+@unittest.skipUnless(PBP_COMPLEXITY, NO_PBP_COMPLEXITY)
 class PythonAnalyzer(unittest.TestCase):
     def setUp(self):
-        self.command = [measure_complexity.pick_python(SKILL), str(SCRIPTS / "complexity_python.py")]
+        self.command = [PBP_COMPLEXITY, "python"]
 
     def test_probe_scores(self):
         self.assertEqual(scores(self.command, "probe.py"), {
@@ -76,27 +85,24 @@ class PythonAnalyzer(unittest.TestCase):
         })
 
 
+@unittest.skipUnless(GDSCRIPT_SCORER, NO_GDSCRIPT_SCORER)
 class GDScriptAnalyzer(unittest.TestCase):
     def setUp(self):
-        python = measure_complexity.pick_gdtoolkit_python(SKILL)
-        if python is None:
-            self.skipTest("no Python with gdtoolkit")
-        self.command = [python, str(SCRIPTS / "complexity_gdscript.py")]
+        self.command = [GDSCRIPT_SCORER, "complexity", "--json"]
 
     def test_probe_scores(self):
         self.assertEqual(scores(self.command, "probe.gd"), {
             ("pick", 7): (18, 11),
-            ("<lambda>", 22): (None, 2),
+            ("pick.<lambda#1>", 22): (None, 2),
             ("helper", 25): (0, 1),
             ("Inner.m", 29): (2, 2),
         })
 
 
+@unittest.skipUnless(PBP_COMPLEXITY, NO_PBP_COMPLEXITY)
 class PHPAnalyzer(unittest.TestCase):
     def setUp(self):
-        if shutil.which("php") is None:
-            self.skipTest("no php on PATH")
-        self.command = [sys.executable, str(SCRIPTS / "complexity_php.py")]
+        self.command = [PBP_COMPLEXITY, "php"]
 
     def test_probe_scores(self):
         self.assertEqual(scores(self.command, "probe.php"), {
@@ -281,9 +287,8 @@ class MeasureScript(ScriptCase):
         self.assertIn("L4-11 label: cognitive 5, cyclomatic 5", output)
 
     @unittest.skipUnless(guard_oracle.GODOT_GUARD, guard_oracle.MISSING)
+    @unittest.skipUnless(GDSCRIPT_SCORER, NO_GDSCRIPT_SCORER)
     def test_godot_guard_limits_and_baseline_tag_gdscript(self):
-        if measure_complexity.pick_gdtoolkit_python(self.repo) is None:
-            self.skipTest("no Python with gdtoolkit")
         self.write(".godot-guard.yml", "limits:\n  cognitive: 2\n")
         self.write(".godot-guard-baseline.json", '{"version": 1, "cognitive-complexity": {"old.gd::pick": 3}}')
         self.write("old.gd", PICK)
@@ -335,13 +340,9 @@ def baseline(**rules: dict) -> str:
 
 
 @unittest.skipUnless(guard_oracle.GODOT_GUARD, guard_oracle.MISSING)
+@unittest.skipUnless(GDSCRIPT_SCORER, NO_GDSCRIPT_SCORER)
 class GodotGuardVerdicts(ScriptCase):
     """Each GDScript tag equals what `godot-guard check` decides, in the cases a re-implementation got wrong."""
-
-    def setUp(self):
-        super().setUp()
-        if measure_complexity.pick_gdtoolkit_python(self.repo) is None:
-            self.skipTest("no Python with gdtoolkit")
 
     def tags(self, *args: str, base: str = "HEAD") -> dict[tuple[str, int], str]:
         output = self.measure(*args, base=base, env={"PBP_GODOT_GUARD": guard_oracle.GODOT_GUARD})
@@ -423,21 +424,35 @@ class GodotGuardVerdicts(ScriptCase):
         self.git("checkout", "--", ".")
         self.assertEqual(self.decided([("unit.gd", 4)]), {("unit.gd", 4): "[lint passes]"})
 
-    def test_an_old_or_missing_godot_guard_leaves_gdscript_unchecked(self):
+    def old_guard(self) -> Path:
         bin_dir = Path(tempfile.mkdtemp(prefix="pbp-old-guard-"))
         self.addCleanup(shutil.rmtree, bin_dir)
         old = bin_dir / "godot-guard"
-        old.write_text("#!/bin/sh\necho 'godot-guard 0.1.0'\n")
+        old.write_text("#!/bin/sh\necho 'godot-guard 0.1.0'\nexit 2\n")
         old.chmod(0o755)
         self.write(".godot-guard.yml", "limits: {cognitive: 2}\n")
         self.write("unit.gd", PICK)
-        for guard, found in ((str(old), f"found godot-guard 0.1 at {old}"), ("", "found no godot-guard")):
+        return old
+
+    def test_an_old_godot_guard_leaves_gdscript_unchecked_but_scored(self):
+        old = self.old_guard()
+        scorer_dir = Path(tempfile.mkdtemp(prefix="pbp-scorer-"))
+        self.addCleanup(shutil.rmtree, scorer_dir)
+        (scorer_dir / "godot-guard").symlink_to(GDSCRIPT_SCORER)
+        output = self.measure("--cognitive-limit", "2",
+                              env={"PBP_GODOT_GUARD": str(old), "PATH": f"{scorer_dir}:/usr/bin:/bin"})
+        self.assertIn(f".godot-guard.yml: found godot-guard 0.1 at {old}", output)
+        self.assertIn("tagging needs godot-guard 0.2+ (`check --json`)", output)
+        self.assertIn("unit.gd:4 pick: cognitive 3 > 2 [not lint-checked]", output)
+
+    def test_without_a_scoring_godot_guard_gdscript_is_not_measured(self):
+        old = self.old_guard()
+        for guard in (str(old), ""):
             with self.subTest(guard=guard):
                 output = self.measure("--cognitive-limit", "2", env={"PBP_GODOT_GUARD": guard, "PATH": "/usr/bin:/bin"})
-                self.assertIn(f".godot-guard.yml: {found}", output)
-                self.assertIn("tagging needs godot-guard 0.2+ (`check --json`)", output)
-                self.assertIn("unit.gd:4 pick: cognitive 3 > 2 [not lint-checked]", output)
-
+                self.assertIn("GDScript: no godot-guard with `complexity --json`", output)
+                self.assertIn("1 file(s) not measured; run fleet's `bin/sync --apply`", output)
+                self.assertNotIn("unit.gd:4 pick", output)
 
 if __name__ == "__main__":
     unittest.main()

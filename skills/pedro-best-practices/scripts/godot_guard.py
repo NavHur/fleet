@@ -4,6 +4,8 @@ godot-guard (github.com/PedroNavHur/godot-guard) runs complexity and comment
 rules from `.godot-guard.yml` with a ratchet baseline. Its `check --json`
 (v0.2+) reports the effective limits and rule levels, the files it checked,
 and every problem `check` reports; this module never reads the config itself.
+Its `complexity --json` (v0.6+) scores GDScript functions for every repository,
+with or without that config.
 """
 
 from __future__ import annotations
@@ -46,11 +48,34 @@ class Verdicts:
         return self.problems.get((rule, path, line))
 
 
+def candidates(root: Path) -> list[str]:
+    """PBP_GODOT_GUARD, then the repository's virtualenv, then PATH: the executables that exist."""
+    paths = [os.environ.get("PBP_GODOT_GUARD", ""), str(root / ".venv" / "bin" / "godot-guard"),
+             shutil.which("godot-guard") or ""]
+    return [path for path in paths if path and os.access(path, os.X_OK)]
+
+
 def find(root: Path) -> str | None:
-    """PBP_GODOT_GUARD, then the repository's virtualenv, then PATH."""
-    candidates = [os.environ.get("PBP_GODOT_GUARD", ""), str(root / ".venv" / "bin" / "godot-guard"),
-                  shutil.which("godot-guard") or ""]
-    return next((c for c in candidates if c and os.access(c, os.X_OK)), None)
+    """The godot-guard the repository uses, whose verdicts the audit reports."""
+    return next(iter(candidates(root)), None)
+
+
+def scorer(root: Path) -> str | None:
+    """The first godot-guard with `complexity --json`, which scores GDScript for this skill.
+
+    Scores do not depend on the repository's configuration, so a stale godot-guard in its virtualenv
+    gives way to a newer one on PATH. The subcommand is probed rather than inferred from a version.
+    """
+    return next((binary for binary in candidates(root) if scores_gdscript(binary)), None)
+
+
+def scores_gdscript(binary: str) -> bool:
+    try:
+        result = subprocess.run([binary, "complexity", "--json", os.devnull], capture_output=True, text=True,
+                                timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and result.stdout.startswith("{")
 
 
 def version_of(binary: str) -> tuple[int, int] | None:
