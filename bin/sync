@@ -285,6 +285,12 @@ fi
 
 for name in ${FORGET:-}; do
   npx --yes skills remove -g -y "$name" </dev/null >/dev/null
+  # A skill that moved from third-party.json into skills/ shares its name, so
+  # the removal just deleted the links made above; make them again.
+  if has "$name" "$OWN"; then
+    ensure_link "$FLEET/skills/$name" "$AGENTS_DIR/$name"
+    ensure_link "$FLEET/skills/$name" "$CLAUDE_DIR/$name"
+  fi
 done
 
 # Print "<source> <skill>..." for each source with skills to install.
