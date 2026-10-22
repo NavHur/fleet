@@ -142,8 +142,8 @@ impl Parser<'_> {
     }
 }
 
-/// Python's `int(text, 0)`, which complexity_php.py applies to the level of `break N`. It rejects PHP's
-/// legacy octal (`010`), where the Python analyzer crashes; the caller reports that as the file's error.
+/// Python's `int(text, 0)`, which the retired complexity_php.py applied to the level of `break N`. It rejects
+/// PHP's legacy octal (`010`), where the Python analyzer crashed; the caller reports that as the file's error.
 fn python_int(text: &str) -> Result<u128, String> {
     let invalid = || format!("ValueError: invalid literal for int() with base 0: '{text}'");
     let lower = text.to_ascii_lowercase();

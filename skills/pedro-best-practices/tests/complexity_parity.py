@@ -11,9 +11,13 @@ on that line), and every field is compared: name, end_line, cognitive, and
 cyclomatic. A file one analyzer rejects must be rejected by the other; the
 error messages may differ.
 
+It held the Rust analyzers to the Python ones they replaced (complexity_*.py,
+in git history); it now holds a changed analyzer to the previous build, e.g.
+`--reference "/tmp/old/pbp-complexity python" --candidate "target/release/pbp-complexity python"`.
+
 --gdscript-names accepts godot-guard's more specific names for what the
-gdtoolkit analyzer calls `<lambda>`, `set`, and `get`: `outer.<lambda#2>`,
-`outer.named`, `hp.set`. Every other field stays exact.
+retired gdtoolkit analyzer called `<lambda>`, `set`, and `get`:
+`outer.<lambda#2>`, `outer.named`, `hp.set`. Every other field stays exact.
 
 Exits 0 when the outputs agree, 1 on any difference, printing each one.
 """

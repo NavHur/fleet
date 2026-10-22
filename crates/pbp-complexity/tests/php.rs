@@ -1,5 +1,5 @@
 //! `pbp-complexity php` against the skill's probe fixture and hand-written traps where PHP's tokenizer
-//! and mago's differ. Every expected score is what `complexity_php.py` reports for the same source.
+//! and mago's differ. Every expected score is what the retired `complexity_php.py` reported for the same source.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

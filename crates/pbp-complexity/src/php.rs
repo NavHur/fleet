@@ -1,7 +1,8 @@
-//! Score PHP functions the way complexity_php.py does; see scorer.rs for the metrics.
+//! Score PHP functions; see scorer.rs for the metrics. Ported from pedro-best-practices'
+//! complexity_php.py, which this crate replaced, with exact parity.
 //!
 //! mago's lexer tokenizes each file into the stream `PhpToken::tokenize($source, TOKEN_PARSE)` yields
-//! (tokens.rs), and a parser ported line for line from complexity_php.py walks it into statements and
+//! (tokens.rs), and a parser ported line for line from that analyzer walks it into statements and
 //! expressions. A file PHP's parser rejects is reported as an error, as PHP's ParseError is: mago's parser
 //! decides (syntax.rs), plus the grammar rules it leaves to later analysis (grammar.rs) and PHP's heredoc
 //! indentation (heredoc.rs). Language mappings:

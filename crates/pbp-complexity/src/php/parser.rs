@@ -1,7 +1,7 @@
 //! The token-stream parser: a cursor over the tokens, bracket pairing, and statements.
 //!
-//! Each method mirrors the matching one in complexity_php.py's `Parser`, so the two walk the same tokens
-//! and score the same way. Declarations and expressions live in their own modules.
+//! Each method mirrors the matching one in the retired complexity_php.py's `Parser`, so scores stayed
+//! identical through the port. Declarations and expressions live in their own modules.
 
 use super::tokens::Token;
 use crate::scorer::{Function, Scorer};

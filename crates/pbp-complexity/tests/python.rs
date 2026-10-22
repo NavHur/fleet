@@ -1,4 +1,4 @@
-//! `pbp-complexity python` against the scores complexity_python.py gives on CPython 3.15: the shared
+//! `pbp-complexity python` against the scores the retired complexity_python.py gave on CPython 3.15: the shared
 //! fixtures, then one case per place the port could drift from the reference.
 
 use std::path::{Path, PathBuf};

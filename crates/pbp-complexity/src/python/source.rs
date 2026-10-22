@@ -1,4 +1,4 @@
-//! The source text as complexity_python.py sees it: read in text mode, numbered by CPython's lines, and
+//! The source text as the retired complexity_python.py saw it: read in text mode, numbered by CPython's lines, and
 //! split by `str.splitlines` for its `elif` check.
 
 use std::borrow::Cow;

@@ -1,4 +1,5 @@
-//! Score Python functions; a port of pedro-best-practices' complexity_python.py, function for function.
+//! Score Python functions; ported function for function from pedro-best-practices' complexity_python.py,
+//! which this crate replaced, with exact parity.
 //!
 //! Language mappings:
 //! - `elif` is an else-if (+1 flat); `else` on if, for, and while is +1 flat.

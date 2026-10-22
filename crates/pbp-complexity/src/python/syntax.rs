@@ -1,7 +1,7 @@
 //! Parse a module, rejecting exactly what CPython 3.15's `ast.parse` rejects.
 //!
 //! ruff's parser covers the grammar. `ast.parse` also refuses a few things ruff leaves to its semantic
-//! checks or never sees: null bytes, a byte order mark kept in the text (complexity_python.py reads with
+//! checks or never sees: null bytes, a byte order mark kept in the text (the Python analyzer read with
 //! `utf-8`, not `utf-8-sig`), indentation that mixes tabs and spaces inconsistently, unknown features in
 //! the leading `__future__` block, `lazy from __future__`, and `!=` once `barry_as_FLUFL` is imported.
 

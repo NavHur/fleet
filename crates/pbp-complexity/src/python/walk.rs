@@ -1,4 +1,4 @@
-//! The walk complexity_python.py's `Analyzer` makes over a module: a pre-order walk in CPython's `ast` field
+//! The walk the retired complexity_python.py's `Analyzer` made over a module: a pre-order walk in CPython's `ast` field
 //! order, so functions come out in the same order, with the reference's visitors where it has one and
 //! `ast.iter_child_nodes` everywhere else.
 
