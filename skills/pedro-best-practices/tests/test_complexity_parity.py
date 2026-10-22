@@ -74,6 +74,14 @@ class Parity(unittest.TestCase):
         result = self.compare([function("pick", 1)], [function("pick2", 1)], "--gdscript-names")
         self.assertEqual(result.returncode, 1)
 
+    def test_gdscript_names_accept_accessors_qualified_by_inner_class_and_property(self):
+        self.assertEqual(self.compare([function("Inner.get", 8)], [function("Inner.p.get", 8)],
+                                      "--gdscript-names").returncode, 0)
+        for wrong in ("Other.p.get", "Inner.p.q.get", "p.get"):
+            with self.subTest(candidate=wrong):
+                result = self.compare([function("Inner.get", 8)], [function(wrong, 8)], "--gdscript-names")
+                self.assertEqual(result.returncode, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

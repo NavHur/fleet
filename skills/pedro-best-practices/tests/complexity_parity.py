@@ -60,8 +60,11 @@ def same_name(reference: str, candidate: str, gdscript_names: bool) -> bool:
         return reference == candidate
     if reference == "<lambda>":
         return re.fullmatch(r"(.+\.)?<lambda#\d+>", candidate) is not None
-    last = candidate.rsplit(".", 1)[-1]
-    return last == reference and (reference in ("set", "get") or "." in candidate)
+    scope, _, last = reference.rpartition(".")
+    prefix = re.escape(f"{scope}.") if scope else ""
+    if last in ("set", "get"):  # `Inner.get` is the accessor of some property `p`: `Inner.p.get`
+        return re.fullmatch(rf"{prefix}[^.]+\.{last}", candidate) is not None
+    return "." in candidate and candidate.rsplit(".", 1)[-1] == reference
 
 
 def compare_file(path: str, reference: object, candidate: object, gdscript_names: bool) -> list[str]:
