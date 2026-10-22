@@ -127,6 +127,17 @@ class FileSizeTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("big.py", result.stdout)
 
+    def test_base_mode_sniffs_every_over_cap_blob_in_one_stream(self):
+        self.repo.commit(**{"a.py": SMALL})
+        (self.repo.path / "art.bin").write_bytes(b"\0" + b"x" * (4 * LIMIT_BYTES))
+        self.repo.commit(**{"gen.py": f"# @generated\n{BIG}", "my big.py": BIG, "z.py": BIG})
+        result = self.repo.run("check", "--base", "HEAD~1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("my big.py", result.stdout)
+        self.assertIn("z.py", result.stdout)
+        self.assertNotIn("art.bin", result.stdout)
+        self.assertNotIn("gen.py", result.stdout)
+
     def test_submodule_pointer_bump_is_not_a_file(self):
         with tempfile.TemporaryDirectory() as origin:
             Repo(Path(origin)).commit(**{"lib.py": SMALL})
