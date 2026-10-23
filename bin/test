@@ -13,6 +13,7 @@ run lib/file-size test_file_size test_commit_guard test_command_chain
 run lib/fleet test_opencode_servers test_hooks test_post_install test_binaries
 run skills/pedro-best-practices/tests test_complexity test_complexity_parity test_long_comments
 run skills/review-loop/scripts test_loop
+run skills/pre-commit/scripts test_ci_covers
 run hosts/workbox/claude-hooks test_merge_guard test_migration_guard
 run skills/split-stacked-prs/scripts test_diff_budget test_restack test_build_layers test_refresh_stack test_layer_gates test_import_graph
 exit $status
