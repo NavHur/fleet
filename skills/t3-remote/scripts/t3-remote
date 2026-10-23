@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Read and message T3 threads on another host over SSH, through that host's
+# own `t3` CLI. Usage:
+#   t3-remote <host> open               unsettled top-level threads, every project
+#   t3-remote <host> projects           project ids, titles, roots
+#   t3-remote <host> thread <args...>   passthrough: show, list, send, start
+set -euo pipefail
+
+usage() { sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
+[ $# -ge 2 ] || usage
+host=$1; shift
+case $1 in open | projects | thread) ;; *) usage ;; esac
+
+# Runs on the host. It uses the binary of the running `t3 serve`, so the CLI
+# matches the server version, and falls back to the newest runtime. The CLI
+# has no project listing, so project ids come from the server's database,
+# opened read-only.
+read -r -d '' remote <<'SH' || true
+set -euo pipefail
+T=$(ps -eo args | awk '$2=="serve" && $1 ~ /\/t3$/ {print $1; exit}')
+[ -n "$T" ] || T=$(ls -d ~/.t3/runtime/versions/*/t3 2>/dev/null | sort -V | tail -1)
+[ -x "$T" ] || { echo "t3-remote: no T3 server or runtime on $(hostname)" >&2; exit 69; }
+cmd=$1; shift
+if [ "$cmd" = thread ]; then exec "$T" thread "$@"; fi
+python3 - "$T" ~/.t3/userdata/statev2.sqlite "$cmd" <<'PY'
+import json, sqlite3, subprocess, sys
+t3, path, cmd = sys.argv[1:]
+db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+projects = db.execute(
+    "select project_id, title, workspace_root from projection_projects"
+    " where deleted_at is null order by title"
+).fetchall()
+if cmd == "projects":
+    for row in projects:
+        print(*row, sep="\t")
+    sys.exit()
+print("project\tthreadId\tstatus\tupdatedAt\ttitle")
+for pid, project, _ in projects:
+    out = subprocess.run([t3, "thread", "list", "--project", pid, "--json"], capture_output=True, text=True)
+    if out.returncode != 0:
+        print(f"t3-remote: listing {project} failed: {out.stderr.strip()}", file=sys.stderr)
+        continue
+    for t in json.loads(out.stdout):
+        if t["settled"] or t.get("parentThreadId"):
+            continue
+        print(f"{project}\t{t['threadId']}\t{t['status']}\t{t['updatedAt'][:16]}\t{t['title']}")
+PY
+SH
+
+encoded=$(printf '%s' "$remote" | base64 | tr -d '\n')
+args=$(printf ' %q' "$@")
+exec ssh -o BatchMode=yes "$host" "bash -c \"\$(echo $encoded | base64 -d)\" t3-remote$args"
