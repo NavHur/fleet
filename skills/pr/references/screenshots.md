@@ -20,7 +20,7 @@ Open each image and keep the ones that show the changed region. Crop or recaptur
 
 ## 2. Host
 
-Commit the images to `pr-assets` from a throwaway worktree, leaving the PR branch untouched. Push follows the owner rule in Pedro's Git instructions: a `PedroNavHur` repo pushes without asking; for any other owner, ask Pedro before the push.
+Commit the images to `pr-assets` from a throwaway worktree, leaving the PR branch untouched. Push follows the branch rule in Pedro's Git instructions: a `pr-assets` branch he or his agents created pushes without asking; one a coworker created needs his say first.
 
 ```sh
 branch=$(git branch --show-current)
