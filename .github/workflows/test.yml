@@ -18,11 +18,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
         working-directory: skills/pedro-best-practices
       # The pedro-best-practices analyzers: pbp-complexity from this checkout, godot-guard as bin/sync pins it.
+      # bin/sync also pins a pbp-complexity release; PBP_COMPLEXITY keeps the tests on this checkout's build.
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked -p pbp-complexity
       - run: python3 lib/fleet/binaries.py binaries.json "$RUNNER_TEMP/backup" --apply
       - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: bin/test
+        env:
+          PBP_COMPLEXITY: ${{ github.workspace }}/target/release/pbp-complexity
   rust:
     runs-on: ubuntu-latest
     steps:

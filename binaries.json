@@ -8,6 +8,14 @@
         "aarch64-apple-darwin": "654bbf19865b89f8bd92a0342d39ccaba01050f54f2e54e93145d3202061d3e6",
         "x86_64-unknown-linux-gnu": "6a30a9f2bcbcda2bea3aa72763ebb8d36da5274b70484c4fde2b9543dabf27fe"
       }
+    },
+    "pbp-complexity": {
+      "repo": "PedroNavHur/fleet",
+      "tag": "pbp-complexity-v0.1.0",
+      "sha256": {
+        "aarch64-apple-darwin": "c0e805ef958e7c6fde72256c54accd7b7ea6bee3ca1e7f0b2add12d9121cb593",
+        "x86_64-unknown-linux-gnu": "f2bd7916d8a6c6af103ae581994e6b141391d90b67f12bba871da3df6f85c87c"
+      }
     }
   }
 }
