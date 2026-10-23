@@ -1,0 +1,6 @@
+interface:
+  display_name: "Council"
+  short_description: "Three models propose and argue alternatives to a question"
+  default_prompt: "Use $council with gpt-6.1-sol, claude-opus-5-5, and opencode/gemini-4-argon on my last question."
+policy:
+  allow_implicit_invocation: false
