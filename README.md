@@ -67,7 +67,7 @@ Agents read `~/.config/host-validation.md`, which keeps only what they act on. T
 
 Run the tests on any machine with `bin/test`, which runs every unittest suite; CI runs it on each push to main and each pull request.
 
-A skill with a `package.json` gets its dependencies from `bin/sync` (`pnpm install --frozen-lockfile`); `pedro-best-practices` uses that for its own oxlint. Its analyzer tests skip, with a reason, without the Rust analyzers: `cargo build --release` in fleet provides `pbp-complexity`, and `bin/sync` installs godot-guard (set `PBP_GODOT_GUARD` to another build with `complexity --json`). Its godot-guard tests skip without godot-guard 0.2 or newer; set `PBP_GODOT_GUARD` to one, such as a godot-guard checkout's `.venv/bin/godot-guard`.
+A skill with a `package.json` gets its dependencies from `bin/sync` (`pnpm install --frozen-lockfile`); `pedro-best-practices` uses that for its own oxlint. Its analyzer tests skip, with a reason, without the Rust analyzers: `bin/sync` installs the pinned `pbp-complexity` release and godot-guard (`cargo build --release` in fleet builds a local `pbp-complexity`; set `PBP_COMPLEXITY` to test it ahead of the pinned one) (set `PBP_GODOT_GUARD` to another build with `complexity --json`). Its godot-guard tests skip without godot-guard 0.2 or newer; set `PBP_GODOT_GUARD` to one, such as a godot-guard checkout's `.venv/bin/godot-guard`.
 
 ## Idle compaction
 
