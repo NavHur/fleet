@@ -1,7 +1,8 @@
 ## This machine: devbox
 
 devbox has eight EPYC vCPUs and about 15 GiB of RAM, shared by interactive
-coding tools, T3, and previews.
+coding tools, T3, and previews. It runs every self-hosted CI runner and light
+web work; game development (hexstead, wingmen) happens on homebox.
 
 - Limits: 6 jobs, with no separate heavy or build caps. Vitest defaults to 2
   workers. Jobs run at nice +10.
