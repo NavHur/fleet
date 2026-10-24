@@ -55,6 +55,8 @@ def name_class(name, args):
         return "light" if targeted(args) else "heavy"
     if name == "playwright" and args[:1] == ["test"]:
         return "heavy"
+    if name == "godot-guard" and args[:1] == ["gate"]:
+        return "light" if "--fast" in args else "heavy"  # a full gate fans out about 4 GB of Godot
     return "light"
 
 
