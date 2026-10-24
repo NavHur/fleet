@@ -238,6 +238,8 @@ class ClassTests(Fixtures):
             ("bash -lc 'eval \"$CMD\"'", "heavy"), ("bash /nonexistent/gates.sh", "heavy"),
             ("node --test", "heavy"), ("node --import tsx --test 'tests/**/*.test.ts'", "heavy"),
             ("node --test tests/one.test.ts", "light"),
+            (".venv/bin/godot-guard gate", "heavy"), ("godot-guard gate --jobs 4", "heavy"),
+            ("godot-guard gate --fast --staged", "light"), ("godot-guard check", "light"),
         ]:
             with self.subTest(command=command):
                 self.assertEqual(job_class(command, "/"), expected)
