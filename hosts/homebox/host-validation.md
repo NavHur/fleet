@@ -4,8 +4,9 @@ homebox is a 2018 laptop on home Wi-Fi: an i7-8750H (6 cores, 12 threads),
 16 GiB of RAM, and a GTX 1070 that Godot does not use yet. It runs T3 and the
 agents it starts.
 
-- Limits: 6 jobs, with no separate heavy or build caps. Vitest defaults to 3
-  workers. Jobs run at nice +10.
+- Limits: 6 jobs, 2 of them heavy (whole suites, builds, and full Godot
+  gates). A full `godot-guard gate` holds about 4 GiB, so a third would thrash
+  the slice's memory. Vitest defaults to 3 workers. Jobs run at nice +10.
 - Each job runs in its own scope under `builds.slice`
   (`~/.config/systemd/user/builds.slice`): CPU weight 20, an aggregate 900% CPU
   ceiling, memory reclaim above 10 GiB, and a 12 GiB hard ceiling. If a build is
