@@ -3,9 +3,8 @@
 
 Reads the checkout's .github/workflows and prints each workflow that runs on
 `pull_request` for BASE with at least one counted job that runs tests (a step
-whose `run` calls vitest, jest, pytest, playwright, coverage, or a `test`
-script), adding "(full set after ready for review)" when some of those jobs
-skip drafts. When in doubt a workflow does not count: GitHub-hosted jobs (the
+running pytest, vitest, jest, playwright test, or a test or coverage script),
+adding "(full set after ready for review)" when some of those jobs skip drafts. When in doubt a workflow does not count: GitHub-hosted jobs (the
 organization's Actions minutes are spent), `paths` filters, `types` without
 `opened` or `synchronize`, and job `if` conditions other than a draft guard all
 leave it out. A job counts only if it is self-hosted and every job in its
@@ -19,8 +18,10 @@ Usage: ci_covers.py --base BRANCH [--root DIR]
 """
 
 import argparse
+import os
 import pathlib
 import re
+import shlex
 import sys
 
 try:
@@ -37,9 +38,16 @@ PUSH_PREFIX = "github.event_name != 'pull_request' || "
 QUANTIFIERS = {"?": "?", "+": "+"}
 DEFAULT_TYPES = ["opened", "synchronize", "reopened"]
 REQUIRED_TYPES = {"opened", "synchronize"}
-TEST_COMMAND = re.compile(
-    r"\b(?:vitest|jest|pytest|playwright|coverage)\b|\btest\b(?!:)"
-)
+COMMAND_SEPARATORS = re.compile(r"\n|&&|\|\||;|\|")
+ENV_ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
+TEST_TOOLS = {"pytest", "vitest", "jest"}
+PYTHONS = {"python", "python3"}
+PACKAGE_MANAGERS = {"pnpm", "npm", "yarn", "bun"}
+EXEC_VERBS = {"exec", "dlx"}
+FILTER_FLAGS = {"--filter", "-F", "-w", "--workspace"}
+SKIPPED_WORDS = {"run", "turbo"}
+TEST_PARTS = {"test", "coverage"}
+NOT_TEST_PARTS = {"lint", "types", "typecheck", "format"}
 
 
 class WorkflowError(Exception):
@@ -195,21 +203,88 @@ def resolve(name, jobs, path):
 
 
 def steps_of(name, job):
-    """A job's `steps` list; absent means none."""
+    """A job's `steps` list; absent means none. Each step must be a mapping
+    whose `run`, when present, is a string."""
     steps = job.get("steps", [])
     if not isinstance(steps, list):
         raise WorkflowError(f"job {name} steps must be a list")
+    for step in steps:
+        mapping(step, f"job {name} step")
+        if not isinstance(step.get("run", ""), str):
+            raise WorkflowError(f"job {name} step run must be a string")
     return steps
+
+
+def words(command):
+    """A shell command's tokens without its leading VAR=value assignments."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+    start = 0
+    while start < len(tokens) and ENV_ASSIGNMENT.match(tokens[start]):
+        start += 1
+    return tokens[start:]
+
+
+def runs_tool(args):
+    """Whether ARGS start with a test tool: `vitest ...`, `playwright test`."""
+    if args[:1] and args[0] in TEST_TOOLS:
+        return True
+    return args[:2] == ["playwright", "test"]
+
+
+def script_names(args):
+    """The script-like words of a package manager's ARGS, before any `--`."""
+    skip = False
+    for arg in args:
+        if arg == "--":
+            return
+        if skip:
+            skip = False
+        elif arg in FILTER_FLAGS:
+            skip = True
+        elif not arg.startswith("-") and arg not in SKIPPED_WORDS:
+            yield arg
+
+
+def is_test_script(name):
+    parts = set(name.split(":"))
+    return bool(parts & TEST_PARTS) and not parts & NOT_TEST_PARTS
+
+
+def package_manager_runs_tests(args):
+    if args[:1] and args[0] in EXEC_VERBS:
+        return runs_tool(args[1:])
+    first = next(script_names(args), None)
+    return first is not None and is_test_script(first)
+
+
+def command_runs_tests(tokens):
+    """Whether a tokenized shell command runs tests."""
+    if not tokens:
+        return False
+    program, args = os.path.basename(tokens[0]), tokens[1:]
+    if program in TEST_TOOLS:
+        return True
+    if program in PYTHONS:
+        return args[:2] == ["-m", "pytest"]
+    if program == "playwright":
+        return args[:1] == ["test"]
+    if program == "npx":
+        return runs_tool(args)
+    return program in PACKAGE_MANAGERS and package_manager_runs_tests(args)
+
+
+def script_runs_tests(run):
+    """Whether any command of a `run` script runs tests."""
+    commands = COMMAND_SEPARATORS.split(run)
+    return any(command_runs_tests(words(command)) for command in commands)
 
 
 def runs_tests(name, job):
     """Whether any step of a job runs a test command."""
-    return any(
-        isinstance(step, dict)
-        and isinstance(step.get("run"), str)
-        and TEST_COMMAND.search(step["run"]) is not None
-        for step in steps_of(name, job)
-    )
+    return any(script_runs_tests(step.get("run", "")) for step in steps_of(name, job))
 
 
 def counted_jobs(workflow):

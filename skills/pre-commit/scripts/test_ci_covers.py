@@ -20,12 +20,17 @@ TEST_STEP = "  steps: [{run: pnpm test}]\n"
 LINT_STEP = "  steps: [{run: pnpm lint}]\n"
 TEST_COMMANDS = [
     "pnpm test",
+    "pnpm test:run",
+    "pnpm test:ci",
     "pnpm turbo run test --filter=@nj-homes/web -- --shard=1",
     "pnpm --filter @dca/chatdca test",
     "python -m pytest -q -n 4",
-    ".venv/bin/pytest -q",
+    ".venv/bin/pytest -q --cov=src",
     "pnpm review:coverage --base x",
     "npx vitest run",
+    "npx playwright test",
+    "CI=1 pnpm test",
+    "pnpm install\npnpm test",
 ]
 OTHER_COMMANDS = [
     "pnpm test:lint",
@@ -33,6 +38,11 @@ OTHER_COMMANDS = [
     "pnpm typecheck",
     "uvx ruff check src tests",
     "echo latest",
+    "test -f pnpm-lock.yaml && pnpm lint",
+    "npx playwright install --with-deps",
+    "mkdir -p test-results",
+    "rm -rf coverage",
+    'echo "run pnpm test later"',
 ]
 
 ACCEPTED_GUARDS = [
@@ -270,7 +280,7 @@ class CoveringTest(RepoTestCase):
         self.assertEqual(self.covering(with_jobs(ON_PR, body), "main"), [])
 
     def test_jobs_without_run_steps_do_not_cover(self):
-        steps = ["", "  steps: [{uses: actions/checkout@v4}]\n", "  steps: [5]\n"]
+        steps = ["", "  steps: [{uses: actions/checkout@v4}]\n"]
         for step in steps:
             with self.subTest(step=step):
                 body = "t:\n  runs-on: self-hosted\n" + step
@@ -316,6 +326,13 @@ class MainTest(RepoTestCase):
         code, stderr = self.run_main(self.repo(with_jobs(ON_PR, body)))
         self.assertEqual(code, 2)
         self.assertIn("job t steps must be a list", stderr)
+
+    def test_malformed_steps_are_errors(self):
+        for steps in ["[5]", "[{run: 5}]", "[{run: [pnpm, test]}]"]:
+            with self.subTest(steps=steps):
+                body = f"t:\n  runs-on: self-hosted\n  steps: {steps}\n"
+                code, _ = self.run_main(self.repo(with_jobs(ON_PR, body)))
+                self.assertEqual(code, 2)
 
     def test_non_mapping_jobs_is_an_error(self):
         self.assertEqual(self.run_main(self.repo("on: push\njobs: [a]\n"))[0], 2)
