@@ -13,7 +13,27 @@ SELF_HOSTED_JOB = """
 jobs:
   lint:
     runs-on: [self-hosted, lightsail]
+    steps:
+      - run: pnpm test
 """
+TEST_STEP = "  steps: [{run: pnpm test}]\n"
+LINT_STEP = "  steps: [{run: pnpm lint}]\n"
+TEST_COMMANDS = [
+    "pnpm test",
+    "pnpm turbo run test --filter=@nj-homes/web -- --shard=1",
+    "pnpm --filter @dca/chatdca test",
+    "python -m pytest -q -n 4",
+    ".venv/bin/pytest -q",
+    "pnpm review:coverage --base x",
+    "npx vitest run",
+]
+OTHER_COMMANDS = [
+    "pnpm test:lint",
+    "pnpm lint",
+    "pnpm typecheck",
+    "uvx ruff check src tests",
+    "echo latest",
+]
 
 ACCEPTED_GUARDS = [
     "!github.event.pull_request.draft",
@@ -47,6 +67,8 @@ def job_with_if(condition, on=ON_READY):
     return (
         f"{on}jobs:\n  build:\n"
         f"    if: {json.dumps(condition)}\n    runs-on: [self-hosted]\n"
+        + "  "
+        + TEST_STEP
     )
 
 
@@ -155,13 +177,14 @@ class CoveringTest(RepoTestCase):
         }
         for runs_on, expected in cases.items():
             with self.subTest(runs_on=runs_on):
-                workflow = with_jobs(ON_PR, f"lint:\n  runs-on: {runs_on}\n")
+                body = f"lint:\n  runs-on: {runs_on}\n" + TEST_STEP
+                workflow = with_jobs(ON_PR, body)
                 self.assertEqual(self.covering(workflow, "main"), expected)
 
     def test_needs_must_all_count(self):
         gate = "gate:\n  runs-on: self-hosted\n"
         push_gate = "gate:\n  if: github.event_name == 'push'\n  runs-on: self-hosted\n"
-        dependent = "t:\n  needs: gate\n  runs-on: self-hosted\n"
+        dependent = "t:\n  needs: gate\n  runs-on: self-hosted\n" + TEST_STEP
         cases = {
             "counted": (gate + dependent, True),
             "list": (gate + dependent.replace("gate", "[gate]"), True),
@@ -188,6 +211,7 @@ class CoveringTest(RepoTestCase):
         body = (
             guard
             + "  runs-on: self-hosted\nt:\n  needs: gate\n  runs-on: self-hosted\n"
+            + TEST_STEP
         )
         self.assertEqual(
             self.covering(with_jobs(ON_READY, body), "main"), [("w0.yml", True)]
@@ -196,7 +220,7 @@ class CoveringTest(RepoTestCase):
 
     def test_guarded_jobs_need_ready_for_review(self):
         guard = ACCEPTED_GUARDS[0]
-        unguarded = "  lint:\n    runs-on: self-hosted\n"
+        unguarded = "  lint:\n    runs-on: self-hosted\n  " + TEST_STEP
         self.assertEqual(self.covering(job_with_if(guard, ON_PR), "main"), [])
         self.assertEqual(
             self.covering(job_with_if(guard, ON_PR) + unguarded, "main"),
@@ -216,12 +240,41 @@ class CoveringTest(RepoTestCase):
             with self.subTest(guard=guard):
                 self.assertEqual(self.covering(job_with_if(guard), "main"), [])
 
-    def test_unguarded_job_beside_guarded_job_reports_drafts(self):
+    def test_unguarded_lint_beside_guarded_tests_reports_drafts(self):
         workflow = (
             job_with_if("!github.event.pull_request.draft")
-            + "  lint:\n    runs-on: self-hosted\n"
+            + "  lint:\n    runs-on: self-hosted\n  "
+            + LINT_STEP
         )
         self.assertEqual(self.covering(workflow, "main"), [("w0.yml", True)])
+
+    def test_test_command_patterns(self):
+        for command in TEST_COMMANDS + OTHER_COMMANDS:
+            with self.subTest(command=command):
+                step = f"  steps:\n    - run: {json.dumps(command)}\n"
+                workflow = with_jobs(ON_PR, "t:\n  runs-on: self-hosted\n" + step)
+                expected = [("w0.yml", False)] if command in TEST_COMMANDS else []
+                self.assertEqual(self.covering(workflow, "main"), expected)
+
+    def test_lint_only_workflow_does_not_cover(self):
+        body = "lint:\n  runs-on: self-hosted\n" + LINT_STEP
+        self.assertEqual(self.covering(with_jobs(ON_PR, body), "main"), [])
+
+    def test_tests_on_hosted_runner_beside_self_hosted_lint_do_not_cover(self):
+        body = (
+            "lint:\n  runs-on: self-hosted\n"
+            + LINT_STEP
+            + "test:\n  runs-on: ubuntu-latest\n"
+            + TEST_STEP
+        )
+        self.assertEqual(self.covering(with_jobs(ON_PR, body), "main"), [])
+
+    def test_jobs_without_run_steps_do_not_cover(self):
+        steps = ["", "  steps: [{uses: actions/checkout@v4}]\n", "  steps: [5]\n"]
+        for step in steps:
+            with self.subTest(step=step):
+                body = "t:\n  runs-on: self-hosted\n" + step
+                self.assertEqual(self.covering(with_jobs(ON_PR, body), "main"), [])
 
 
 class MainTest(RepoTestCase):
@@ -257,6 +310,12 @@ class MainTest(RepoTestCase):
         for workflow in workflows:
             with self.subTest(workflow=workflow):
                 self.assertEqual(self.run_main(self.repo(workflow))[0], 2)
+
+    def test_non_list_steps_is_an_error(self):
+        body = "t:\n  runs-on: self-hosted\n  steps: 5\n"
+        code, stderr = self.run_main(self.repo(with_jobs(ON_PR, body)))
+        self.assertEqual(code, 2)
+        self.assertIn("job t steps must be a list", stderr)
 
     def test_non_mapping_jobs_is_an_error(self):
         self.assertEqual(self.run_main(self.repo("on: push\njobs: [a]\n"))[0], 2)

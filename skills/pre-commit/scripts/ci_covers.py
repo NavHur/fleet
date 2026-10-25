@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Does CI on self-hosted runners check a pull request into BASE?
+"""Does CI on self-hosted runners run tests on a pull request into BASE?
 
 Reads the checkout's .github/workflows and prints each workflow that runs on
-`pull_request` for BASE with at least one self-hosted job, adding "(full set
-after ready for review)" when some of its counted jobs skip drafts. When in
-doubt a workflow does not count: GitHub-hosted jobs (the organization's Actions
-minutes are spent), `paths` filters, `types` without `opened` or
-`synchronize`, and job `if` conditions other than a draft guard all leave it
-out. A job counts only if every job in its `needs` does. Draft-guarded jobs
-count only when the trigger's `types` include `ready_for_review`.
+`pull_request` for BASE with at least one counted job that runs tests (a step
+whose `run` calls vitest, jest, pytest, playwright, coverage, or a `test`
+script), adding "(full set after ready for review)" when some of those jobs
+skip drafts. When in doubt a workflow does not count: GitHub-hosted jobs (the
+organization's Actions minutes are spent), `paths` filters, `types` without
+`opened` or `synchronize`, and job `if` conditions other than a draft guard all
+leave it out. A job counts only if it is self-hosted and every job in its
+`needs` counts. Draft-guarded jobs count only when the trigger's `types`
+include `ready_for_review`.
 
 Exit 0 when one covers it, 1 when none does, 2 on an error (usage, missing
 PyYAML, or a workflow that cannot be read or has an unexpected shape).
@@ -35,6 +37,9 @@ PUSH_PREFIX = "github.event_name != 'pull_request' || "
 QUANTIFIERS = {"?": "?", "+": "+"}
 DEFAULT_TYPES = ["opened", "synchronize", "reopened"]
 REQUIRED_TYPES = {"opened", "synchronize"}
+TEST_COMMAND = re.compile(
+    r"\b(?:vitest|jest|pytest|playwright|coverage)\b|\btest\b(?!:)"
+)
 
 
 class WorkflowError(Exception):
@@ -189,25 +194,47 @@ def resolve(name, jobs, path):
     return "if" in job or any(needs)
 
 
+def steps_of(name, job):
+    """A job's `steps` list; absent means none."""
+    steps = job.get("steps", [])
+    if not isinstance(steps, list):
+        raise WorkflowError(f"job {name} steps must be a list")
+    return steps
+
+
+def runs_tests(name, job):
+    """Whether any step of a job runs a test command."""
+    return any(
+        isinstance(step, dict)
+        and isinstance(step.get("run"), str)
+        and TEST_COMMAND.search(step["run"]) is not None
+        for step in steps_of(name, job)
+    )
+
+
 def counted_jobs(workflow):
     """Map each counted job to whether drafts skip it, directly or by needs."""
     jobs = mapping(workflow.get("jobs", {}), "jobs")
     for name, job in jobs.items():
-        mapping(job, f"job {name}")
+        steps_of(name, mapping(job, f"job {name}"))
     skips = {name: resolve(name, jobs, frozenset()) for name in jobs}
     return {name: skip for name, skip in skips.items() if skip is not None}
 
 
 def covered_jobs(workflow, base):
-    """The counted jobs that run on BASE's PRs: none when the trigger misses them,
-    only the unguarded ones when its types omit ready_for_review."""
+    """The counted jobs that run tests on BASE's PRs: none when the trigger misses
+    them, only the unguarded ones when its types omit ready_for_review."""
     jobs = counted_jobs(workflow)
     on = triggers(workflow)
     if "pull_request" not in on or not covers_base(on["pull_request"], base):
         return {}
-    if "ready_for_review" in pr_types(on["pull_request"]):
-        return jobs
-    return {name: skip for name, skip in jobs.items() if not skip}
+    if "ready_for_review" not in pr_types(on["pull_request"]):
+        jobs = {name: skip for name, skip in jobs.items() if not skip}
+    return {
+        name: skip
+        for name, skip in jobs.items()
+        if runs_tests(name, workflow["jobs"][name])
+    }
 
 
 def covering(root, base):
