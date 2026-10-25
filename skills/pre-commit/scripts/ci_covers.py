@@ -170,7 +170,7 @@ def is_draft_guard(condition):
     return text.removeprefix(PUSH_PREFIX) in DRAFT_GUARDS
 
 
-def runs_on_pull_requests(job):
+def self_hosted_on_prs(job):
     """Whether a job is self-hosted with no `if`, or only a draft guard."""
     if "self-hosted" not in labels(job.get("runs-on")):
         return False
@@ -179,9 +179,9 @@ def runs_on_pull_requests(job):
 
 def resolve(name, jobs, path):
     """None when a job does not count, else whether drafts skip it. A job
-    counts only if it runs on pull requests and all its needs count."""
+    counts only if it is self-hosted on PRs and all its needs count."""
     job = jobs.get(name)
-    if job is None or name in path or not runs_on_pull_requests(job):
+    if job is None or name in path or not self_hosted_on_prs(job):
         return None
     needs = [resolve(n, jobs, path | {name}) for n in pattern_list(job.get("needs"))]
     if None in needs:
@@ -199,7 +199,8 @@ def counted_jobs(workflow):
 
 
 def covered_jobs(workflow, base):
-    """The counted jobs of a workflow, or none when it misses BASE's PRs."""
+    """The counted jobs that run on BASE's PRs: none when the trigger misses them,
+    only the unguarded ones when its types omit ready_for_review."""
     jobs = counted_jobs(workflow)
     on = triggers(workflow)
     if "pull_request" not in on or not covers_base(on["pull_request"], base):
