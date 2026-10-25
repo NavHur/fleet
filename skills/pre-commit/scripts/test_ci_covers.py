@@ -35,9 +35,17 @@ def pull_request(filters=""):
     return "on:\n  pull_request:\n" + textwrap.indent(filters, "    ") + SELF_HOSTED_JOB
 
 
-def job_with_if(condition):
+ON_PR = "on: pull_request\n"
+ON_READY = "on:\n  pull_request:\n    types: [opened, synchronize, ready_for_review]\n"
+
+
+def with_jobs(on, body):
+    return on + "jobs:\n" + textwrap.indent(textwrap.dedent(body), "  ")
+
+
+def job_with_if(condition, on=ON_READY):
     return (
-        "on: pull_request\njobs:\n  build:\n"
+        f"{on}jobs:\n  build:\n"
         f"    if: {json.dumps(condition)}\n    runs-on: [self-hosted]\n"
     )
 
@@ -117,9 +125,13 @@ class CoveringTest(RepoTestCase):
         workflow = pull_request("types: [opened, reopened]\n")
         self.assertEqual(self.covering(workflow, "main"), [])
 
-    def test_types_with_synchronize_cover(self):
+    def test_types_with_opened_and_synchronize_cover(self):
         workflow = pull_request("types: [opened, synchronize]\n")
         self.assertEqual(self.covering(workflow, "main"), [("w0.yml", False)])
+
+    def test_types_without_opened_do_not_cover(self):
+        workflow = pull_request("types: [synchronize]\n")
+        self.assertEqual(self.covering(workflow, "main"), [])
 
     def test_github_hosted_jobs_do_not_count(self):
         workflow = (
@@ -136,9 +148,61 @@ class CoveringTest(RepoTestCase):
     def test_push_only_workflow_does_not_count(self):
         self.assertEqual(self.covering("on:\n  push:\n" + SELF_HOSTED_JOB, "main"), [])
 
-    def test_draft_gated_jobs_are_reported(self):
-        workflow = job_with_if(ACCEPTED_GUARDS[3])
-        self.assertEqual(self.covering(workflow, "main"), [("w0.yml", True)])
+    def test_runner_group_needs_a_self_hosted_label(self):
+        cases = {
+            "{group: runners, labels: [self-hosted, lightsail]}": [("w0.yml", False)],
+            "{group: runners}": [],
+        }
+        for runs_on, expected in cases.items():
+            with self.subTest(runs_on=runs_on):
+                workflow = with_jobs(ON_PR, f"lint:\n  runs-on: {runs_on}\n")
+                self.assertEqual(self.covering(workflow, "main"), expected)
+
+    def test_needs_must_all_count(self):
+        gate = "gate:\n  runs-on: self-hosted\n"
+        push_gate = "gate:\n  if: github.event_name == 'push'\n  runs-on: self-hosted\n"
+        dependent = "t:\n  needs: gate\n  runs-on: self-hosted\n"
+        cases = {
+            "counted": (gate + dependent, True),
+            "list": (gate + dependent.replace("gate", "[gate]"), True),
+            "push-only": (push_gate + dependent, False),
+            "unknown": (dependent.replace("gate", "nope"), False),
+            "hosted": (
+                "gate:\n  runs-on: ubuntu-latest\n" + dependent,
+                False,
+            ),
+            "cycle": (
+                "a:\n  needs: b\n  runs-on: self-hosted\n"
+                + "b:\n  needs: a\n  runs-on: self-hosted\n",
+                False,
+            ),
+        }
+        for name, (body, counts) in cases.items():
+            with self.subTest(name=name):
+                workflow = with_jobs(ON_PR, body)
+                expected = [("w0.yml", False)] if counts else []
+                self.assertEqual(self.covering(workflow, "main"), expected)
+
+    def test_job_inherits_draft_guard_from_needs(self):
+        guard = "gate:\n  if: '!github.event.pull_request.draft'\n"
+        body = (
+            guard
+            + "  runs-on: self-hosted\nt:\n  needs: gate\n  runs-on: self-hosted\n"
+        )
+        self.assertEqual(
+            self.covering(with_jobs(ON_READY, body), "main"), [("w0.yml", True)]
+        )
+        self.assertEqual(self.covering(with_jobs(ON_PR, body), "main"), [])
+
+    def test_guarded_jobs_need_ready_for_review(self):
+        guard = ACCEPTED_GUARDS[0]
+        unguarded = "  lint:\n    runs-on: self-hosted\n"
+        self.assertEqual(self.covering(job_with_if(guard, ON_PR), "main"), [])
+        self.assertEqual(
+            self.covering(job_with_if(guard, ON_PR) + unguarded, "main"),
+            [("w0.yml", False)],
+        )
+        self.assertEqual(self.covering(job_with_if(guard), "main"), [("w0.yml", True)])
 
     def test_accepted_guards_count_and_report_drafts(self):
         for guard in ACCEPTED_GUARDS:
@@ -183,6 +247,16 @@ class MainTest(RepoTestCase):
 
     def test_non_mapping_workflow_is_an_error(self):
         self.assertEqual(self.run_main(self.repo("- a\n- b\n"))[0], 2)
+
+    def test_malformed_trigger_values_are_errors(self):
+        workflows = [
+            pull_request("branches: 5\n"),
+            pull_request("types: 5\n"),
+            "on:\n  pull_request: [x]\n" + SELF_HOSTED_JOB,
+        ]
+        for workflow in workflows:
+            with self.subTest(workflow=workflow):
+                self.assertEqual(self.run_main(self.repo(workflow))[0], 2)
 
     def test_non_mapping_jobs_is_an_error(self):
         self.assertEqual(self.run_main(self.repo("on: push\njobs: [a]\n"))[0], 2)

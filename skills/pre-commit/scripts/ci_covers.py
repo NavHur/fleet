@@ -5,8 +5,10 @@ Reads the checkout's .github/workflows and prints each workflow that runs on
 `pull_request` for BASE with at least one self-hosted job, adding "(full set
 after ready for review)" when some of its counted jobs skip drafts. When in
 doubt a workflow does not count: GitHub-hosted jobs (the organization's Actions
-minutes are spent), `paths` filters, `types` without `synchronize`, and job
-`if` conditions other than a draft guard all leave it out.
+minutes are spent), `paths` filters, `types` without `opened` or
+`synchronize`, and job `if` conditions other than a draft guard all leave it
+out. A job counts only if every job in its `needs` does. Draft-guarded jobs
+count only when the trigger's `types` include `ready_for_review`.
 
 Exit 0 when one covers it, 1 when none does, 2 on an error (usage, missing
 PyYAML, or a workflow that cannot be read or has an unexpected shape).
@@ -31,6 +33,8 @@ DRAFT_GUARDS = {
 }
 PUSH_PREFIX = "github.event_name != 'pull_request' || "
 QUANTIFIERS = {"?": "?", "+": "+"}
+DEFAULT_TYPES = ["opened", "synchronize", "reopened"]
+REQUIRED_TYPES = {"opened", "synchronize"}
 
 
 class WorkflowError(Exception):
@@ -102,7 +106,13 @@ def matches(pattern, base):
 
 
 def pattern_list(value):
-    return [value] if isinstance(value, str) else [str(p) for p in value or []]
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(p) for p in value]
+    raise WorkflowError(f"expected a string or a list, got {value!r}")
 
 
 def admitted(patterns, base):
@@ -122,13 +132,22 @@ def matches_base(trigger, base):
     return not any(matches(p, base) for p in ignored)
 
 
+def pr_types(trigger):
+    """The activity types a pull_request trigger fires on (GitHub's defaults
+    when `types` is absent)."""
+    if trigger is None or "types" not in trigger:
+        return DEFAULT_TYPES
+    return pattern_list(trigger["types"])
+
+
 def covers_base(trigger, base):
     """Whether a pull_request trigger certainly runs on every update of a PR."""
     if trigger is None:
         return True
-    if not isinstance(trigger, dict) or {"paths", "paths-ignore"} & trigger.keys():
+    mapping(trigger, "pull_request")
+    if {"paths", "paths-ignore"} & trigger.keys():
         return False
-    if "synchronize" not in pattern_list(trigger.get("types", ["synchronize"])):
+    if not REQUIRED_TYPES <= set(pr_types(trigger)):
         return False
     return matches_base(trigger, base)
 
@@ -144,35 +163,50 @@ def labels(runs_on):
 
 
 def is_draft_guard(condition):
-    """Whether a job `if` is exactly a draft guard, however spelled."""
+    """Whether a job `if` is a DRAFT_GUARDS entry, optionally after PUSH_PREFIX,
+    ignoring whitespace, quote style and a `${{ }}` wrapper."""
     text = " ".join(str(condition).split()).replace('"', "'")
     text = re.sub(r"^\$\{\{(.*)\}\}$", r"\1", text).strip()
     return text.removeprefix(PUSH_PREFIX) in DRAFT_GUARDS
 
 
+def runs_on_pull_requests(job):
+    """Whether a job is self-hosted with no `if`, or only a draft guard."""
+    if "self-hosted" not in labels(job.get("runs-on")):
+        return False
+    return "if" not in job or is_draft_guard(job["if"])
+
+
+def resolve(name, jobs, path):
+    """None when a job does not count, else whether drafts skip it. A job
+    counts only if it runs on pull requests and all its needs count."""
+    job = jobs.get(name)
+    if job is None or name in path or not runs_on_pull_requests(job):
+        return None
+    needs = [resolve(n, jobs, path | {name}) for n in pattern_list(job.get("needs"))]
+    if None in needs:
+        return None
+    return "if" in job or any(needs)
+
+
 def counted_jobs(workflow):
-    """Self-hosted jobs with no `if`, or only a draft guard."""
+    """Map each counted job to whether drafts skip it, directly or by needs."""
     jobs = mapping(workflow.get("jobs", {}), "jobs")
-    counted = []
     for name, job in jobs.items():
-        job = mapping(job, f"job {name}")
-        guarded = "if" not in job or is_draft_guard(job["if"])
-        if "self-hosted" in labels(job.get("runs-on")) and guarded:
-            counted.append(job)
-    return counted
-
-
-def skips_drafts(jobs):
-    return any("if" in job for job in jobs)
+        mapping(job, f"job {name}")
+    skips = {name: resolve(name, jobs, frozenset()) for name in jobs}
+    return {name: skip for name, skip in skips.items() if skip is not None}
 
 
 def covered_jobs(workflow, base):
     """The counted jobs of a workflow, or none when it misses BASE's PRs."""
     jobs = counted_jobs(workflow)
     on = triggers(workflow)
-    if "pull_request" in on and covers_base(on["pull_request"], base):
+    if "pull_request" not in on or not covers_base(on["pull_request"], base):
+        return {}
+    if "ready_for_review" in pr_types(on["pull_request"]):
         return jobs
-    return []
+    return {name: skip for name, skip in jobs.items() if not skip}
 
 
 def covering(root, base):
@@ -184,7 +218,7 @@ def covering(root, base):
         except WorkflowError as err:
             raise WorkflowError(f"{path}: {err}") from err
         if jobs:
-            found.append((path.name, skips_drafts(jobs)))
+            found.append((path.name, any(jobs.values())))
     return found
 
 
