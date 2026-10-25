@@ -31,6 +31,17 @@ TEST_COMMANDS = [
     "npx playwright test",
     "CI=1 pnpm test",
     "pnpm install\npnpm test",
+    "pnpm vitest run",
+    "yarn jest",
+    "pnpm playwright test",
+    "uv run pytest -q",
+    "poetry run pytest",
+    "coverage run -m pytest",
+    "turbo run test",
+    "pnpm -w test",
+    "pnpm -C apps/web test",
+    "pnpm turbo run test \\\n  --filter=x",
+    "pnpm install # then lint\npnpm test",
 ]
 OTHER_COMMANDS = [
     "pnpm test:lint",
@@ -43,6 +54,14 @@ OTHER_COMMANDS = [
     "mkdir -p test-results",
     "rm -rf coverage",
     'echo "run pnpm test later"',
+    'echo "a | pnpm test | b"',
+    'echo "skip; pnpm test later"',
+    "echo 'pnpm test'",
+    "cat <<EOF > notes.txt\npnpm test\nEOF",
+    'echo "unbalanced pnpm test',
+    "# pnpm test",
+    "pnpm -C apps/web lint",
+    "uv run ruff check",
 ]
 
 ACCEPTED_GUARDS = [

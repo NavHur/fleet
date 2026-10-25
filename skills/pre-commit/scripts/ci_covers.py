@@ -2,14 +2,14 @@
 """Does CI on self-hosted runners run tests on a pull request into BASE?
 
 Reads the checkout's .github/workflows and prints each workflow that runs on
-`pull_request` for BASE with at least one counted job that runs tests (a step
-running pytest, vitest, jest, playwright test, or a test or coverage script),
-adding "(full set after ready for review)" when some of those jobs skip drafts. When in doubt a workflow does not count: GitHub-hosted jobs (the
-organization's Actions minutes are spent), `paths` filters, `types` without
-`opened` or `synchronize`, and job `if` conditions other than a draft guard all
-leave it out. A job counts only if it is self-hosted and every job in its
-`needs` counts. Draft-guarded jobs count only when the trigger's `types`
-include `ready_for_review`.
+`pull_request` for BASE with a counted job that runs tests (a step running
+pytest, vitest, jest, playwright test, or a test or coverage script), adding
+"(full set after ready for review)" when some of those jobs skip drafts. When
+in doubt a workflow does not count: GitHub-hosted jobs (Actions minutes are
+spent), `paths` filters, `types` without `opened` or `synchronize`, and job
+`if` conditions other than a draft guard all leave it out. A job counts only
+if it is self-hosted and every job in its `needs` counts. Draft-guarded jobs
+count only when the trigger's `types` include `ready_for_review`.
 
 Exit 0 when one covers it, 1 when none does, 2 on an error (usage, missing
 PyYAML, or a workflow that cannot be read or has an unexpected shape).
@@ -18,6 +18,7 @@ Usage: ci_covers.py --base BRANCH [--root DIR]
 """
 
 import argparse
+import io
 import os
 import pathlib
 import re
@@ -38,13 +39,27 @@ PUSH_PREFIX = "github.event_name != 'pull_request' || "
 QUANTIFIERS = {"?": "?", "+": "+"}
 DEFAULT_TYPES = ["opened", "synchronize", "reopened"]
 REQUIRED_TYPES = {"opened", "synchronize"}
-COMMAND_SEPARATORS = re.compile(r"\n|&&|\|\||;|\|")
+SHELL_PUNCTUATION = "();<>|&\n"
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
 TEST_TOOLS = {"pytest", "vitest", "jest"}
-PYTHONS = {"python", "python3"}
+PYTEST_MODULE = ["-m", "pytest"]
+MODULE_RUNNERS = {
+    "python": PYTEST_MODULE,
+    "python3": PYTEST_MODULE,
+    "coverage": ["run", *PYTEST_MODULE],
+}
+RUNNER_PREFIXES = {
+    "uv": ["run"],
+    "poetry": ["run"],
+    "pipenv": ["run"],
+    "uvx": [],
+    "npx": [],
+    "bunx": [],
+}
 PACKAGE_MANAGERS = {"pnpm", "npm", "yarn", "bun"}
+SCRIPT_RUNNERS = PACKAGE_MANAGERS | {"turbo"}
 EXEC_VERBS = {"exec", "dlx"}
-FILTER_FLAGS = {"--filter", "-F", "-w", "--workspace"}
+FLAGS_WITH_VALUE = {"--filter", "-F", "--dir", "-C"}
 SKIPPED_WORDS = {"run", "turbo"}
 TEST_PARTS = {"test", "coverage"}
 NOT_TEST_PARTS = {"lint", "types", "typecheck", "format"}
@@ -215,12 +230,46 @@ def steps_of(name, job):
     return steps
 
 
-def words(command):
-    """A shell command's tokens without its leading VAR=value assignments."""
+class CommentStream(io.StringIO):
+    """A stream whose `readline` leaves the newline, so a comment ends a command."""
+
+    def readline(self, *args):
+        line = super().readline(*args)
+        if line.endswith("\n"):
+            self.seek(self.tell() - 1)
+        return line
+
+
+def is_separator(token):
+    """Whether a lexed token is only shell operator characters."""
+    return bool(token) and all(char in SHELL_PUNCTUATION for char in token)
+
+
+def commands(run):
+    """The commands of a `run` script as token lists, up to any heredoc; an
+    unbalanced quote leaves none."""
+    stream = CommentStream(run.replace("\\\n", " "))
+    lexer = shlex.shlex(stream, posix=True, punctuation_chars=SHELL_PUNCTUATION)
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
     try:
-        tokens = shlex.split(command)
+        tokens = list(lexer)
     except ValueError:
-        tokens = command.split()
+        return []
+    found, current = [], []
+    for item in tokens:
+        if not is_separator(item):
+            current.append(item)
+            continue
+        if "<<" in item:
+            break
+        found.append(current)
+        current = []
+    return [*found, current]
+
+
+def words(tokens):
+    """A command's tokens without its leading VAR=value assignments."""
     start = 0
     while start < len(tokens) and ENV_ASSIGNMENT.match(tokens[start]):
         start += 1
@@ -242,7 +291,7 @@ def script_names(args):
             return
         if skip:
             skip = False
-        elif arg in FILTER_FLAGS:
+        elif arg in FLAGS_WITH_VALUE:
             skip = True
         elif not arg.startswith("-") and arg not in SKIPPED_WORDS:
             yield arg
@@ -254,10 +303,21 @@ def is_test_script(name):
 
 
 def package_manager_runs_tests(args):
-    if args[:1] and args[0] in EXEC_VERBS:
-        return runs_tool(args[1:])
-    first = next(script_names(args), None)
-    return first is not None and is_test_script(first)
+    """Whether a package manager's ARGS run a test script or a test tool."""
+    names = list(script_names(args))
+    if names and names[0] in EXEC_VERBS:
+        names = names[1:]
+    elif names and is_test_script(names[0]):
+        return True
+    return runs_tool(names)
+
+
+def wrapped_args(program, args):
+    """The command a runner like `uv run` wraps, or None for another program."""
+    prefix = RUNNER_PREFIXES.get(program)
+    if prefix is None or args[: len(prefix)] != prefix:
+        return None
+    return args[len(prefix) :]
 
 
 def command_runs_tests(tokens):
@@ -265,21 +325,19 @@ def command_runs_tests(tokens):
     if not tokens:
         return False
     program, args = os.path.basename(tokens[0]), tokens[1:]
-    if program in TEST_TOOLS:
+    if runs_tool([program, *args]):
         return True
-    if program in PYTHONS:
-        return args[:2] == ["-m", "pytest"]
-    if program == "playwright":
-        return args[:1] == ["test"]
-    if program == "npx":
-        return runs_tool(args)
-    return program in PACKAGE_MANAGERS and package_manager_runs_tests(args)
+    if program in MODULE_RUNNERS:
+        return args[: len(MODULE_RUNNERS[program])] == MODULE_RUNNERS[program]
+    wrapped = wrapped_args(program, args)
+    if wrapped is not None:
+        return command_runs_tests(wrapped)
+    return program in SCRIPT_RUNNERS and package_manager_runs_tests(args)
 
 
 def script_runs_tests(run):
     """Whether any command of a `run` script runs tests."""
-    commands = COMMAND_SEPARATORS.split(run)
-    return any(command_runs_tests(words(command)) for command in commands)
+    return any(command_runs_tests(words(command)) for command in commands(run))
 
 
 def runs_tests(name, job):
