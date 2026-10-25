@@ -1,6 +1,6 @@
 ---
 name: pre-commit
-description: "Deterministic pre-commit validation. Use for the gate on the top head about to be pushed (a branch, or a stack's last layer), or when the user requests format, lint, typecheck, and tests. Runs a light gate (no tests) when self-hosted CI covers the pull request. Do not use for remote CI diagnosis or code review."
+description: "Deterministic pre-commit validation. Use for the gate on the top head about to be pushed (a branch, or a stack's last layer), or when the user requests format, lint, typecheck, and tests. Do not use for remote CI diagnosis or code review."
 ---
 
 # Pre-commit
@@ -12,7 +12,7 @@ Run deterministic repository checks directly. Do not spawn subagents or launch e
 1. Resolve the target Git repository root and inspect `git status --short --branch`. Preserve unrelated user changes.
 2. Resolve the four commands from the repository's own scripts, using the check mapping below: format, lint, typecheck, tests. A step with no command in the repository is missing, not passed.
 3. Do not edit files or run Git operations while checks are active. The formatter may change files through the repository's format command.
-4. Choose the gate. Run `python3 <skill dir>/scripts/ci_covers.py --root <repository root> --base <base>`, where `<base>` is the branch the pull request targets (for a stack's top layer, the layer below). Exit 0 means CI on the self-hosted runners checks that pull request: run the light gate, format, lint and typecheck, and leave tests to CI. Exit 1 means nothing else will run the tests: run the full gate, all four checks. Run the full gate anyway when the user asks for tests. When the script reports "full set after ready for review", tests run in CI only once the pull request leaves draft; say so in the report.
+4. Choose the gate. Run `python3 <skill dir>/scripts/ci_covers.py --root <repository root> --base <base>`, where `<base>` is the branch the pull request targets: `gh api "repos/{owner}/{repo}/pulls?head=<owner>:<branch>" --jq '.[0].base.ref'` when a pull request exists for the branch (for a stack's top layer, the layer below), else the branch the pull request will be opened against. When no pull request will follow the push, run the full gate, since pull_request CI never runs. Exit 0 means CI on the self-hosted runners checks that pull request: run the light gate, format, lint and typecheck, and leave tests to CI. Exit 1 means nothing else will run the tests: run the full gate, all four checks. Any other exit means the script failed: run the full gate and put the script's error in the report. Run the full gate anyway when the user asks for tests. When the script reports "full set after ready for review", tests run in CI only once the pull request leaves draft; say so in the report.
 
 ## Run sequence
 
