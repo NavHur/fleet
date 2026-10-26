@@ -73,17 +73,17 @@ def leaf_class(leaf, depth=0):
     return strongest([name_class(name, args), runner_class(words, leaf.cwd, depth)])
 
 
-def job_class(command, cwd=None, depth=0):
-    """The costliest class among a command's leaves: build, heavy, or light."""
-    return strongest(leaf_class(leaf, depth) for leaf in leaves(command, cwd or os.getcwd()))
+def job_class(command, cwd=None):
+    """The costliest class among a command's leaves: build, heavy, or light; heavy when shlex cannot parse it."""
+    return command_class(command, cwd or os.getcwd(), 0, unparseable="heavy")
 
 
-def guarded_class(command, cwd, depth):
-    """A harness string's class; light when shlex cannot parse it."""
+def command_class(command, cwd, depth, unparseable):
     try:
-        return job_class(command, cwd, depth)
+        found = list(leaves(command, cwd))
     except ValueError:
-        return "light"
+        return unparseable
+    return strongest(leaf_class(leaf, depth) for leaf in found)
 
 
 SUITE_API = re.compile(r"\b(startVitest|createVitest)\b|[\"']vitest/node[\"']")
@@ -101,7 +101,7 @@ def harness_class(path, cwd, depth):
     commands = ["".join(m.groups(default="")) for m in STRING.finditer(text)]
     commands += [m.group(1) + " " + " ".join(re.findall(r"[\"'`]([^\"'`]*)[\"'`]", m.group(2))) for m in SPAWN.finditer(text)]
     commands = [c for c in commands if c.split() and os.path.basename(c.split()[0]) in COMMAND_WORDS]
-    return strongest(guarded_class(command, cwd, depth + 1) for command in commands)
+    return strongest(command_class(command, cwd, depth + 1, unparseable="light") for command in commands)
 
 
 def runner_class(words, cwd, depth):

@@ -236,6 +236,7 @@ class ClassTests(Fixtures):
             # Commands that cannot be seen are heavy, never build.
             ("bash", "heavy"), ("bash -lc 'for c in lint test; do pnpm $c; done'", "heavy"),
             ("bash -lc 'eval \"$CMD\"'", "heavy"), ("bash /nonexistent/gates.sh", "heavy"),
+            ("bash -c \"echo 'unclosed\"", "heavy"),
             ("node --test", "heavy"), ("node --import tsx --test 'tests/**/*.test.ts'", "heavy"),
             ("node --test tests/one.test.ts", "light"),
             (".venv/bin/godot-guard gate", "heavy"), ("godot-guard gate --jobs 4", "heavy"),
