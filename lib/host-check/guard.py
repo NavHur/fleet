@@ -26,8 +26,9 @@ import merge_method  # noqa: E402
 from packages import expansions  # noqa: E402
 from shell import (  # noqa: E402
     ASSIGNMENT, MAX_DEPTH, PREFIXES, SHELLS, WRAPPERS, bg_job_command, read_script, segments, shell_invocation,
-    shell_script, unwrapped_commands, walk, walk_unwrapped,
+    shell_script, walk,
 )
+from walk import leaves  # noqa: E402
 
 REASON = (
     f"Shared CPU queue: run validation through {hostconf.HOST_CHECK}. "
@@ -250,14 +251,16 @@ def decision(payload):
     command = tool_input.get("command", tool_input.get("cmd"))
     if not isinstance(command, str):
         raise ValueError("missing shell command")
-    if merge_method.refuses(command, unwrapped_commands(command)):
+    cwd = hook_cwd(payload, tool_input)
+    found = list(leaves(command, cwd))
+    if merge_method.refuses(command, [leaf.words for leaf in found]):
         return True, merge_method.REASON
     if hostconf.load()["deny_dev_servers"] and starts_dev(command):
         return True, DEV_REASON
-    cwd = hook_cwd(payload, tool_input)
     if needs_queue(command, cwd):
         return True, REASON
-    refusal = commit_guard.commit_refusal(walk_unwrapped(command, cwd))
+    # A script's or package script's own leaf is the commands after it.
+    refusal = commit_guard.commit_refusal((leaf.words, leaf.cwd, leaf.subshell) for leaf in found if not leaf.expanded)
     return refusal is not None, refusal
 
 
