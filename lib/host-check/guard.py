@@ -4,15 +4,13 @@ file over the size cap (commit_guard.py).
 
     python3 guard.py [claude|codex|cursor|opencode] < hook-payload.json
 
-jobclass.py classifies host-check jobs with the same shell parsing.
-
-Not a shell security boundary: it recognizes the common spellings. Package
-scripts (`pnpm review:coverage`, `pnpm --filter X test`, `pnpm web build`) are
-resolved to their bodies through the nearest package.json and the workspace,
-and shell script files (`bash gates.sh`, `./gates.sh`) are read, so both are
-judged by the commands they run. Script names remain the fallback.
+Each check judges the leaves of the command walk (walk.py), as jobclass.py
+does. Not a shell security boundary: it recognizes the common spellings.
+Package scripts (`pnpm review:coverage`, `pnpm --filter X test`, `pnpm web
+build`) are resolved to their bodies through the nearest package.json and the
+workspace, and shell script files (`bash gates.sh`, `./gates.sh`) are read, so
+both are judged by the commands they run. Script names remain the fallback.
 """
-import functools
 import json
 import os
 import re
@@ -23,11 +21,7 @@ sys.path[:0] = [HERE, os.path.join(HERE, "..", "file-size")]
 import commit_guard  # noqa: E402
 import hostconf  # noqa: E402
 import merge_method  # noqa: E402
-from packages import expansions  # noqa: E402
-from shell import (  # noqa: E402
-    ASSIGNMENT, MAX_DEPTH, PREFIXES, SHELLS, WRAPPERS, bg_job_command, read_script, segments, shell_invocation,
-    shell_script, unwrapped_commands, walk, walk_unwrapped,
-)
+from walk import HELP, leaves  # noqa: E402
 
 REASON = (
     f"Shared CPU queue: run validation through {hostconf.HOST_CHECK}. "
@@ -55,9 +49,6 @@ PLAYWRIGHT_RUNS = {"test", "screenshot", "pdf"}
 BENCH_SCRIPT = re.compile(r"^(debug-|bench|perf)")
 # Runner options that take a value, so the value is not mistaken for the script.
 RUNNER_VALUE_OPTIONS = {"--import", "-r", "--require", "--loader", "--experimental-loader", "--env-file", "--tsconfig", "--conditions", "-C"}
-# Words before a runner that still leave it in command position (`pnpm exec tsx x.ts`).
-RUNNER_LEADS = {"exec", "dlx", "x", "npx", "bunx", "pnpm", "yarn", "run"}
-HELP = {"--help", "-h", "--version", "-v"}
 
 
 def runs_browser_script(words):
@@ -72,34 +63,28 @@ def runs_browser_script(words):
     return False
 
 
-def command_starts_dev(words, command):
+def command_starts_dev(leaf):
     """A dev server: `next dev`, a `dev` package script, bare `vite`, or a gate script that boots one."""
-    words = list(words)
-    while words and (re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", words[0]) or words[0] in {"!", "then", "do", "if", "elif"}):
-        words.pop(0)
-    if not words:
-        return False
+    words = leaf.words
     name = os.path.basename(words[0])
     args = words[1:]
-    if name in WRAPPERS:
-        while args and (args[0].startswith("-") or re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", args[0]) or re.match(r"^\d+[smhd]?$", args[0])):
-            args.pop(0)
-        return command_starts_dev(args, command)
-    if name == "bg-job":
-        return command_starts_dev(bg_job_command(args), command)
-    if name in {"bash", "sh", "zsh", "dash"}:
-        for i, arg in enumerate(args[:-1]):
-            if arg.startswith("-") and "c" in arg:
-                return starts_dev(args[i + 1])
+    if args and all(arg in HELP for arg in args):
         return False
-    if args and all(arg in {"--help", "-h", "--version", "-v"} for arg in args):
-        return False
+    return boots_dev_server(words, leaf.env) or names_dev_server(name, args)
+
+
+def boots_dev_server(words, env):
+    """A runner on a gate script that boots one: a11y-pages honors A11Y_BASE_URL; smoke-local always finds its own."""
     for i, word in enumerate(words):
-        script = next((a for a in words[i + 1:] if not a.startswith("-")), "")
-        if os.path.basename(word) in RUNNERS and os.path.basename(script) in DEV_BOOTING_SCRIPTS:
-            # a11y-pages honors A11Y_BASE_URL; smoke-local always finds its own server.
-            if os.path.basename(script) == "smoke-local.ts" or "A11Y_BASE_URL=" not in command:
-                return True
+        if os.path.basename(word) not in RUNNERS:
+            continue
+        script = os.path.basename(next((a for a in words[i + 1:] if not a.startswith("-")), ""))
+        if script == "smoke-local.ts" or (script in DEV_BOOTING_SCRIPTS and "A11Y_BASE_URL" not in env):
+            return True
+    return False
+
+
+def names_dev_server(name, args):
     if name in {"pnpm", "npm", "yarn", "bun", "npx", "bunx", "turbo", "nx"}:
         return any(DEV_TASK.fullmatch(arg) for arg in args)
     if name in {"next", "nuxt", "astro", "remix", "svelte-kit"}:
@@ -111,42 +96,22 @@ def command_starts_dev(words, command):
     return name in {"webpack-dev-server", "react-scripts"} and (name != "react-scripts" or "start" in args)
 
 
-# --- Stored commands --------------------------------------------------------
-
-DEFAULT_EXPANSION = re.compile(r"\$\{[A-Za-z_][A-Za-z_0-9]*:?[-=]([^}]*)\}")
-# Command words worth classifying when a script stores a command in a string.
-COMMAND_WORDS = (
-    {"pnpm", "npm", "yarn", "bun", "npx", "bunx", "turbo", "nx", "make", "just", "next", "vite",
-     "webpack", "rollup", "astro", "tsup", "playwright", "jest", "vitest"} | DIRECT | RUNNERS | SHELLS
-)
-
-
-def stored_commands(text):
-    """Commands a script keeps in variables: `${CMD:-pnpm test}` defaults and `cmd="pnpm lint"`."""
-    found = [m.group(1) for m in DEFAULT_EXPANSION.finditer(text)]
-    for words in segments(text):
-        found += [word.partition("=")[2] for word in words if ASSIGNMENT.match(word)]
-    return [command for command in found if command.split() and os.path.basename(command.split()[0]) in COMMAND_WORDS]
-
-
-
 # --- Script runners -----------------------------------------------------------
 
 
 def runner_invocations(words):
-    """Each script runner in command position: (its options, its positional arguments)."""
-    for i, word in enumerate(words):
-        name = os.path.basename(word)
-        if name not in RUNNERS or (i and os.path.basename(words[i - 1]) not in RUNNER_LEADS):
-            continue
-        rest, options, j = words[i + 1:], [], 0
-        while j < len(rest) and rest[j].startswith("-"):
-            options.append(rest[j])
-            j += 2 if rest[j] in RUNNER_VALUE_OPTIONS else 1
-        positional = rest[j:]
-        if name in {"bun", "deno"} and positional[:1] == ["run"]:
-            positional = positional[1:]
-        yield options, positional
+    """The script runner a command is: (its options, its positional arguments), or none."""
+    name = os.path.basename(words[0]) if words else ""
+    if name not in RUNNERS:
+        return
+    rest, options, j = words[1:], [], 0
+    while j < len(rest) and rest[j].startswith("-"):
+        options.append(rest[j])
+        j += 2 if rest[j] in RUNNER_VALUE_OPTIONS else 1
+    positional = rest[j:]
+    if name in {"bun", "deno"} and positional[:1] == ["run"]:
+        positional = positional[1:]
+    yield options, positional
 
 
 def runs_queued_script(words):
@@ -158,68 +123,23 @@ def runs_queued_script(words):
 # --- Queue detection ----------------------------------------------------------
 
 
-def guarded(check, command, cwd, depth, fallback):
-    """Run a nested check, using the fallback for code shlex cannot parse."""
-    try:
-        return check(command, cwd, depth)
-    except ValueError:
-        return fallback
-
-
-@functools.lru_cache(maxsize=None)  # a script that runs another many times reads it once
-def file_needs_queue(path, cwd, depth):
-    text = read_script(path, cwd) if depth < MAX_DEPTH else None
-    if text is None:
-        return False
-    try:
-        codes = [text] + stored_commands(text)
-        # Scripts such as njhomes-page-gates queue their own work.
-        if any(os.path.basename(word) == "host-check" for words in segments(text) for word in words):
-            return False
-    except ValueError:
-        return False
-    return any(guarded(needs_queue, code, cwd, depth + 1, False) for code in codes)
-
-
-def command_needs_queue(words, cwd=None, depth=0):
-    cwd = cwd or os.getcwd()
-    words = list(words)
-    while words and (ASSIGNMENT.match(words[0]) or words[0] in PREFIXES | {"time", "exec", "command"}):
-        words.pop(0)
-    if not words:
-        return False
+def command_needs_queue(leaf):
+    """Whether one leaf runs validation that belongs in the queue."""
+    words = leaf.words
     name = os.path.basename(words[0])
     args = words[1:]
-    if name == "host-check":
-        return False
-    if name == "bg-job":
-        return command_needs_queue(bg_job_command(args), cwd, depth)
-    if name in {"env", "nice", "timeout", "nohup"}:
-        while args and (args[0].startswith("-") or ASSIGNMENT.match(args[0]) or re.match(r"^\d+[smhd]?$", args[0])):
-            args.pop(0)
-        return command_needs_queue(args, cwd, depth)
-    if name in SHELLS:
-        kind, value = shell_invocation(args)
-        if kind == "string":
-            return needs_queue(value, cwd, depth + 1)
-        return kind == "file" and file_needs_queue(value, cwd, depth)
-    if name in {"source", "."}:
-        return bool(args) and file_needs_queue(args[0], cwd, depth)
     if args and all(arg in HELP for arg in args):
         return False
-    script = shell_script(words[0], cwd)
-    if script and file_needs_queue(script, cwd, depth):
+    if name in DIRECT or runs_browser_script(words) or runs_queued_script(words):
         return True
-    if runs_browser_script(words) or runs_queued_script(words):
-        return True
-    if name in DIRECT:
-        return True
+    return names_validation(name, args)
+
+
+def names_validation(name, args):
+    """A package runner, framework CLI, or make target that names a validation task."""
     if name in {"pnpm", "npm", "yarn", "bun", "npx", "bunx", "turbo", "nx"}:
         # Includes recursive/filter forms and named validation scripts.
-        if any(TASK.fullmatch(arg) or os.path.basename(arg) in DIRECT for arg in args):
-            return True
-        return depth < MAX_DEPTH and any(guarded(needs_queue, body, directory, depth + 1, False)
-                                         for body, directory in expansions(name, args, cwd))
+        return any(TASK.fullmatch(arg) or os.path.basename(arg) in DIRECT for arg in args)
     if name in {"next", "vite", "webpack", "rollup", "astro"}:
         return "build" in args or "check" in args or "lint" in args
     if name in {"make", "just"}:
@@ -227,13 +147,39 @@ def command_needs_queue(words, cwd=None, depth=0):
     return False
 
 
-def needs_queue(command, cwd=None, depth=0):
+def self_queued_scripts(found):
+    """The scripts that call host-check themselves, such as njhomes-page-gates, so queue their own work."""
+    return {script for leaf in found if (script := queueing_script(leaf.via))}
+
+
+def queueing_script(via):
+    """The innermost script around a host-check wrapper in a leaf's via, or None."""
+    script = None
+    for kind, name in via:
+        if kind == "script":
+            script = name
+        elif (kind, name) == ("wrapper", "host-check") and script:
+            return script
+    return None
+
+
+def queued(leaf, scripts):
+    """Whether host-check already runs a leaf, directly or through a script that queues its own work."""
+    return ("wrapper", "host-check") in leaf.via or any(step[0] == "script" and step[1] in scripts for step in leaf.via)
+
+
+def leaves_need_queue(found):
+    scripts = self_queued_scripts(found)
+    return any(command_needs_queue(leaf) for leaf in found if not (leaf.opaque or queued(leaf, scripts)))
+
+
+def needs_queue(command, cwd=None):
     """Whether a shell command runs validation that belongs in the host-check queue."""
-    return any(command_needs_queue(words, here, depth) for words, here in walk(command, cwd or os.getcwd()))
+    return leaves_need_queue(list(leaves(command, cwd or os.getcwd())))
 
 
-def starts_dev(command):
-    return any(command_starts_dev(segment, command) for segment in segments(command))
+def starts_dev(command, cwd=None):
+    return any(command_starts_dev(leaf) for leaf in leaves(command, cwd or os.getcwd()) if not leaf.opaque)
 
 
 def hook_cwd(payload, tool_input):
@@ -250,14 +196,16 @@ def decision(payload):
     command = tool_input.get("command", tool_input.get("cmd"))
     if not isinstance(command, str):
         raise ValueError("missing shell command")
-    if merge_method.refuses(command, unwrapped_commands(command)):
-        return True, merge_method.REASON
-    if hostconf.load()["deny_dev_servers"] and starts_dev(command):
-        return True, DEV_REASON
     cwd = hook_cwd(payload, tool_input)
-    if needs_queue(command, cwd):
+    found = list(leaves(command, cwd))
+    if merge_method.refuses(command, [leaf.words for leaf in found]):
+        return True, merge_method.REASON
+    if hostconf.load()["deny_dev_servers"] and any(command_starts_dev(leaf) for leaf in found if not leaf.opaque):
+        return True, DEV_REASON
+    if leaves_need_queue(found):
         return True, REASON
-    refusal = commit_guard.commit_refusal(walk_unwrapped(command, cwd))
+    # A script's or package script's own leaf is the commands after it.
+    refusal = commit_guard.commit_refusal([leaf for leaf in found if not leaf.expanded])
     return refusal is not None, refusal
 
 

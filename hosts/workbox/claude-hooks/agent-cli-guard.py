@@ -1,76 +1,40 @@
 """Route coding-agent work through T3 tasks or supported native subagents.
 
-The parser remains available to agents audit for historical CLI-run evidence.
+Commands are read with fleet's command walk (lib/host-check/walk.py), so a
+launch behind wrappers, `bash -c`, scripts, or package scripts is found.
+segments() and find() remain available to agents audit for historical CLI-run
+evidence.
 This is a habit guard, not a security boundary. MCP transport, normal shell
 commands, and provider maintenance commands are not agent launches.
 """
 import json
 import os
-import re
-import shlex
+from pathlib import Path
 import sys
 
 MUSE_SHIM = "/home/ubuntu/.local/bin/muse-delegate"
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z_0-9]*)\1")
 HELP = {"--help", "-h", "help", "--version", "-v"}
 CLI_NAMES = {"opencode": "muse", "codex": "codex", "cursor-agent": "cursor", "claude": "claude"}
 
-
-def strip_heredocs(command):
-    """Drop heredoc bodies: briefs are prose, and their quotes break shlex."""
-    kept, pending = [], []
-    for line in command.split("\n"):
-        if pending:
-            if line.strip() == pending[0]:
-                pending.pop(0)
-            continue
-        kept.append(line)
-        pending = [m.group(2) for m in HEREDOC.finditer(line.replace("<<<", "   "))]
-    return "\n".join(kept)
+# This file is linked from ~/.claude/hooks; the fleet repo it lives in has the command walk.
+sys.path.insert(0, str(Path(os.path.realpath(__file__)).parents[3] / "lib" / "host-check"))
+from guard import hook_cwd  # noqa: E402
+from walk import leaves  # noqa: E402
 
 
-def segments(command, detached=False):
-    """Yield (words, detached) per simple command; detached means it ends in a lone `&`."""
-    lexer = shlex.shlex(strip_heredocs(command), posix=True, punctuation_chars=";&|()\n")
-    lexer.whitespace = " \t\r"
-    lexer.whitespace_split = True
-    segment = []
+def segments(command, cwd=None):
+    """Yield (words, detached) per command the walk finds; detached means it, or what runs it, ends in a lone `&`."""
     try:
-        for token in lexer:
-            if token and all(c in ";&|()\n" for c in token):
-                yield from unwrap(segment, detached or ("&" in token and "&&" not in token))
-                segment = []
-            else:
-                segment.append(token)
+        found = list(leaves(command, cwd or os.getcwd()))
     except ValueError:
         return  # Unparseable: let the command through rather than guess.
-    yield from unwrap(segment, detached)
+    for leaf in found:
+        yield leaf.words, leaf.background
 
 
-def unwrap(words, detached):
-    """Yield the effective command words, looking through wrappers and `bash -c`."""
-    words = list(words)
-    while words and (re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", words[0]) or words[0] in {"!", "then", "do", "if", "elif", "time", "exec", "command"}):
-        words.pop(0)
-    if not words:
-        return
-    name, args = os.path.basename(words[0]), words[1:]
-    if name in {"env", "nice", "timeout", "nohup", "setsid", "stdbuf"}:
-        while args and (args[0].startswith("-") or re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", args[0]) or re.match(r"^\d+[smhd]?$", args[0])):
-            args.pop(0)
-        yield from unwrap(args, detached)
-    elif name in {"bash", "sh", "zsh", "dash"}:
-        for i, arg in enumerate(args[:-1]):
-            if arg.startswith("-") and "c" in arg:
-                yield from segments(args[i + 1], detached)
-                return
-    else:
-        yield words, detached
-
-
-def find(command):
+def find(command, cwd=None):
     """Return (kind, value, detached, words) for each agent CLI launch in a shell command."""
-    return [(*hit, detached, words) for words, detached in segments(command) if (hit := classify(words))]
+    return [(*hit, detached, words) for words, detached in segments(command, cwd) if (hit := classify(words))]
 
 
 def classify(words):
@@ -116,7 +80,7 @@ def main():
     command = tool_input.get("command")
     if not isinstance(command, str):
         return 0
-    found = find(command)
+    found = find(command, hook_cwd(payload, tool_input))
     if not found:
         return 0
     event = payload.get("hook_event_name")

@@ -1,6 +1,6 @@
 """The agent commit guard: refuse a `git commit` that adds or grows a file over the cap.
 
-guard.py hands commit_refusal each command a hook sees, in order. A commit is checked on the index
+guard.py hands commit_refusal each command a hook sees (walk.py leaves), in order. A commit is checked on the index
 its chain would leave, so the commands before it that change the index (`git add`, `git restore
 --staged`, `git rm --cached`, `git reset`) are replayed on a temporary copy of the real one.
 """
@@ -398,10 +398,10 @@ def moves_unreadably(words):
     return words[0] in ("cd", "pushd") and any(word == "-" or EXPANSION.search(word) for word in words[1:])
 
 
-def is_followed(words, parsed):
+def is_followed(words, parsed, subshell):
     """Whether the check models a command, given its words and its git subcommand if it is git. What runs in
     a `$(...)` (a commit message from `cat`) counts as following: it is read-only in practice."""
-    if getattr(words, "subshell", False):
+    if subshell:
         return True
     if parsed is None:
         return not words or (words[0] in NO_EFFECT and not moves_unreadably(words))
@@ -412,7 +412,8 @@ def is_followed(words, parsed):
 
 
 def commit_refusal(commands):
-    """Why to refuse a command, given its simple commands as (words, cwd) already unwrapped, or None.
+    """Why to refuse a command, given its unwrapped simple commands as walk Leafs (read for .words, .cwd, and
+    .subshell: in `$(...)`), or None.
 
     A commit is checked only when every command before it in the line is `cd` or `pushd` to a path it can
     read, `true`, a shell keyword, read-only git (`status`, `log`, `show`, `diff`, `rev-parse`, `ls-files`,
@@ -428,11 +429,11 @@ def commit_refusal(commands):
     current directory. The pre-commit skill and CI run `check --base` as the backstop.
     """
     changes = []
-    for words, cwd in commands:
-        parsed = git_subcommand(words, cwd)
-        if not is_followed(words, parsed):
+    for leaf in commands:
+        parsed = git_subcommand(leaf.words, leaf.cwd)
+        if not is_followed(leaf.words, parsed, leaf.subshell):
             return None
-        reason = parsed and command_refusal(*parsed, cwd, changes)
+        reason = parsed and command_refusal(*parsed, leaf.cwd, changes)
         if reason:
             return reason
     return None

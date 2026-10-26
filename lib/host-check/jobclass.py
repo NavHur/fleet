@@ -2,23 +2,19 @@
 
     python3 jobclass.py COMMAND [ARG ...]    # prints build, heavy, or light
 
-Uses the guard's shell parsing (shell.py, packages.py): package scripts and
-shell script files are judged by the commands they run, and script names
-remain the fallback.
+Judges the leaves of the command walk (walk.py), as the guard does: package
+scripts and shell script files are judged by the commands they run, and
+script names remain the fallback.
 """
-import functools
 import os
 import re
 import shlex
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from guard import BENCH_SCRIPT, COMMAND_WORDS, HELP, guarded, runner_invocations, stored_commands  # noqa: E402
-from packages import expansions  # noqa: E402
-from shell import (  # noqa: E402
-    ASSIGNMENT, MAX_DEPTH, PREFIXES, SHELLS, WRAPPERS, bg_job_command, read_script, shell_invocation, shell_script,
-    walk,
-)
+from guard import BENCH_SCRIPT, runner_invocations  # noqa: E402
+from shell import read_script  # noqa: E402
+from walk import COMMAND_WORDS, HELP, MAX_DEPTH, leaves  # noqa: E402
 
 GLOB = re.compile(r"[*?[]")
 
@@ -60,62 +56,34 @@ def name_class(name, args):
     return "light"
 
 
-@functools.lru_cache(maxsize=None)  # a script that runs another many times reads it once
-def file_class(path, cwd, depth, unreadable="heavy"):
-    """A shell script's strongest command, or `unreadable` when it cannot be read or parsed."""
-    text = read_script(path, cwd) if depth < MAX_DEPTH else None
-    if text is None:
-        return unreadable
-    try:
-        return strongest(job_class(code, cwd, depth + 1) for code in [text] + stored_commands(text))
-    except ValueError:
-        return unreadable
-
-
-def segment_class(words, cwd=None, depth=0):
-    cwd = cwd or os.getcwd()
-    words = list(words)
-    while words and (ASSIGNMENT.match(words[0]) or words[0] in PREFIXES):
-        words.pop(0)
-    if not words:
-        return "light"
+def leaf_class(leaf, depth=0):
+    """The class one leaf of a job implies."""
+    if leaf.opaque:
+        # A sourced file only sets up the shell; anything else hides what it runs.
+        return "light" if os.path.basename(leaf.words[0]) in {"source", "."} else "heavy"
+    words = leaf.words
     name = os.path.basename(words[0])
     args = words[1:]
-    if name in WRAPPERS:
-        while args and (args[0].startswith("-") or ASSIGNMENT.match(args[0]) or re.match(r"^\d+[smhd]?$", args[0])):
-            args.pop(0)
-        return segment_class(args, cwd, depth)
-    if name == "bg-job":
-        return segment_class(bg_job_command(args), cwd, depth)
     if any(os.path.basename(w).startswith("njhomes-page-gates") for w in words):
         return "build"  # builds the app, then audits it
-    if "$" in name or name == "eval":
-        return "heavy"  # runs a command that cannot be seen here
     if args and all(arg in HELP for arg in args):
         return "light"
-    if name in SHELLS:
-        kind, value = shell_invocation(args)
-        if kind == "string":
-            return guarded(job_class, value, cwd, depth + 1, "heavy") if depth < MAX_DEPTH else "heavy"
-        if kind == "file":
-            return file_class(value, cwd, depth)
-        return "heavy" if kind == "stdin" else "light"  # stdin hides its commands; -n only parses
-    if name in {"source", "."}:
-        return file_class(args[0], cwd, depth, unreadable="light") if args else "light"
     if name == "wait":
         return "heavy"  # a fan-out of background jobs
-    script = shell_script(words[0], cwd)
-    classes = [name_class(name, args), runner_class(words, cwd, depth)]
-    if script:
-        classes.append(file_class(script, cwd, depth))
-    if name in PACKAGE_RUNNERS and depth < MAX_DEPTH:
-        classes += [guarded(job_class, body, directory, depth + 1, "light") for body, directory in expansions(name, args, cwd)]
-    return strongest(classes)
+    return strongest([name_class(name, args), runner_class(words, leaf.cwd, depth)])
 
 
 def job_class(command, cwd=None, depth=0):
-    """The costliest class among a command's segments: build, heavy, or light."""
-    return strongest(segment_class(words, here, depth) for words, here in walk(command, cwd or os.getcwd()))
+    """The costliest class among a command's leaves: build, heavy, or light."""
+    return strongest(leaf_class(leaf, depth) for leaf in leaves(command, cwd or os.getcwd()))
+
+
+def guarded_class(command, cwd, depth):
+    """A harness string's class; light when shlex cannot parse it."""
+    try:
+        return job_class(command, cwd, depth)
+    except ValueError:
+        return "light"
 
 
 SUITE_API = re.compile(r"\b(startVitest|createVitest)\b|[\"']vitest/node[\"']")
@@ -133,7 +101,7 @@ def harness_class(path, cwd, depth):
     commands = ["".join(m.groups(default="")) for m in STRING.finditer(text)]
     commands += [m.group(1) + " " + " ".join(re.findall(r"[\"'`]([^\"'`]*)[\"'`]", m.group(2))) for m in SPAWN.finditer(text)]
     commands = [c for c in commands if c.split() and os.path.basename(c.split()[0]) in COMMAND_WORDS]
-    return strongest(guarded(job_class, command, cwd, depth + 1, "light") for command in commands)
+    return strongest(guarded_class(command, cwd, depth + 1) for command in commands)
 
 
 def runner_class(words, cwd, depth):

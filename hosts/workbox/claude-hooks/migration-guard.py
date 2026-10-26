@@ -14,8 +14,10 @@ production database, so a migration there is a production change.
 
 Chat approval applies only on the main thread; subagents hand migrations back.
 Claude Code and Codex both run this hook, through merge-guard.py's transcript
-readers. Scripts that migrate internally, such as test-database and preview
-deploy helpers, are not seen. A habit guard, not a security boundary.
+readers. The shell scripts and package scripts a command runs are read with
+fleet's command walk (lib/host-check/walk.py); helpers in other languages that
+migrate internally, such as test-database and preview deploy helpers, are not
+seen. A habit guard, not a security boundary.
 """
 import importlib.util
 import json
@@ -35,7 +37,6 @@ INLINE_URL = re.compile(r"\b(?:DATABASE_URL|DIRECT_URL)=(\"[^\"]*\"|'[^']*'|[^\s
 ENV_LINE = re.compile(r"^\s*(?:export\s+)?(?:DATABASE_URL|DIRECT_URL)\s*=\s*(.*?)\s*$", re.M)
 LOCAL_HOSTS = {"", "localhost", "127.0.0.1", "::1"}
 RUNNERS = {"pnpm", "npm", "yarn", "bun", "npx", "bunx", "turbo"}
-MAX_DEPTH = 3
 HELP = {"-h", "--help"}
 
 
@@ -48,8 +49,7 @@ def load(name, path):
 
 sys.path.insert(0, HOST_CHECK)  # guard.py imports hostconf beside it
 guard = load("host_check_guard", os.path.join(HOST_CHECK, "guard.py"))
-shell = load("host_check_shell", os.path.join(HOST_CHECK, "shell.py"))
-packages = load("host_check_packages", os.path.join(HOST_CHECK, "packages.py"))
+from walk import leaves  # noqa: E402
 merge_guard = load("merge_guard", os.path.join(HOOKS, "merge-guard.py"))
 
 
@@ -58,43 +58,38 @@ def runs_prisma_write(words):
                for i, word in enumerate(words))
 
 
-def launched(words, names):
-    """The first of names a segment launches and its arguments, past wrappers such as host-check or env."""
-    start = next((i for i, word in enumerate(words) if os.path.basename(word) in names), None)
-    return None if start is None else (os.path.basename(words[start]), words[start + 1:])
-
-
-def runner(words):
-    return launched(words, RUNNERS)
-
-
-def nested_commands(words, here):
-    """(command, directory) pairs a segment runs: a shell's -c string, or a package script's body."""
-    invoked = launched(words, shell.SHELLS)
-    if invoked:
-        kind, value = shell.shell_invocation(invoked[1])
-        return [(value, here)] if kind == "string" else []
-    found = runner(words)
-    return packages.expansions(*found, here) if found else []
-
-
 def migrates(words):
+    """A prisma write, or a package script named for a migration; the walk also yields the body it runs."""
     if HELP & set(words):
         return False
-    found = runner(words)
-    return runs_prisma_write(words) or bool(found and any(SCRIPT_NAME.fullmatch(arg) for arg in found[1]))
+    script = os.path.basename(words[0]) in RUNNERS and any(SCRIPT_NAME.fullmatch(arg) for arg in words[1:])
+    return script or runs_prisma_write(words)
 
 
-def migration_dirs(command, cwd, depth=0):
-    """Each directory a migration in the command runs from, following shells and package scripts."""
-    return [d for words, here in shell.walk(command, cwd) for d in segment_dirs(words, here, depth)]
+def migration_dirs(command, cwd):
+    """Each directory a migration in the command runs from, through wrappers, shells, scripts, and package scripts."""
+    found = list(leaves(command, cwd))
+    return [d for i, leaf in enumerate(found) if migrates(leaf.words) for d in leaf_dirs(leaf, found[i + 1:])]
 
 
-def segment_dirs(words, here, depth):
-    nested = nested_commands(words, here) if depth < MAX_DEPTH else []
-    if nested:
-        return [d for body, directory in nested for d in migration_dirs(body, directory, depth + 1)]
-    return [here] if migrates(words) else []
+def leaf_dirs(leaf, after):
+    """A runner the walk expanded is held in each package it ran whose body does not migrate itself."""
+    if not leaf.expanded:
+        return [leaf.cwd]
+    packages = {}
+    for directory, inner in package_body(leaf, after):
+        packages[directory] = packages.get(directory, False) or migrates(inner.words)
+    return sorted(d for d, judged in packages.items() if not judged) if packages else [leaf.cwd]
+
+
+def package_body(leaf, after):
+    """(package directory, leaf) for the leaves of the package scripts an expanded runner runs, up to its next sibling."""
+    depth = len(leaf.via)
+    for inner in after:
+        step = inner.via[depth:depth + 1]
+        if inner.via[:depth] != leaf.via or not step or step[0][0] != "package":
+            return
+        yield step[0][1], inner
 
 
 def file_urls(directory):

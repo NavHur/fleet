@@ -6,8 +6,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT.parent / "host-check"))  # walk.py, whose Leaf commit_refusal reads
 from commit_guard import commit_refusal  # noqa: E402
 from test_file_size import BIG, SMALL, Repo  # noqa: E402
+from walk import Leaf  # noqa: E402
 
 
 class CommitRefusalTest(unittest.TestCase):
@@ -21,10 +23,10 @@ class CommitRefusalTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def refusal(self, *words, cwd=None):
-        return commit_refusal([(list(words), cwd or self.cwd)])
+        return commit_refusal([Leaf(list(words), cwd or self.cwd)])
 
     def chain(self, *commands, cwd=None):
-        return commit_refusal([(command.split(), cwd or self.cwd) for command in commands])
+        return commit_refusal([Leaf(command.split(), cwd or self.cwd) for command in commands])
 
     def test_commit_with_a_big_staged_file_is_refused(self):
         self.repo.write("big.py", BIG)
@@ -292,8 +294,8 @@ class CommitRefusalTest(unittest.TestCase):
         for unstage in (["git", "reset", "*.json"], ["git", "restore", "--staged", "*.json"],
                         ["git", "rm", "--cached", "*.json"]):
             with self.subTest(unstage=unstage):
-                self.assertIsNone(commit_refusal([(["git", "add", "-A"], self.cwd), (unstage, self.cwd),
-                                                  (["git", "commit", "-m", "x"], self.cwd)]))
+                self.assertIsNone(commit_refusal([Leaf(["git", "add", "-A"], self.cwd), Leaf(unstage, self.cwd),
+                                                  Leaf(["git", "commit", "-m", "x"], self.cwd)]))
 
     def test_a_glob_expands_in_the_shell_directory_not_the_one_of_git_dash_c(self):
         self.repo.write("sub/big.py", BIG)
@@ -301,8 +303,8 @@ class CommitRefusalTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as shell_cwd:
             (Path(shell_cwd) / "sub").mkdir()
             (Path(shell_cwd) / "sub" / "elsewhere.py").write_text(SMALL)
-            self.assertIsNone(commit_refusal([(["git", "-C", self.cwd, "add", "sub/*.py"], shell_cwd),
-                                              (["git", "-C", self.cwd, "commit", "-m", "x"], shell_cwd)]))
+            self.assertIsNone(commit_refusal([Leaf(["git", "-C", self.cwd, "add", "sub/*.py"], shell_cwd),
+                                              Leaf(["git", "-C", self.cwd, "commit", "-m", "x"], shell_cwd)]))
 
     def test_a_commit_with_nothing_over_the_cap_ignores_an_unrelated_submodule_bump(self):
         with tempfile.TemporaryDirectory() as origin:

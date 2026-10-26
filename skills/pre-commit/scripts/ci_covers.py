@@ -9,7 +9,10 @@ in doubt a workflow does not count: GitHub-hosted jobs (Actions minutes are
 spent), `paths` filters, `types` without `opened` or `synchronize`, and job
 `if` conditions other than a draft guard all leave it out. A job counts only
 if it is self-hosted and every job in its `needs` counts. Draft-guarded jobs
-count only when the trigger's `types` include `ready_for_review`.
+count only when the trigger's `types` include `ready_for_review`. A step's
+commands are read with fleet's command walk (lib/host-check/walk.py), so the
+package scripts and script files it runs count by what they run, in the
+step's working directory.
 
 Exit 0 when one covers it, 1 when none does, 2 on an error (usage, missing
 PyYAML, or a workflow that cannot be read or has an unexpected shape).
@@ -18,11 +21,9 @@ Usage: ci_covers.py --base BRANCH [--root DIR]
 """
 
 import argparse
-import io
 import os
 import pathlib
 import re
-import shlex
 import sys
 
 try:
@@ -30,6 +31,10 @@ try:
 except ImportError:
     print("ci_covers: PyYAML is not installed", file=sys.stderr)
     sys.exit(2)
+
+# This file is linked from ~/.agents/skills; the fleet repo it lives in has the command walk.
+sys.path.insert(0, str(pathlib.Path(os.path.realpath(__file__)).parents[3] / "lib" / "host-check"))
+from walk import leaves  # noqa: E402
 
 DRAFT_GUARDS = {
     "!github.event.pull_request.draft",
@@ -39,8 +44,6 @@ PUSH_PREFIX = "github.event_name != 'pull_request' || "
 QUANTIFIERS = {"?": "?", "+": "+"}
 DEFAULT_TYPES = ["opened", "synchronize", "reopened"]
 REQUIRED_TYPES = {"opened", "synchronize"}
-SHELL_PUNCTUATION = "();<>|&\n"
-ENV_ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
 TEST_TOOLS = {"pytest", "vitest", "jest"}
 PYTEST_MODULE = ["-m", "pytest"]
 MODULE_RUNNERS = {
@@ -48,17 +51,8 @@ MODULE_RUNNERS = {
     "python3": PYTEST_MODULE,
     "coverage": ["run", *PYTEST_MODULE],
 }
-RUNNER_PREFIXES = {
-    "uv": ["run"],
-    "poetry": ["run"],
-    "pipenv": ["run"],
-    "uvx": [],
-    "npx": [],
-    "bunx": [],
-}
 PACKAGE_MANAGERS = {"pnpm", "npm", "yarn", "bun"}
 SCRIPT_RUNNERS = PACKAGE_MANAGERS | {"turbo"}
-EXEC_VERBS = {"exec", "dlx"}
 FLAGS_WITH_VALUE = {"--filter", "-F", "--dir", "-C"}
 SKIPPED_WORDS = {"run", "turbo"}
 TEST_PARTS = {"test", "coverage"}
@@ -230,52 +224,6 @@ def steps_of(name, job):
     return steps
 
 
-class CommentStream(io.StringIO):
-    """A stream whose `readline` leaves the newline, so a comment ends a command."""
-
-    def readline(self, *args):
-        line = super().readline(*args)
-        if line.endswith("\n"):
-            self.seek(self.tell() - 1)
-        return line
-
-
-def is_separator(token):
-    """Whether a lexed token is only shell operator characters."""
-    return bool(token) and all(char in SHELL_PUNCTUATION for char in token)
-
-
-def commands(run):
-    """The commands of a `run` script as token lists, up to any heredoc; an
-    unbalanced quote leaves none."""
-    stream = CommentStream(run.replace("\\\n", " "))
-    lexer = shlex.shlex(stream, posix=True, punctuation_chars=SHELL_PUNCTUATION)
-    lexer.whitespace = " \t\r"
-    lexer.whitespace_split = True
-    try:
-        tokens = list(lexer)
-    except ValueError:
-        return []
-    found, current = [], []
-    for item in tokens:
-        if not is_separator(item):
-            current.append(item)
-            continue
-        if "<<" in item:
-            break
-        found.append(current)
-        current = []
-    return [*found, current]
-
-
-def words(tokens):
-    """A command's tokens without its leading VAR=value assignments."""
-    start = 0
-    while start < len(tokens) and ENV_ASSIGNMENT.match(tokens[start]):
-        start += 1
-    return tokens[start:]
-
-
 def runs_tool(args):
     """Whether ARGS start with a test tool: `vitest ...`, `playwright test`."""
     if args[:1] and args[0] in TEST_TOOLS:
@@ -305,44 +253,46 @@ def is_test_script(name):
 def package_manager_runs_tests(args):
     """Whether a package manager's ARGS run a test script or a test tool."""
     names = list(script_names(args))
-    if names and names[0] in EXEC_VERBS:
-        names = names[1:]
-    elif names and is_test_script(names[0]):
-        return True
-    return runs_tool(names)
+    return bool(names) and is_test_script(names[0]) or runs_tool(names)
 
 
-def wrapped_args(program, args):
-    """The command a runner like `uv run` wraps, or None for another program."""
-    prefix = RUNNER_PREFIXES.get(program)
-    if prefix is None or args[: len(prefix)] != prefix:
-        return None
-    return args[len(prefix) :]
-
-
-def command_runs_tests(tokens):
-    """Whether a tokenized shell command runs tests."""
-    if not tokens:
-        return False
-    program, args = os.path.basename(tokens[0]), tokens[1:]
+def command_runs_tests(words):
+    """Whether a leaf of a `run` script runs tests."""
+    program, args = os.path.basename(words[0]), words[1:]
     if runs_tool([program, *args]):
         return True
     if program in MODULE_RUNNERS:
         return args[: len(MODULE_RUNNERS[program])] == MODULE_RUNNERS[program]
-    wrapped = wrapped_args(program, args)
-    if wrapped is not None:
-        return command_runs_tests(wrapped)
     return program in SCRIPT_RUNNERS and package_manager_runs_tests(args)
 
 
-def script_runs_tests(run):
-    """Whether any command of a `run` script runs tests."""
-    return any(command_runs_tests(words(command)) for command in commands(run))
+def script_runs_tests(run, cwd):
+    """Whether any leaf of a `run` script runs tests; a script shlex cannot parse runs none."""
+    try:
+        return any(command_runs_tests(leaf.words) for leaf in leaves(run, cwd) if not leaf.opaque)
+    except ValueError:
+        return False
 
 
-def runs_tests(name, job):
+def run_defaults(scope):
+    """A job's or workflow's `defaults.run` mapping, or {}."""
+    defaults = scope.get("defaults")
+    run = defaults.get("run") if isinstance(defaults, dict) else None
+    return run if isinstance(run, dict) else {}
+
+
+def working_directory(step, job, workflow):
+    """The directory a step runs in, relative to the checkout: its own, else the job's, else the workflow's default."""
+    for scope in (step, run_defaults(job), run_defaults(workflow)):
+        if isinstance(scope.get("working-directory"), str):
+            return scope["working-directory"]
+    return "."
+
+
+def runs_tests(name, job, workflow, root):
     """Whether any step of a job runs a test command."""
-    return any(script_runs_tests(step.get("run", "")) for step in steps_of(name, job))
+    return any(script_runs_tests(step.get("run", ""), str(root / working_directory(step, job, workflow)))
+               for step in steps_of(name, job))
 
 
 def counted_jobs(workflow):
@@ -354,7 +304,7 @@ def counted_jobs(workflow):
     return {name: skip for name, skip in skips.items() if skip is not None}
 
 
-def covered_jobs(workflow, base):
+def covered_jobs(workflow, base, root):
     """The counted jobs that run tests on BASE's PRs: none when the trigger misses
     them, only the unguarded ones when its types omit ready_for_review."""
     jobs = counted_jobs(workflow)
@@ -366,7 +316,7 @@ def covered_jobs(workflow, base):
     return {
         name: skip
         for name, skip in jobs.items()
-        if runs_tests(name, workflow["jobs"][name])
+        if runs_tests(name, workflow["jobs"][name], workflow, root)
     }
 
 
@@ -375,7 +325,7 @@ def covering(root, base):
     found = []
     for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
         try:
-            jobs = covered_jobs(load(path), base)
+            jobs = covered_jobs(load(path), base, root)
         except WorkflowError as err:
             raise WorkflowError(f"{path}: {err}") from err
         if jobs:

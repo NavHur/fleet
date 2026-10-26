@@ -1,29 +1,20 @@
-"""Shell parsing for the host-check guard: heredocs and comments stripped,
-`$(...)` substitutions split out, simple commands with the directory each runs
-in, wrappers, `bg-job`, and `bash -c` strings unwrapped, and script files read.
+"""Shell lexing for the command walk (walk.py): heredocs and comments
+stripped, `$(...)` substitutions split out, simple commands lexed into
+segments, the arguments of a shell invocation read, and script files found
+and read.
 
 Not a shell implementation: it recognizes the common spellings.
 """
 import os
 import re
 import shlex
+from typing import NamedTuple
 
-WRAPPERS = {"env", "nice", "timeout", "nohup", "setsid", "host-check", "time", "exec", "command"}
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*(\[[^]]*\])?\+?=")
 # Words that precede the command itself; `$` is what is left of `$(`.
 PREFIXES = {"!", "then", "do", "if", "elif", "else", "while", "until", "{", "$"}
 SHELLS = {"bash", "sh", "zsh", "dash"}
-# How far package scripts, shell strings, and script files are followed.
-MAX_DEPTH = 6
 MAX_SCRIPT_BYTES = 256 * 1024
-
-
-def bg_job_command(args):
-    """The command `bg-job start NAME -- COMMAND...` runs, or [] for its other verbs."""
-    if len(args) < 2 or args[0] != "start":
-        return []
-    rest = args[2:]
-    return rest[1:] if rest[:1] == ["--"] else rest
 
 
 # A heredoc operator, not a `<<<` here-string, plus any descriptor that begins
@@ -110,11 +101,6 @@ def without_redirects(words):
     return kept
 
 
-class Substituted(list):
-    """A command's words from inside `$(...)`, which runs in a subshell."""
-    subshell = True
-
-
 # The quote state after a quote character, keyed by (state before, character).
 QUOTE_TOGGLES = {(None, "'"): "'", (None, '"'): '"', ("'", "'"): None, ('"', '"'): None}
 PAREN_DEPTH = {"(": 1, ")": -1}
@@ -164,77 +150,77 @@ def split_substitutions(command):
     return "".join(out), bodies
 
 
-def segments(command):
-    """Each simple command's words; commands inside `$(...)` come first, as Substituted lists."""
+def commands(command):
+    """Each simple command as a Segment; commands inside `$(...)` come first, marked subshell."""
     command, bodies = split_substitutions(strip_comments(strip_heredocs(command)))
     for body in bodies:
-        yield from (Substituted(words) for words in segments(body))
+        yield from (segment._replace(subshell=True) for segment in commands(body))
     yield from simple_commands(command)
 
 
-def simple_commands(command):
-    """Each simple command's words, without redirections or `NAME=(...)` array elements."""
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
+class Segment(NamedTuple):
+    """A simple command's words, whether it runs inside `$(...)`, and whether a lone `&` ends it."""
+    words: list
+    subshell: bool = False
+    background: bool = False
+
+
+SEPARATOR = ";&|()\n"
+# A lone `&`, not `&&`, `|&`, or a redirection's `>&`.
+BACKGROUND = re.compile(r"(?<![&|])&(?!&)")
+
+
+def is_separator(token):
+    return bool(token) and all(char in SEPARATOR for char in token)
+
+
+def lexed(command):
+    """The command's words and separators; shlex splits `2>&1` and `&>log` at the `&`, so they are rejoined."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=SEPARATOR)
     lexer.commenters = ""
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
-    segment, array = [], 0
-    for token in lexer:
-        punctuation = token and all(c in ";&|()\n" for c in token)
-        if array:
-            array += (token.count("(") - token.count(")")) if punctuation else 0
-            if array <= 0:
-                array = 0
-                yield without_redirects(segment)
-                segment = []
-        elif punctuation and token.startswith("(") and segment and ARRAY_START.match(segment[-1]):
-            array = token.count("(") - token.count(")")
-            if array <= 0:
-                array = 0
-                yield without_redirects(segment)
-                segment = []
-        elif punctuation:
-            yield without_redirects(segment)
+    tokens = list(lexer)
+    out, i = [], 0
+    while i < len(tokens):
+        token, after = tokens[i], tokens[i + 1] if i + 1 < len(tokens) else ""
+        if token == "&" and out and out[-1].endswith((">", "<")) and after and not is_separator(after):
+            out[-1] += "&" + after  # `2>&1`, `>&2`
+            i += 1
+        elif not (token == "&" and after.startswith(">")):  # `&>log` writes both streams to a file
+            out.append(token)
+        i += 1
+    return out
+
+
+def paren_change(token):
+    return token.count("(") - token.count(")") if is_separator(token) else 0
+
+
+def without_arrays(tokens):
+    """The tokens with each `NAME=(...)` array's elements replaced by `;`, which ends the assignment."""
+    out, depth = [], 0
+    for token in tokens:
+        opens = not depth and is_separator(token) and token.startswith("(") and out and ARRAY_START.match(out[-1])
+        if not (depth or opens):
+            out.append(token)
+            continue
+        depth = max(depth + paren_change(token), 0)
+        if not depth:
+            out.append(";")
+    return out
+
+
+def simple_commands(command):
+    """Each simple command as a Segment, without redirections or `NAME=(...)` array elements."""
+    segment = []
+    for token in without_arrays(lexed(command)):
+        if is_separator(token):
+            yield Segment(without_redirects(segment), background=bool(BACKGROUND.search(token)))
             segment = []
         else:
             segment.append(token)
-    yield without_redirects(segment)
-
-
-VARIABLE = re.compile(r"^\$\{?([A-Za-z_][A-Za-z_0-9]*)\}?(.*)$")
-
-
-def changes_directory(words):
-    """`cd` and `pushd` do, except inside `$(...)`, which runs in a subshell."""
-    return words[:1] in (["cd"], ["pushd"]) and not isinstance(words, Substituted)
-
-
-def walk(command, cwd):
-    """Each command's words with the directory it runs in.
-
-    Follows `cd DIR`, and expands a command word set earlier by a plain
-    assignment (`H=/path/host-check; "$H" pnpm lint`, `G="git -C dir"; $G log`).
-    """
-    variables = {}
-    for words in segments(command):
-        lead = 1 if words[:1] in (["export"], ["local"], ["declare"], ["readonly"]) else 0
-        if words[lead:] and all(ASSIGNMENT.match(word) for word in words[lead:]):
-            for word in words[lead:]:
-                name, _, value = word.partition("=")
-                if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", name):
-                    variables[name] = value
-        start = next((i for i, word in enumerate(words) if not (ASSIGNMENT.match(word) or word in PREFIXES)), len(words))
-        found = VARIABLE.match(words[start]) if start < len(words) else None
-        if found and found.group(1) in variables:
-            try:
-                words = words[:start] + shlex.split(variables[found.group(1)] + found.group(2)) + words[start + 1:]
-            except ValueError:
-                pass
-        yield words, cwd
-        if changes_directory(words):
-            target = next((word for word in words[1:] if not word.startswith("-")), "~")
-            if "$" not in target:
-                cwd = os.path.normpath(os.path.join(cwd, os.path.expanduser(target)))
+    yield Segment(without_redirects(segment))
 
 
 def shell_invocation(args):
@@ -258,60 +244,6 @@ def shell_invocation(args):
         else:
             break
     return ("file", args[i]) if i < len(args) else ("stdin", None)
-
-
-DURATION = re.compile(r"^\d+[smhd]?$")
-# Wrapper options that take the next argument as their value (`env -u NAME`, `timeout -s KILL 60`).
-WRAPPER_VALUE_OPTIONS = {"-u", "-C", "-s", "-k", "-a", "--unset", "--chdir", "--signal", "--kill-after"}
-
-
-def leading_command(words):
-    """The words from the command itself, after assignments and keywords such as `then` and `!`."""
-    start = next((i for i, word in enumerate(words) if not (ASSIGNMENT.match(word) or word in PREFIXES)), len(words))
-    return words[start:]
-
-
-def wrapped_command(args):
-    """What a wrapper (`env`, `timeout 60`, `nice -n 5`) runs: its arguments after its options, assignments, and durations."""
-    while args and (args[0].startswith("-") or ASSIGNMENT.match(args[0]) or DURATION.match(args[0])):
-        args = args[2:] if args[0] in WRAPPER_VALUE_OPTIONS else args[1:]
-    return args
-
-
-def shell_string_commands(args, here, depth):
-    """The commands in the `-c` string of a shell invocation, up to MAX_DEPTH levels deep."""
-    kind, code = shell_invocation(args)
-    if kind != "string" or depth >= MAX_DEPTH:
-        return
-    yield from walk_unwrapped(code, here, depth + 1)
-
-
-def unwrapped(words, here, depth):
-    """The (command, directory) a simple command ends in, found past keywords, assignments, wrappers, and `bg-job`."""
-    words = leading_command(words)
-    name = os.path.basename(words[0]) if words else ""
-    if name in WRAPPERS:
-        yield from unwrapped(wrapped_command(words[1:]), here, depth)
-    elif name == "bg-job":
-        yield from unwrapped(bg_job_command(words[1:]), here, depth)
-    elif name in SHELLS:
-        yield from shell_string_commands(words[1:], here, depth)
-    elif words:
-        yield words, here
-
-
-def walk_unwrapped(command, cwd, depth=0):
-    """Each command a shell command runs, as (words, directory), and the commands in its `bash -c`
-    strings, which start in the directory the shell runs in, so a `cd` inside one carries."""
-    for words, here in walk(command, cwd):
-        for inner, where in unwrapped(words, here, depth):
-            yield (Substituted(inner) if isinstance(words, Substituted) else inner), where
-
-
-def unwrapped_commands(command):
-    """Each command a shell command runs, as words, and the commands in its `bash -c` strings."""
-    for words, _ in walk_unwrapped(command, os.getcwd()):
-        yield words
 
 
 def shell_script(word, cwd):

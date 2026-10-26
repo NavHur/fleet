@@ -122,7 +122,7 @@ BUILTINS = {
     "import", "rebuild", "rb", "prune", "fetch", "patch", "patch-commit", "audit", "list", "ls", "ll",
     "outdated", "why", "licenses", "create", "init", "publish", "pack", "store", "root", "bin", "config",
     "c", "setup", "env", "deploy", "doctor", "server", "help", "info", "cache", "workspaces", "version",
-    "set", "node", "approve-builds", "self-update", "login", "logout", "whoami", "view", "search",
+    "set", "approve-builds", "self-update", "login", "logout", "whoami", "view", "search",
 }
 TURBO_VALUE_OPTIONS = {"--concurrency", "--cache-dir", "--output-logs", "--log-order", "--env-mode", "--cache",
                        "--log-prefix", "--profile", "--ui", "--token", "--team", "--api", "--cwd"}
@@ -179,9 +179,14 @@ def script_runs(name, args, cwd):
     suffix = "".join(" " + shlex.quote(arg) for arg in extra)
     runs = [(scripts(d)[script] + suffix, d) for d in selected(cwd, selectors, recursive)
             if isinstance(scripts(d).get(script), str)]
-    if runs or selectors or recursive or verb in RUN_VERBS or verb in SCRIPT_VERBS or name not in {"pnpm", "yarn"}:
+    if runs or not runs_executable(name, verb, selectors, recursive):
         return runs
-    return [(shlex.join([script] + extra), cwd)]  # `pnpm vitest run` runs the executable
+    return [(shlex.join([script] + extra), cwd)]  # `pnpm vitest run`, `yarn node --test` run the executable
+
+
+def runs_executable(name, verb, selectors, recursive):
+    """Whether pnpm or yarn runs a bin when no package script has the name: not for `test`-style verbs or selections."""
+    return name in {"pnpm", "yarn"} and not (selectors or recursive or verb in SCRIPT_VERBS)
 
 
 def turbo_runs(args, cwd):

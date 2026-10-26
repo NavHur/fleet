@@ -3,8 +3,8 @@
 `gh stack merge` without a method reuses the last one used, so it must name
 `--merge`. Like guard.py, this recognizes the common spellings and is not a
 security boundary: GitHub's repository settings are the backstop. guard.py
-unwraps the shell command (keywords, assignments, `env`, `bash -c`) into the
-commands it runs; this judges each `gh` call among them. A GraphQL query read
+hands it the leaves of the shell command (walk.py: past wrappers, `bash -c`,
+scripts, and package scripts); this judges each `gh` call among them. A GraphQL query read
 from a file (`query=@file`) goes unchecked.
 """
 import os
@@ -26,11 +26,11 @@ PR_VALUE_OPTIONS = {"--author-email", "--body", "--body-file", "--subject", "--m
 API_METHOD = re.compile(r"merge_?method[\"']?\s*[:=]\s*[\"']?(squash|rebase)\b", re.I)
 
 
-def refuses(command, unwrapped_commands):
-    """Whether a shell command squashes or rebases a PR merge, given the word lists of the commands it runs."""
+def refuses(command, leaf_words):
+    """Whether a shell command squashes or rebases a PR merge, given the words of each leaf it runs."""
     if "api.github.com" in command and API_METHOD.search(command):
         return True
-    return any(refuses_gh_call(gh_args(words)) for words in unwrapped_commands)
+    return any(refuses_gh_call(gh_args(words)) for words in leaf_words)
 
 
 def gh_args(words):

@@ -50,6 +50,15 @@ class CommitGuardTest(unittest.TestCase):
                 self.assertEqual(output.get("permissionDecision"), "deny" if denied else None)
                 self.assertEqual("big.py" in output.get("permissionDecisionReason", ""), denied)
 
+    def test_a_commit_inside_a_script_or_package_script_is_denied(self):
+        self.write("big.py", BIG)
+        self.git("add", "big.py")
+        self.write("ship.sh", "git commit -m ship\n")
+        self.write("package.json", json.dumps({"scripts": {"ship": "git commit -m ship"}}))
+        for command in ["bash ship.sh", "pnpm ship", "setsid env -u HOME bash ship.sh"]:
+            with self.subTest(command=command):
+                self.assertTrue(self.denied(command))
+
     def test_wrapped_commits_are_denied(self):
         self.write("big.py", BIG)
         self.git("add", "big.py")

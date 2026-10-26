@@ -1,16 +1,19 @@
 import json
+import os
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 
-from shell import unwrapped_commands
+from guard import decision
 from merge_method import refuses
+from walk import leaves
 
 ROOT = Path(__file__).parent
 
 
 def refused(command):
-    return refuses(command, unwrapped_commands(command))
+    return refuses(command, [leaf.words for leaf in leaves(command, os.getcwd())])
 
 
 class MergeMethodTests(unittest.TestCase):
@@ -116,6 +119,14 @@ class MergeMethodTests(unittest.TestCase):
         )
         output = json.loads(result.stdout)["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
+
+    def test_a_squash_inside_a_package_script_or_script_is_refused(self):
+        with tempfile.TemporaryDirectory(prefix="merge-method-") as root:
+            Path(root, "package.json").write_text(json.dumps({"scripts": {"release": "gh pr merge 1 --squash"}}))
+            Path(root, "ship.sh").write_text("gh pr merge 1 --rebase\n")
+            for command in ("pnpm release", "bash ship.sh", "host-check setsid ./ship.sh"):
+                with self.subTest(command=command):
+                    self.assertTrue(decision({"tool_input": {"command": command, "cwd": root}})[0])
 
 
 if __name__ == "__main__":

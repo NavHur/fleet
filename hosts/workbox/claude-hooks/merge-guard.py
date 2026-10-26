@@ -211,7 +211,8 @@ def bash_reason(command, payload):
     if "gh" in command and "graphql" in command and MUTATIONS.search(command):
         return f"GraphQL merge mutations are off limits because they name PRs by node ID; {USE_GH} once Pedro approves."
     message = None
-    for words, _ in agent_cli_guard.segments(command):
+    cwd = agent_cli_guard.hook_cwd(payload, payload.get("tool_input", {}))
+    for words, _ in agent_cli_guard.segments(command, cwd):
         hit = classify(words)
         if not hit:
             continue

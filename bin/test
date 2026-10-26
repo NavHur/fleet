@@ -7,7 +7,7 @@ run() {
   echo "== $1"
   (cd "$1" && shift && python3 -m unittest "$@") || status=1
 }
-run lib/host-check test_guard test_commit_guard test_merge_method test_scheduler test_bg_job
+run lib/host-check test_walk test_queue_judges test_guard test_commit_guard test_merge_method test_scheduler test_bg_job
 run bin test_idle_compact test_actions_runners
 run lib/file-size test_file_size test_commit_guard test_command_chain
 run lib/ci-cache test_ci_cache
@@ -15,6 +15,6 @@ run lib/fleet test_opencode_servers test_hooks test_post_install test_binaries
 run skills/pedro-best-practices/tests test_complexity test_complexity_parity test_long_comments
 run skills/review-loop/scripts test_loop
 run skills/pre-commit/scripts test_ci_covers
-run hosts/workbox/claude-hooks test_merge_guard test_migration_guard
+run hosts/workbox/claude-hooks test_merge_guard test_migration_guard test_agent_cli_guard
 run skills/split-stacked-prs/scripts test_diff_budget test_restack test_build_layers test_refresh_stack test_layer_gates test_import_graph
 exit $status

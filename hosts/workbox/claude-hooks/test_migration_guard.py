@@ -27,15 +27,26 @@ class MigrationGuardTests(unittest.TestCase):
         cls.shared = root / "shared"
         write(cls.shared / "package.json", json.dumps({"scripts": {"web": "pnpm --filter web", "migrate:prod": "prisma migrate deploy"}}))
         write(cls.shared / "pnpm-workspace.yaml", "packages:\n  - apps/*\n")
-        write(cls.shared / "apps/web/package.json", json.dumps({"name": "web", "scripts": {"db:deploy": "prisma migrate deploy", "db:seed": "tsx seed.ts"}}))
+        write(cls.shared / "apps/web/package.json", json.dumps({"name": "web", "scripts": {
+            "db:deploy": "prisma migrate deploy", "db:seed": "tsx seed.ts", "db:migrate": "node scripts/migrate.mjs"}}))
         write(cls.shared / "apps/web/.env", f'DATABASE_URL="{SHARED}"\n')
         cls.web = cls.shared / "apps/web"
+        write(cls.web / "migrate.sh", "#!/usr/bin/env bash\npnpm exec prisma migrate deploy\n")
         cls.local = root / "local"
         write(cls.local / "package.json", json.dumps({"scripts": {"db:deploy": "prisma migrate deploy"}}))
         write(cls.local / ".env", f"DATABASE_URL={SHARED}\n")
         write(cls.local / ".env.local", f"DATABASE_URL={LOCAL}\n")
         cls.bare = root / "bare"
         cls.bare.mkdir()
+        cls.monorepo = root / "monorepo"  # a workspace root with no .env: only the package has one
+        write(cls.monorepo / "package.json", json.dumps({"private": True, "scripts": {"api": "pnpm --filter api"}}))
+        write(cls.monorepo / "pnpm-workspace.yaml", "packages:\n  - packages/*\n")
+        write(cls.monorepo / "packages/api/package.json",
+              json.dumps({"name": "api", "scripts": {"db:migrate": "prisma migrate deploy"}}))
+        write(cls.monorepo / "packages/api/.env", f"DATABASE_URL={LOCAL}\n")
+        write(cls.monorepo / "packages/web/package.json",
+              json.dumps({"name": "web", "scripts": {"db:migrate": "node scripts/migrate.mjs"}}))
+        write(cls.monorepo / "packages/web/.env", f"DATABASE_URL={SHARED}\n")
 
     @classmethod
     def tearDownClass(cls):
@@ -64,6 +75,13 @@ class MigrationGuardTests(unittest.TestCase):
             ('echo "$(cd %s && pnpm exec prisma migrate deploy)"' % self.web, "/"),
             (f"DATABASE_URL='{SHARED}' pnpm exec prisma migrate deploy", self.bare),
             ("pnpm exec prisma migrate deploy", self.bare),  # no URL found: unknown counts as shared
+            ("bash migrate.sh", self.web),
+            ("env -u CI timeout -s KILL 60 pnpm exec prisma migrate deploy", self.web),
+            ("pnpm db:migrate", self.web),  # held by its name whatever tool the body runs
+            ("pnpm db:push", self.web),  # no such script: still held by name
+            ("pnpm run db:push", self.web),
+            ("yarn db:push", self.web),
+            ("pnpm db:migrate && host-check pnpm -C %s db:deploy" % self.local, self.web),  # a sibling is not the body
         ]:
             with self.subTest(command=command):
                 self.assertIsNotNone(self.denied(command, cwd))
@@ -82,6 +100,17 @@ class MigrationGuardTests(unittest.TestCase):
         ]:
             with self.subTest(command=command):
                 self.assertIsNone(self.denied(command, cwd))
+
+    def test_a_workspace_runner_is_judged_by_the_package_it_selects(self):
+        for command in ("pnpm --filter api db:migrate", "pnpm api db:migrate"):
+            with self.subTest(command=command):
+                self.assertIsNone(self.denied(command, self.monorepo))
+        self.assertIsNotNone(self.denied("pnpm exec prisma migrate deploy", self.monorepo))
+
+    def test_each_package_a_runner_selects_is_judged_on_its_own(self):
+        for command in ("pnpm -r db:migrate", "pnpm --filter '*' db:migrate", "pnpm --filter web db:migrate"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(self.denied(command, self.monorepo))
 
     def test_chat_approval(self):
         command = "pnpm exec prisma migrate deploy"
