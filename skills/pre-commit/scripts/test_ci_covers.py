@@ -285,6 +285,31 @@ class CoveringTest(RepoTestCase):
                 expected = [("w0.yml", False)] if command in TEST_COMMANDS else []
                 self.assertEqual(self.covering(workflow, "main"), expected)
 
+    def test_package_scripts_and_script_files_are_read(self):
+        """A step counts by what its package scripts and scripts run, in the step's working directory."""
+        for step, files in [
+            ("    - run: pnpm verify\n", {"package.json": {"scripts": {"verify": "vitest run"}}}),
+            ("    - run: pnpm verify\n      working-directory: web\n",
+             {"web/package.json": {"scripts": {"verify": "pnpm test:unit"}, "name": "web"}}),
+            ("    - run: ./scripts/ci.sh\n", {"scripts/ci.sh": "#!/usr/bin/env bash\npython -m pytest -q\n"}),
+        ]:
+            with self.subTest(step=step):
+                root = self.repo(with_jobs(ON_PR, "t:\n  runs-on: self-hosted\n  steps:\n" + step))
+                for name, content in files.items():
+                    (root / name).parent.mkdir(parents=True, exist_ok=True)
+                    (root / name).write_text(content if isinstance(content, str) else json.dumps(content))
+                self.assertEqual(ci_covers.covering(root, "main"), [("w0.yml", False)])
+
+    def test_a_package_script_that_does_not_test_does_not_count(self):
+        root = self.repo(with_jobs(ON_PR, "t:\n  runs-on: self-hosted\n  steps: [{run: pnpm verify}]\n"))
+        (root / "package.json").write_text(json.dumps({"scripts": {"verify": "oxlint ."}}))
+        self.assertEqual(ci_covers.covering(root, "main"), [])
+
+    def test_commands_after_a_heredoc_count(self):
+        step = f"  steps:\n    - run: {json.dumps('cat <<EOF > notes.txt' + chr(10) + 'hi' + chr(10) + 'EOF' + chr(10) + 'pnpm test')}\n"
+        workflow = with_jobs(ON_PR, "t:\n  runs-on: self-hosted\n" + step)
+        self.assertEqual(self.covering(workflow, "main"), [("w0.yml", False)])
+
     def test_lint_only_workflow_does_not_cover(self):
         body = "lint:\n  runs-on: self-hosted\n" + LINT_STEP
         self.assertEqual(self.covering(with_jobs(ON_PR, body), "main"), [])
