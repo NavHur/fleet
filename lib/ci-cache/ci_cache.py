@@ -25,6 +25,9 @@ PASS_MAX_AGE_S = 30 * 24 * 3600
 GODOT_ENTRIES_KEPT = 3
 GODOT_DIR = ".godot"
 TRASH_PREFIX = ".trash-"
+STAGING_PREFIX = ".staging-"
+# Above the 25-minute job timeout, so a save still copying is never reclaimed.
+STAGING_MAX_AGE_S = 3600
 # Source types Godot imports, pinned even where their `.import` file is untracked.
 # Godot re-imports any source whose modification time moved, so restore pins them.
 IMPORTED = re.compile(r"\.(png|jpe?g|webp|svg|wav|ogg|mp3|ttf|otf|woff2?|glb|gltf|fbx|obj)$", re.I)
@@ -139,7 +142,7 @@ def godot_save(key):
         print(f"ci-cache: {key} is already saved")
         return
     entries.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(dir=entries, prefix=".staging-"))
+    staging = Path(tempfile.mkdtemp(dir=entries, prefix=STAGING_PREFIX))
     try:
         shutil.copytree(root / GODOT_DIR, staging / GODOT_DIR, symlinks=True)
         for path in import_files(root):
@@ -157,6 +160,7 @@ def godot_save(key):
 def prune(entries):
     for leftover in entries.glob(f"{TRASH_PREFIX}*"):
         remove_tree(leftover)
+    reap_staging(entries)
     saved = [path for path in entries.iterdir() if path.is_dir() and not path.name.startswith(".")]
     saved.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     for old in saved[GODOT_ENTRIES_KEPT:]:
@@ -167,6 +171,14 @@ def prune(entries):
             print(f"ci-cache: warning: could not prune {old}: {error}", file=sys.stderr)
             continue
         remove_tree(trash)
+
+
+def reap_staging(entries):
+    """Delete staging copies abandoned by a killed save, those untouched for STAGING_MAX_AGE_S."""
+    cutoff = time.time() - STAGING_MAX_AGE_S
+    for abandoned in entries.glob(f"{STAGING_PREFIX}*"):
+        if abandoned.stat().st_mtime < cutoff:
+            remove_tree(abandoned)
 
 
 def remove_tree(path):

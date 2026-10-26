@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parent
@@ -159,6 +160,18 @@ class CiCacheTest(unittest.TestCase):
         self.assertEqual(self.entries(), sorted(self.state_entry(f"key-{version}") for version in (2, 3, 4)))
         leftovers = [path for path in self.state_entry("key-0").parent.iterdir() if path.name.startswith(".")]
         self.assertEqual(leftovers, [])
+
+    def test_save_reclaims_only_staging_copies_older_than_an_hour(self):
+        self.save_entries(1)
+        entries = self.state_entry("key-0").parent
+        old, fresh = entries / ".staging-old", entries / ".staging-fresh"
+        for staging in (old, fresh):
+            (staging / ".godot").mkdir(parents=True)
+        stale = time.time() - 2 * 3600
+        os.utime(old, (stale, stale))
+        self.repo.run("godot-save", "key-1")
+        self.assertFalse(old.exists())
+        self.assertTrue(fresh.is_dir())
 
     def test_a_restore_hit_keeps_its_entry_alive(self):
         self.repo.godot_dir()
