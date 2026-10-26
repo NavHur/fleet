@@ -35,7 +35,7 @@ Fan out parallel candidate runners on the design-sketch task, then graft the str
 
 In T3, launch one `delegate_task` per independent candidate, `role: "design"`,
 `mode: "async"`, with the complete runner prompt, grounding artifacts, and its
-own output path. Use three different models, resolved from the live catalog: Claude Opus 5.5 and Claude Haiku 5.5 on the Claude provider with the requested effort or inherited options, and `gpt-6.1-sol` on Codex at xhigh.
+own output path. Use three different models, resolved from the live catalog: Claude Opus 5.5 and Claude Haiku 5.5, or Sonnet 5.5 when its context will pass 100K tokens, on the Claude provider with the requested effort or inherited options, and `gpt-6.1-sol` on Codex at xhigh.
 Keep repository source read-only. Return the sketch as text or write only to a
 unique `/tmp/architect-<slug>/runner-<n>/` artifact directory. These directories
 separate outputs; all child tasks remain bound to the parent's checkout.

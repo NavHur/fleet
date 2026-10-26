@@ -49,9 +49,10 @@ The right decomposition depends on the question. Use your judgment. Narrow quest
 Launch the explorers together with `delegate_task`, `role: "research"`, and
 `mode: "async"`. Each task includes the base prompt, its angle, repository
 paths, and explicit no-write instructions. Resolve the intended explorer model
-from the live catalog: Claude Haiku 5.5 on the Claude provider. Limit
-concurrency to useful independent angles and available provider capacity;
-await automatic completion.
+from the live catalog: Claude Haiku 5.5 on the Claude provider, or Sonnet 5.5
+for an angle that will read past 100K tokens. Limit concurrency to useful
+independent angles and available provider capacity; await automatic
+completion.
 
 Each explorer gets the same base prompt from `references/explorer-prompt.md` plus a specific exploration angle naming its slice. Each explorer should:
 - Start broad: Glob for relevant directories, Grep for key types/interfaces/class names
@@ -115,7 +116,7 @@ After the explanation is complete, spawn one architectural critic per model in a
 
 Launch each critic as a separate app-owned review task with the complete
 prompt and explicit no-write instructions. Preserve the model diversity of
-this workflow: Claude Opus 5.5 and Claude Haiku 5.5 on the Claude provider, and `gpt-6.1-sol` on Codex at high. Resolve exact models and options from the live catalog.
+this workflow: Claude Opus 5.5 and Claude Haiku 5.5, or Sonnet 5.5 when its context will pass 100K tokens, on the Claude provider, and `gpt-6.1-sol` on Codex at high. Resolve exact models and options from the live catalog.
 
 Read `references/critic-prompt.md` for the prompt template. Each critic gets:
 1. The explanation from Step 1 (so they don't re-explore)
