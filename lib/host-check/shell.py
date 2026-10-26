@@ -7,6 +7,7 @@ Not a shell implementation: it recognizes the common spellings.
 import os
 import re
 import shlex
+from typing import NamedTuple
 
 WRAPPERS = {"env", "nice", "timeout", "nohup", "setsid", "host-check", "time", "exec", "command"}
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*(\[[^]]*\])?\+?=")
@@ -164,41 +165,83 @@ def split_substitutions(command):
     return "".join(out), bodies
 
 
-def segments(command):
-    """Each simple command's words; commands inside `$(...)` come first, as Substituted lists."""
+def commands(command):
+    """Each simple command as a Segment; commands inside `$(...)` come first, marked subshell."""
     command, bodies = split_substitutions(strip_comments(strip_heredocs(command)))
     for body in bodies:
-        yield from (Substituted(words) for words in segments(body))
+        yield from (segment._replace(subshell=True) for segment in commands(body))
     yield from simple_commands(command)
 
 
-def simple_commands(command):
-    """Each simple command's words, without redirections or `NAME=(...)` array elements."""
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
+def segments(command):
+    """Each simple command's words; commands inside `$(...)` come first, as Substituted lists."""
+    for segment in commands(command):
+        yield Substituted(segment.words) if segment.subshell else segment.words
+
+
+class Segment(NamedTuple):
+    """A simple command's words, whether it runs inside `$(...)`, and whether a lone `&` ends it."""
+    words: list
+    subshell: bool = False
+    background: bool = False
+
+
+SEPARATOR = ";&|()\n"
+# A lone `&`, not `&&`, `|&`, or a redirection's `>&`.
+BACKGROUND = re.compile(r"(?<![&|])&(?!&)")
+
+
+def is_separator(token):
+    return bool(token) and all(char in SEPARATOR for char in token)
+
+
+def lexed(command):
+    """The command's words and separators; shlex splits `2>&1` and `&>log` at the `&`, so they are rejoined."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=SEPARATOR)
     lexer.commenters = ""
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
-    segment, array = [], 0
-    for token in lexer:
-        punctuation = token and all(c in ";&|()\n" for c in token)
-        if array:
-            array += (token.count("(") - token.count(")")) if punctuation else 0
-            if array <= 0:
-                array = 0
-                yield without_redirects(segment)
-                segment = []
-        elif punctuation and token.startswith("(") and segment and ARRAY_START.match(segment[-1]):
-            array = token.count("(") - token.count(")")
-            if array <= 0:
-                array = 0
-                yield without_redirects(segment)
-                segment = []
-        elif punctuation:
-            yield without_redirects(segment)
+    tokens = list(lexer)
+    out, i = [], 0
+    while i < len(tokens):
+        token, after = tokens[i], tokens[i + 1] if i + 1 < len(tokens) else ""
+        if token == "&" and out and out[-1].endswith((">", "<")) and after and not is_separator(after):
+            out[-1] += "&" + after  # `2>&1`, `>&2`
+            i += 1
+        elif not (token == "&" and after.startswith(">")):  # `&>log` writes both streams to a file
+            out.append(token)
+        i += 1
+    return out
+
+
+def paren_change(token):
+    return token.count("(") - token.count(")") if is_separator(token) else 0
+
+
+def without_arrays(tokens):
+    """The tokens with each `NAME=(...)` array's elements replaced by `;`, which ends the assignment."""
+    out, depth = [], 0
+    for token in tokens:
+        opens = not depth and is_separator(token) and token.startswith("(") and out and ARRAY_START.match(out[-1])
+        if not (depth or opens):
+            out.append(token)
+            continue
+        depth = max(depth + paren_change(token), 0)
+        if not depth:
+            out.append(";")
+    return out
+
+
+def simple_commands(command):
+    """Each simple command as a Segment, without redirections or `NAME=(...)` array elements."""
+    segment = []
+    for token in without_arrays(lexed(command)):
+        if is_separator(token):
+            yield Segment(without_redirects(segment), background=bool(BACKGROUND.search(token)))
             segment = []
         else:
             segment.append(token)
-    yield without_redirects(segment)
+    yield Segment(without_redirects(segment))
 
 
 VARIABLE = re.compile(r"^\$\{?([A-Za-z_][A-Za-z_0-9]*)\}?(.*)$")
