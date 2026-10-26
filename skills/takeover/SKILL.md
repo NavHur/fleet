@@ -21,9 +21,16 @@ PR without authorization.
 Preserve Git authorship and existing co-author trailers. Model attribution is
 not a substitute for contributor credit.
 
-Use `modernize` to update the continuation against its intended base and
-current architecture. Rework what is necessary to finish the same goal, not
-unrelated features. Simplify the implementation without dropping intended
+Bring the continuation current with its intended base. Fetch the base and the
+source head, then read what landed on the base since the branch diverged until
+every change touching the branch's paths or behavior is accounted for: the same
+problem solved another way, moved APIs or ownership, deleted or simplified
+code, old behavior the branch would bring back. A clean rebase only proves the
+lines merge. When the base has already made the goal moot, stop and report that
+as the remaining decision. Otherwise rebase, resolve each conflict toward the
+goal and the base's newer invariants, and compare the series before and after
+with `git range-diff` to confirm every intended behavior survived. Rework what
+is necessary to finish the same goal, not unrelated features. Simplify the implementation without dropping intended
 behavior or surfaces. Recheck the source PR too: it may have improved while
 you were working.
 
