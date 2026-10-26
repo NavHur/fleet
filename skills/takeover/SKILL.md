@@ -25,11 +25,11 @@ Bring the continuation current with its intended base. Fetch the base and the
 source head, then read what landed on the base since the branch diverged until
 every change touching the branch's paths or behavior is accounted for: the same
 problem solved another way, moved APIs or ownership, deleted or simplified
-code, old behavior the branch would bring back. Also search merged and open PRs
-whose titles, paths, or behavior suggest a competing or replacement
-implementation. A clean rebase only proves the lines merge. When the base or
-such a PR has already made the goal moot, stop and report that as the remaining
-decision. Otherwise rebase, resolve each conflict toward the goal and the
+code, old behavior the branch would bring back. A clean rebase only proves the
+lines merge. Also search merged and open PRs whose titles, paths, or behavior
+suggest a competing or replacement implementation. When the base or such a PR
+has already made the goal moot, stop and report that as the remaining decision.
+Otherwise rebase, resolve each conflict toward the goal and the
 base's newer invariants, and compare the series before and after with
 `git range-diff` to confirm every intended behavior survived. When a conflict
 exposes a product or architecture disagreement, stop and report it as the
@@ -49,8 +49,9 @@ On every PR the takeover opens (replacement, stacked layer, or first PR for a
 branch or thread), that write-up is its description: credit the original
 contributors there and link the original PR when there is one. When you
 continue on a PR someone else opened, leave their description as they wrote it
-and post the write-up as a comment on that PR. Merge or close the original PR
-only when authorized.
+and post the write-up as a comment on that PR. On the user's own PR, the
+write-up replaces its description, still crediting the original contributors.
+Merge or close the original PR only when authorized.
 
 Report what you inherited, what you changed, how you verified it, how credit
 was preserved, and any remaining decision.
