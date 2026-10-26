@@ -16,9 +16,10 @@ workers, each on the subscription it runs under:
 | Worker | Target | Use for |
 | --- | --- | --- |
 | Claude Haiku 5.5 | `claudeAgent`, `claude-haiku-5-5` | Scoped execution and research the parent is waiting on, or that relies on Claude Code tools, skills, and hooks. |
+| Claude Sonnet 5.5 | `claudeAgent`, `claude-sonnet-5-5` | The same work when its context will grow past 100K tokens: long multi-step tasks, or research that reads many files. |
 | Muse Spark 1.3 Contributor | `opencode`, `opencode-go/muse-spark-1.3-contributor` | Scoped execution and research that can run in the background; it is slower and close to free on the OpenCode Go plan. |
 | GPT-6.1 Sol | `codex`, `gpt-6.1-sol`, medium | Reviews of work a Claude model wrote, so the reviewer brings a different model's blind spots. |
-| Claude Opus 5.5 | `claudeAgent`, `claude-opus-5-5` | Work that must start with a large context (a long review packet, a big log) or needs more judgment than Haiku brings. |
+| Claude Opus 5.5 | `claudeAgent`, `claude-opus-5-5` | Work that must start with a large context (a long review packet, a big log) or needs more judgment than Sonnet or Haiku brings. |
 
 The catalog from `orchestrator_capabilities` lists every OpenCode model,
 including ones Pedro hid in T3's picker and ones billed per token. Take Claude
@@ -27,7 +28,8 @@ OpenCode model only when the user names it.
 
 Haiku bills a whole request at 5× once its prompt passes 100K tokens, and its
 sessions compact near 100K. Keep its brief lean: point to files and commands
-rather than pasting their contents.
+rather than pasting their contents. When the work itself will carry the
+context past 100K, pick Sonnet instead of letting Haiku pay 5× and compact.
 
 Keep ambiguous requirements and design decisions in the parent until the brief
 has a clear finish line.

@@ -122,7 +122,8 @@ Launch each wave's investigators in a single batch so they run concurrently. One
 Launch each investigator with `delegate_task`, `role: "research"`, and
 `mode: "async"`. Include its base prompt, category playbook, code anchor,
 question, and no-write instructions. Resolve the workflow's investigator model
-from the live catalog: Claude Haiku 5.5 on the Claude provider.
+from the live catalog: Claude Haiku 5.5 on the Claude provider, or Sonnet 5.5
+for a category whose evidence will run past 100K tokens.
 Verify the child has the required MCP tools; report missing evidence access
 as a coverage gap. Batch independent categories within available capacity and
 await automatic results rather than polling.
