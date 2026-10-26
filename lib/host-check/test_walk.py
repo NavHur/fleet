@@ -197,6 +197,15 @@ class FileTests(unittest.TestCase):
             with self.subTest(command):
                 self.assertEqual(self.found(command)[-1].words, ["vitest", "run"])
 
+    def test_a_bin_a_package_manager_runs_by_name_is_followed_into(self):
+        for command, bin_words in (("yarn node --test", ["node", "--test"]),
+                                   ("pnpm run node --test", ["node", "--test"]),
+                                   ("pnpm node --test x.test.js", ["node", "--test", "x.test.js"])):
+            with self.subTest(command):
+                runner, bin_leaf = self.found(command)
+                self.assertEqual((runner.words, runner.expanded), (command.split(), True))
+                self.assertEqual((bin_leaf.words, bin_leaf.via), (bin_words, (("package", str(self.root)),)))
+
     def test_a_package_script_that_runs_itself_stops_at_the_depth_limit(self):
         found = self.found("pnpm loop")
         self.assertEqual(len(found), 7)

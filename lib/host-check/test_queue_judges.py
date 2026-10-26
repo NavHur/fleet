@@ -16,6 +16,9 @@ AGREEMENT = [
     ("bash -lc 'setsid pnpm test'", True, "heavy"),
     ("bg-job start t -- timeout -k 5 60 vitest", True, "heavy"),
     ("uv run --with x pnpm lint", True, "light"),
+    ("yarn node --test", True, "heavy"),
+    ("pnpm run node --test", True, "heavy"),
+    ("pnpm node --test x.test.js", True, "light"),
     ("command -v vitest", False, "light"),
     ("echo pnpm test", False, "light"),
 ]

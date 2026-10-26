@@ -185,17 +185,12 @@ def shell_leaves(words, cwd, frame):
 
 def script_leaves(words, path, cwd, frame):
     """A script's own leaf, then its commands and the commands it stores in variables."""
-    text = read_script(path, cwd) if frame.depth < MAX_DEPTH else None
-    if text is None:
-        yield frame.leaf(words, cwd, opaque="unreadable" if frame.depth < MAX_DEPTH else "too-deep")
+    if frame.depth >= MAX_DEPTH:
+        yield frame.leaf(words, cwd, opaque="too-deep")
         return
     inner = frame.deeper("script", os.path.normpath(os.path.join(cwd, os.path.expanduser(path))))
-    try:
-        found = read_leaves((text,) + tuple(stored_commands(text)), cwd, inner)
-    except ValueError:
-        yield frame.leaf(words, cwd, opaque="unparseable")
-        return
-    yield frame.leaf(words, cwd, expanded=True)
+    opaque, found = read_script_leaves(path, cwd, inner)
+    yield frame.leaf(words, cwd, opaque=opaque, expanded=opaque is None)
     yield from found
 
 
@@ -210,7 +205,19 @@ def package_leaves(words, cwd, frame):
             yield frame.leaf(words, cwd, opaque="unparseable")
 
 
-@functools.lru_cache(maxsize=None)  # a script that runs another many times reads it once
+@functools.lru_cache(maxsize=None)  # a script that runs another many times reads and lexes it once
+def read_script_leaves(path, cwd, frame):
+    """(opaque reason or None, leaves) of a script's commands and the commands it stores in variables."""
+    text = read_script(path, cwd)
+    if text is None:
+        return "unreadable", ()
+    try:
+        return None, read_leaves((text,) + tuple(stored_commands(text)), cwd, frame)
+    except ValueError:
+        return "unparseable", ()
+
+
+@functools.lru_cache(maxsize=None)  # a package script that runs another many times walks it once
 def read_leaves(texts, cwd, frame):
     return tuple(leaf for text in texts for leaf in walk_text(text, cwd, frame))
 
