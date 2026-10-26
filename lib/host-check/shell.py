@@ -1,6 +1,7 @@
-"""Shell parsing for the host-check guard: heredocs and comments stripped,
-`$(...)` substitutions split out, simple commands with the directory each runs
-in, wrappers, `bg-job`, and `bash -c` strings unwrapped, and script files read.
+"""Shell lexing for the command walk (walk.py): heredocs and comments
+stripped, `$(...)` substitutions split out, simple commands lexed into
+segments, the arguments of a shell invocation read, and script files found
+and read.
 
 Not a shell implementation: it recognizes the common spellings.
 """
@@ -9,22 +10,11 @@ import re
 import shlex
 from typing import NamedTuple
 
-WRAPPERS = {"env", "nice", "timeout", "nohup", "setsid", "host-check", "time", "exec", "command"}
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*(\[[^]]*\])?\+?=")
 # Words that precede the command itself; `$` is what is left of `$(`.
 PREFIXES = {"!", "then", "do", "if", "elif", "else", "while", "until", "{", "$"}
 SHELLS = {"bash", "sh", "zsh", "dash"}
-# How far package scripts, shell strings, and script files are followed.
-MAX_DEPTH = 6
 MAX_SCRIPT_BYTES = 256 * 1024
-
-
-def bg_job_command(args):
-    """The command `bg-job start NAME -- COMMAND...` runs, or [] for its other verbs."""
-    if len(args) < 2 or args[0] != "start":
-        return []
-    rest = args[2:]
-    return rest[1:] if rest[:1] == ["--"] else rest
 
 
 # A heredoc operator, not a `<<<` here-string, plus any descriptor that begins
@@ -111,11 +101,6 @@ def without_redirects(words):
     return kept
 
 
-class Substituted(list):
-    """A command's words from inside `$(...)`, which runs in a subshell."""
-    subshell = True
-
-
 # The quote state after a quote character, keyed by (state before, character).
 QUOTE_TOGGLES = {(None, "'"): "'", (None, '"'): '"', ("'", "'"): None, ('"', '"'): None}
 PAREN_DEPTH = {"(": 1, ")": -1}
@@ -171,12 +156,6 @@ def commands(command):
     for body in bodies:
         yield from (segment._replace(subshell=True) for segment in commands(body))
     yield from simple_commands(command)
-
-
-def segments(command):
-    """Each simple command's words; commands inside `$(...)` come first, as Substituted lists."""
-    for segment in commands(command):
-        yield Substituted(segment.words) if segment.subshell else segment.words
 
 
 class Segment(NamedTuple):
@@ -242,42 +221,6 @@ def simple_commands(command):
         else:
             segment.append(token)
     yield Segment(without_redirects(segment))
-
-
-VARIABLE = re.compile(r"^\$\{?([A-Za-z_][A-Za-z_0-9]*)\}?(.*)$")
-
-
-def changes_directory(words):
-    """`cd` and `pushd` do, except inside `$(...)`, which runs in a subshell."""
-    return words[:1] in (["cd"], ["pushd"]) and not isinstance(words, Substituted)
-
-
-def walk(command, cwd):
-    """Each command's words with the directory it runs in.
-
-    Follows `cd DIR`, and expands a command word set earlier by a plain
-    assignment (`H=/path/host-check; "$H" pnpm lint`, `G="git -C dir"; $G log`).
-    """
-    variables = {}
-    for words in segments(command):
-        lead = 1 if words[:1] in (["export"], ["local"], ["declare"], ["readonly"]) else 0
-        if words[lead:] and all(ASSIGNMENT.match(word) for word in words[lead:]):
-            for word in words[lead:]:
-                name, _, value = word.partition("=")
-                if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", name):
-                    variables[name] = value
-        start = next((i for i, word in enumerate(words) if not (ASSIGNMENT.match(word) or word in PREFIXES)), len(words))
-        found = VARIABLE.match(words[start]) if start < len(words) else None
-        if found and found.group(1) in variables:
-            try:
-                words = words[:start] + shlex.split(variables[found.group(1)] + found.group(2)) + words[start + 1:]
-            except ValueError:
-                pass
-        yield words, cwd
-        if changes_directory(words):
-            target = next((word for word in words[1:] if not word.startswith("-")), "~")
-            if "$" not in target:
-                cwd = os.path.normpath(os.path.join(cwd, os.path.expanduser(target)))
 
 
 def shell_invocation(args):
