@@ -20,6 +20,7 @@ migrate internally, such as test-database and preview deploy helpers, are not
 seen. A habit guard, not a security boundary.
 """
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -49,7 +50,6 @@ def load(name, path):
 
 sys.path.insert(0, HOST_CHECK)  # guard.py imports hostconf beside it
 guard = load("host_check_guard", os.path.join(HOST_CHECK, "guard.py"))
-from packages import expansions  # noqa: E402
 from walk import leaves  # noqa: E402
 merge_guard = load("merge_guard", os.path.join(HOOKS, "merge-guard.py"))
 
@@ -69,14 +69,19 @@ def migrates(words):
 
 def migration_dirs(command, cwd):
     """Each directory a migration in the command runs from, through wrappers, shells, scripts, and package scripts."""
-    return [d for leaf in leaves(command, cwd) if migrates(leaf.words) for d in leaf_dirs(leaf)]
+    found = list(leaves(command, cwd))
+    return [d for i, leaf in enumerate(found) if migrates(leaf.words) for d in leaf_dirs(leaf, found[i + 1:])]
 
 
-def leaf_dirs(leaf):
-    """A runner the walk expanded runs in the packages of the scripts it names (`pnpm --filter api db:migrate`)."""
+def leaf_dirs(leaf, after):
+    """A runner the walk expanded is left to its body when that migrates, else held in the packages it ran in."""
     if not leaf.expanded:
         return [leaf.cwd]
-    return [d for _, d in expansions(os.path.basename(leaf.words[0]), leaf.words[1:], leaf.cwd)] or [leaf.cwd]
+    depth = len(leaf.via)
+    body = list(itertools.takewhile(lambda inner: len(inner.via) > depth and inner.via[:depth] == leaf.via, after))
+    if any(migrates(inner.words) for inner in body):
+        return []
+    return sorted({inner.via[depth][1] for inner in body if inner.via[depth][0] == "package"}) or [leaf.cwd]
 
 
 def file_urls(directory):
