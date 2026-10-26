@@ -1,10 +1,13 @@
-"""Classify host-check jobs as build, heavy, or light.
+"""The validation catalogue: the job class of each leaf a command runs.
 
-    python3 jobclass.py COMMAND [ARG ...]    # prints build, heavy, or light
+    python3 jobclass.py COMMAND [ARG ...]    # prints none, light, heavy, or build
 
-Judges the leaves of the command walk (walk.py), as the guard does: package
-scripts and shell script files are judged by the commands they run, and
-script names remain the fallback.
+A job class is none (no validation), light (lint, format, typecheck, targeted
+tests), heavy (whole suites), or build. host-check admits a job by its
+strongest leaf, and the guard (guard.py) sends a command to the queue when a
+leaf it can see is anything but none, so the two cannot disagree. Leaves come
+from the command walk (walk.py): package scripts and shell script files are
+judged by the commands they run, and script names remain the fallback.
 """
 import os
 import re
@@ -12,23 +15,24 @@ import shlex
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from guard import BENCH_SCRIPT, runner_invocations  # noqa: E402
 from shell import read_script  # noqa: E402
+import walk  # noqa: E402
 from walk import COMMAND_WORDS, HELP, MAX_DEPTH, leaves  # noqa: E402
 
-GLOB = re.compile(r"[*?[]")
-
-# Job classes for host-check admission. Builds and whole suites are CPU-heavy
-# (2.5 to 3.3 cores each); targeted tests, lint, format, and typecheck are light.
+# Builds and whole suites are CPU-heavy (2.5 to 3.3 cores each); targeted
+# tests, lint, format, and typecheck are light.
+RANK = {"none": 0, "light": 1, "heavy": 2, "build": 3}
 BUILD_TASK = re.compile(r"^build([:.-].*)?$")
 SUITE_TASK = re.compile(r"^(check|test|verify|validate|precommit|pre-commit)([:.-].*)?$")
-TEST_RUNNERS = {"vitest", "jest"}
-PACKAGE_RUNNERS = {"pnpm", "npm", "yarn", "bun", "npx", "bunx", "turbo", "nx"}
-RANK = {"light": 0, "heavy": 1, "build": 2}
+LIGHT_TASK = re.compile(r"^(lint|typecheck|type-check|format|fmt|bench|benchmark)([:.-].*)?$")
+PACKAGE_RUNNERS = walk.PACKAGE_RUNNERS | {"nx"}
+# Commands whose arguments name a validation task: `pnpm test`, `make lint`.
+TASK_RUNNERS = PACKAGE_RUNNERS | {"make", "just"}
+GLOB = re.compile(r"[*?[]")
 
 
 def strongest(classes):
-    return max(classes, key=RANK.get, default="light")
+    return max(classes, key=RANK.get, default="none")
 
 
 def targeted(args):
@@ -36,45 +40,101 @@ def targeted(args):
     return any(not a.startswith("-") and ("/" in a or re.search(r"\.(test|spec)\.|\.[cm]?[jt]sx?$", a)) for a in args)
 
 
-def name_class(name, args):
-    """The class a command's own words imply, without looking inside scripts."""
-    if name in PACKAGE_RUNNERS or name in {"make", "just"}:
-        for i, arg in enumerate(args):
-            if BUILD_TASK.fullmatch(arg):
-                return "build"
-            if SUITE_TASK.fullmatch(arg) or os.path.basename(arg) in TEST_RUNNERS:
-                return "light" if targeted(args[i + 1:]) else "heavy"
-        return "light"
-    if name in {"next", "vite", "webpack", "rollup", "astro", "tsup"} and "build" in args:
-        return "build"
-    if name in TEST_RUNNERS:
-        return "light" if targeted(args) else "heavy"
-    if name == "playwright" and args[:1] == ["test"]:
-        return "heavy"
-    if name == "godot-guard" and args[:1] == ["gate"]:
-        return "light" if "--fast" in args else "heavy"  # a full gate fans out about 4 GB of Godot
+def suite_class(args):
+    """A test suite is heavy unless it names files or directories."""
+    return "light" if targeted(args) else "heavy"
+
+
+def light(args):
     return "light"
 
 
+def heavy(args):
+    return "heavy"
+
+
+def framework_class(args):
+    """`next build` builds; `next lint` and `astro check` are light."""
+    if "build" in args:
+        return "build"
+    if "check" in args or "lint" in args:
+        return "light"
+    return "none"
+
+
+def tsup_class(args):
+    """tsup builds when run at all, unless it only watches."""
+    return "none" if "--watch" in args or "-w" in args else "build"
+
+
+def playwright_class(args):
+    verb = next((arg for arg in args if not arg.startswith("-")), None)
+    if verb == "test":
+        return "heavy"
+    return "light" if verb in {"screenshot", "pdf"} else "none"
+
+
+def godot_guard_class(args):
+    if args[:1] == ["gate"]:
+        return "light" if "--fast" in args else "heavy"  # a full gate fans out about 4 GB of Godot
+    return "light" if args[:1] == ["check"] else "none"
+
+
+# Validation tools a package runner may name among its arguments (`pnpm exec eslint`).
+TOOLS = {
+    **dict.fromkeys(["tsc", "eslint", "oxlint", "prettier", "biome", "vue-tsc", "tsgo", "tsrs", "svelte-check",
+                     "oxfmt"], light),
+    "vitest": suite_class, "jest": suite_class, "hyperfine": heavy,  # a benchmark pins every core it can
+    **dict.fromkeys(["next", "vite", "webpack", "rollup", "astro"], framework_class),
+    "playwright": playwright_class, "godot-guard": godot_guard_class,
+}
+# Tools judged only as the leaf itself: `pnpm add tsup` installs it.
+LEAF_TOOLS = {**TOOLS, "tsup": tsup_class}
+
+
+def task_class(args, i):
+    """The class the task or tool named at args[i] implies, judged on the arguments after it."""
+    arg = args[i]
+    if BUILD_TASK.fullmatch(arg):
+        return "build"
+    if SUITE_TASK.fullmatch(arg):
+        return suite_class(args[i + 1:])
+    if LIGHT_TASK.fullmatch(arg):
+        return "light"
+    judge = TOOLS.get(os.path.basename(arg))
+    return judge(args[i + 1:]) if judge else "none"
+
+
+def name_class(name, args):
+    """The class a command's own words imply, without looking inside scripts."""
+    if name in TASK_RUNNERS:
+        return strongest(task_class(args, i) for i in range(len(args)))
+    judge = LEAF_TOOLS.get(name)
+    return judge(args) if judge else "none"
+
+
+def queues_itself(words):
+    """A gate that calls host-check itself, such as njhomes-page-gates."""
+    return any(os.path.basename(w).startswith("njhomes-page-gates") for w in words)
+
+
 def leaf_class(leaf, depth=0):
-    """The class one leaf of a job implies."""
+    """The class one leaf implies: none, light, heavy, or build."""
     if leaf.opaque:
         # A sourced file only sets up the shell; anything else hides what it runs.
-        return "light" if os.path.basename(leaf.words[0]) in {"source", "."} else "heavy"
+        return "none" if os.path.basename(leaf.words[0]) in {"source", "."} else "heavy"
     words = leaf.words
     name = os.path.basename(words[0])
     args = words[1:]
-    if any(os.path.basename(w).startswith("njhomes-page-gates") for w in words):
+    if queues_itself(words):
         return "build"  # builds the app, then audits it
     if args and all(arg in HELP for arg in args):
-        return "light"
-    if name == "wait":
-        return "heavy"  # a fan-out of background jobs
+        return "none"
     return strongest([name_class(name, args), runner_class(words, leaf.cwd, depth)])
 
 
 def job_class(command, cwd=None):
-    """The costliest class among a command's leaves: build, heavy, or light; heavy when shlex cannot parse it."""
+    """The strongest class among a command's leaves; heavy when shlex cannot parse it."""
     return command_class(command, cwd or os.getcwd(), 0, unparseable="heavy")
 
 
@@ -83,12 +143,47 @@ def command_class(command, cwd, depth, unparseable):
         found = list(leaves(command, cwd))
     except ValueError:
         return unparseable
-    return strongest(leaf_class(leaf, depth) for leaf in found)
+    # Commands sent to the background run side by side: a fan-out.
+    return strongest([leaf_class(leaf, depth) for leaf in found] + ["heavy" for leaf in found if leaf.background])
 
 
+# --- Script runners -----------------------------------------------------------
+
+RUNNERS = {"tsx", "node", "ts-node", "vite-node", "bun", "deno"}
+# Runner options that take a value, so the value is not mistaken for the script.
+RUNNER_VALUE_OPTIONS = {"--import", "-r", "--require", "--loader", "--experimental-loader", "--env-file", "--tsconfig", "--conditions", "-C"}
+# Script paths that boot a Next server and a browser (axe page gates, smoke
+# runs, visual and screenshot captures).
+BROWSER_SCRIPT = re.compile(r"(^|/)(a11y|smoke|visual|screenshots?|shots|e2e|playwright)[^/]*(/|$)")
+# Benchmarks, perf harnesses, and throwaway debug harnesses, by file name.
+BENCH_SCRIPT = re.compile(r"^(debug-|bench|perf)")
 SUITE_API = re.compile(r"\b(startVitest|createVitest)\b|[\"']vitest/node[\"']")
 STRING = re.compile(r"\"((?:[^\"\\\n]|\\.)*)\"|'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`")
 SPAWN = re.compile(r"[\"'`]([\w.-]+)[\"'`]\s*,\s*\[([^\]]*)\]")
+
+
+def runner_invocations(words):
+    """The script runner a command is: (its options, its positional arguments), or none."""
+    name = os.path.basename(words[0]) if words else ""
+    if name not in RUNNERS:
+        return
+    rest, options, j = words[1:], [], 0
+    while j < len(rest) and rest[j].startswith("-"):
+        options.append(rest[j])
+        j += 2 if rest[j] in RUNNER_VALUE_OPTIONS else 1
+    positional = rest[j:]
+    if name in {"bun", "deno"} and positional[:1] == ["run"]:
+        positional = positional[1:]
+    yield options, positional
+
+
+def runs_browser_script(words):
+    """A runner followed by a browser-script path anywhere in the words."""
+    for i, word in enumerate(words):
+        rest = [arg for arg in words[i + 1:] if not arg.startswith("-")]
+        if os.path.basename(word) in RUNNERS and rest and BROWSER_SCRIPT.search(rest[0]):
+            return True
+    return False
 
 
 def harness_class(path, cwd, depth):
@@ -101,18 +196,22 @@ def harness_class(path, cwd, depth):
     commands = ["".join(m.groups(default="")) for m in STRING.finditer(text)]
     commands += [m.group(1) + " " + " ".join(re.findall(r"[\"'`]([^\"'`]*)[\"'`]", m.group(2))) for m in SPAWN.finditer(text)]
     commands = [c for c in commands if c.split() and os.path.basename(c.split()[0]) in COMMAND_WORDS]
-    return strongest(command_class(command, cwd, depth + 1, unparseable="light") for command in commands)
+    return strongest(["light"] + [command_class(command, cwd, depth + 1, unparseable="light") for command in commands])
 
 
 def runner_class(words, cwd, depth):
+    """A script runner's class: browser scripts are light, then per invocation_class."""
+    classes = [invocation_class(options, positional, cwd, depth) for options, positional in runner_invocations(words)]
+    return strongest(classes + (["light"] if runs_browser_script(words) else []))
+
+
+def invocation_class(options, positional, cwd, depth):
     """`node --test` suites are heavy unless they name files; harnesses per harness_class."""
-    classes = []
-    for options, positional in runner_invocations(words):
-        if "--test" in options:
-            classes.append("light" if positional and not any(GLOB.search(p) for p in positional) else "heavy")
-        elif positional and BENCH_SCRIPT.match(os.path.basename(positional[0])):
-            classes.append(harness_class(positional[0], cwd, depth))
-    return strongest(classes)
+    if "--test" in options:
+        return "light" if positional and not any(GLOB.search(p) for p in positional) else "heavy"
+    if positional and BENCH_SCRIPT.match(os.path.basename(positional[0])):
+        return harness_class(positional[0], cwd, depth)
+    return "none"
 
 
 if __name__ == "__main__":

@@ -4,8 +4,9 @@ file over the size cap (commit_guard.py).
 
     python3 guard.py [claude|codex|cursor|opencode] < hook-payload.json
 
-Each check judges the leaves of the command walk (walk.py), as jobclass.py
-does. Not a shell security boundary: it recognizes the common spellings.
+Each check judges the leaves of the command walk (walk.py). A leaf needs the
+queue when the validation catalogue (jobclass.py) gives it a job class other
+than none. Not a shell security boundary: it recognizes the common spellings.
 Package scripts (`pnpm review:coverage`, `pnpm --filter X test`, `pnpm web
 build`) are resolved to their bodies through the nearest package.json and the
 workspace, and shell script files (`bash gates.sh`, `./gates.sh`) are read, so
@@ -21,6 +22,7 @@ sys.path[:0] = [HERE, os.path.join(HERE, "..", "file-size")]
 import commit_guard  # noqa: E402
 import hostconf  # noqa: E402
 import merge_method  # noqa: E402
+from jobclass import PACKAGE_RUNNERS, RUNNERS, leaf_class, queues_itself  # noqa: E402
 from walk import HELP, leaves  # noqa: E402
 
 REASON = (
@@ -37,30 +39,6 @@ DEV_REASON = (
 DEV_TASK = re.compile(r"^dev([:.-].*)?$")
 # Gate scripts that boot `next dev` themselves unless given a server.
 DEV_BOOTING_SCRIPTS = {"a11y-pages.ts", "smoke-local.ts"}
-TASK = re.compile(r"^(build|test|lint|typecheck|type-check|check|format|fmt|bench|benchmark|verify|validate|precommit|pre-commit)([:.-].*)?$")
-DIRECT = {"vitest", "jest", "tsc", "eslint", "oxlint", "prettier", "biome", "vue-tsc", "tsgo", "tsrs", "svelte-check",
-          "oxfmt", "hyperfine"}
-# Script runners, and the script paths that boot a Next server and a browser
-# (axe page gates, smoke runs, visual and screenshot captures).
-RUNNERS = {"tsx", "node", "ts-node", "vite-node", "bun", "deno"}
-BROWSER_SCRIPT = re.compile(r"(^|/)(a11y|smoke|visual|screenshots?|shots|e2e|playwright)[^/]*(/|$)")
-PLAYWRIGHT_RUNS = {"test", "screenshot", "pdf"}
-# Benchmarks, perf harnesses, and throwaway debug harnesses, by file name.
-BENCH_SCRIPT = re.compile(r"^(debug-|bench|perf)")
-# Runner options that take a value, so the value is not mistaken for the script.
-RUNNER_VALUE_OPTIONS = {"--import", "-r", "--require", "--loader", "--experimental-loader", "--env-file", "--tsconfig", "--conditions", "-C"}
-
-
-def runs_browser_script(words):
-    """A runner followed by a browser-script path, or `playwright test`, anywhere in the words."""
-    for i, word in enumerate(words):
-        name = os.path.basename(word)
-        rest = [arg for arg in words[i + 1:] if not arg.startswith("-")]
-        if name in RUNNERS and rest and BROWSER_SCRIPT.search(rest[0]):
-            return True
-        if name == "playwright" and rest and rest[0] in PLAYWRIGHT_RUNS:
-            return True
-    return False
 
 
 def command_starts_dev(leaf):
@@ -85,7 +63,7 @@ def boots_dev_server(words, env):
 
 
 def names_dev_server(name, args):
-    if name in {"pnpm", "npm", "yarn", "bun", "npx", "bunx", "turbo", "nx"}:
+    if name in PACKAGE_RUNNERS:
         return any(DEV_TASK.fullmatch(arg) for arg in args)
     if name in {"next", "nuxt", "astro", "remix", "svelte-kit"}:
         return "dev" in args
@@ -96,55 +74,7 @@ def names_dev_server(name, args):
     return name in {"webpack-dev-server", "react-scripts"} and (name != "react-scripts" or "start" in args)
 
 
-# --- Script runners -----------------------------------------------------------
-
-
-def runner_invocations(words):
-    """The script runner a command is: (its options, its positional arguments), or none."""
-    name = os.path.basename(words[0]) if words else ""
-    if name not in RUNNERS:
-        return
-    rest, options, j = words[1:], [], 0
-    while j < len(rest) and rest[j].startswith("-"):
-        options.append(rest[j])
-        j += 2 if rest[j] in RUNNER_VALUE_OPTIONS else 1
-    positional = rest[j:]
-    if name in {"bun", "deno"} and positional[:1] == ["run"]:
-        positional = positional[1:]
-    yield options, positional
-
-
-def runs_queued_script(words):
-    """`node --test`, or a runner on a benchmark, perf, or debug harness."""
-    return any("--test" in options or (positional and BENCH_SCRIPT.match(os.path.basename(positional[0])))
-               for options, positional in runner_invocations(words))
-
-
 # --- Queue detection ----------------------------------------------------------
-
-
-def command_needs_queue(leaf):
-    """Whether one leaf runs validation that belongs in the queue."""
-    words = leaf.words
-    name = os.path.basename(words[0])
-    args = words[1:]
-    if args and all(arg in HELP for arg in args):
-        return False
-    if name in DIRECT or runs_browser_script(words) or runs_queued_script(words):
-        return True
-    return names_validation(name, args)
-
-
-def names_validation(name, args):
-    """A package runner, framework CLI, or make target that names a validation task."""
-    if name in {"pnpm", "npm", "yarn", "bun", "npx", "bunx", "turbo", "nx"}:
-        # Includes recursive/filter forms and named validation scripts.
-        return any(TASK.fullmatch(arg) or os.path.basename(arg) in DIRECT for arg in args)
-    if name in {"next", "vite", "webpack", "rollup", "astro"}:
-        return "build" in args or "check" in args or "lint" in args
-    if name in {"make", "just"}:
-        return any(TASK.fullmatch(arg) for arg in args)
-    return False
 
 
 def self_queued_scripts(found):
@@ -164,13 +94,20 @@ def queueing_script(via):
 
 
 def queued(leaf, scripts):
-    """Whether host-check already runs a leaf, directly or through a script that queues its own work."""
-    return ("wrapper", "host-check") in leaf.via or any(step[0] == "script" and step[1] in scripts for step in leaf.via)
+    """Whether host-check already runs a leaf: directly, as a gate that queues itself, or through a script that does."""
+    if ("wrapper", "host-check") in leaf.via or queues_itself(leaf.words):
+        return True
+    return any(step[0] == "script" and step[1] in scripts for step in leaf.via)
 
 
 def leaves_need_queue(found):
+    """Whether a leaf the walk can see, and host-check does not already run, has a job class.
+
+    Opaque leaves are heavy for the queue but never send a command to it: the
+    guard does not deny what it cannot see (docs/adr/0002).
+    """
     scripts = self_queued_scripts(found)
-    return any(command_needs_queue(leaf) for leaf in found if not (leaf.opaque or queued(leaf, scripts)))
+    return any(leaf_class(leaf) != "none" for leaf in found if not (leaf.opaque or queued(leaf, scripts)))
 
 
 def needs_queue(command, cwd=None):
