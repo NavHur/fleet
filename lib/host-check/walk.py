@@ -25,12 +25,14 @@ class Leaf:
 
     words: the command and its arguments, past keywords and assignments.
     cwd: the directory it runs in.
+    via: how the walk reached it, outermost first: ("wrapper", "host-check"), ("runner", "uv run").
     subshell: it runs inside `$(...)`.
     background: a lone `&` ends it.
     env: the assignments it sees: its prefixes and those made before it.
     """
     words: list
     cwd: str
+    via: tuple = ()
     subshell: bool = False
     background: bool = False
     env: dict = dataclasses.field(default_factory=dict)
@@ -39,6 +41,7 @@ class Leaf:
 @dataclasses.dataclass(frozen=True)
 class Frame:
     """What the leaves of one walk inherit from the command that started it."""
+    via: tuple = ()
     env: tuple = ()
     subshell: bool = False
     background: bool = False
@@ -49,8 +52,12 @@ class Frame:
                                    subshell=self.subshell or segment.subshell,
                                    background=self.background or segment.background)
 
+    def through(self, kind, name, assigned):
+        """The frame past a wrapper or runner, with the assignments it makes."""
+        return dataclasses.replace(self, via=self.via + ((kind, name),), env=self.env + tuple(assigned.items()))
+
     def leaf(self, words, cwd, assigned):
-        return Leaf(list(words), cwd, self.subshell, self.background, {**dict(self.env), **assigned})
+        return Leaf(list(words), cwd, self.via, self.subshell, self.background, {**dict(self.env), **assigned})
 
 
 def leaves(command, cwd):
@@ -64,8 +71,20 @@ def walk_text(text, cwd, frame):
 
 
 def follow(words, cwd, frame):
+    """The leaves one simple command ends in, past its keywords, assignments, wrappers, and runners."""
     words, assigned = command_part(words)
-    if words:
+    if not words:
+        return
+    name = os.path.basename(words[0])
+    if name in WRAPPERS and not (name == "command" and LOOKUPS & set(words[1:2])):
+        command, here, made = wrapped(name, words[1:], cwd)
+        yield from follow(command, here, frame.through("wrapper", name, {**assigned, **made}))
+    elif name == "bg-job":
+        yield from follow(bg_job_command(words[1:]), cwd, frame.through("wrapper", name, assigned))
+    elif runner_verb(words):
+        command, here = run_by(words, cwd)
+        yield from follow(command, here, frame.through("runner", runner_verb(words), assigned))
+    else:
         yield frame.leaf(words, cwd, assigned)
 
 
@@ -78,6 +97,86 @@ def command_part(words):
             assigned[name.rstrip("+")] = value
         start += 1
     return words[start:], assigned
+
+
+# --- Wrappers and runners ------------------------------------------------------
+
+# Commands that run their arguments as a command, and their options that take the next word as a value.
+WRAPPERS = {
+    "env": {"-u", "--unset", "-C", "--chdir"},
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "nice": {"-n", "--adjustment"},
+    "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
+    "exec": {"-a"},
+    "nohup": set(), "setsid": set(), "time": set(), "command": set(), "host-check": set(),
+}
+# `command -v NAME` looks a command up instead of running it.
+LOOKUPS = {"-v", "-V"}
+# Exec runners: the verb that runs a command, and their options that take a value.
+RUNNERS = {
+    "uv": (["run"], {"--with", "--with-requirements", "--python", "-p", "--project", "--directory", "--package",
+                     "--env-file", "--extra", "--group", "--index", "--from"}),
+    "uvx": ([], {"--from", "--with", "--with-requirements", "--python", "-p", "--index"}),
+    "poetry": (["run"], {"-C", "--directory", "-P", "--project"}),
+    "pipenv": (["run"], set()),
+}
+CHDIR_OPTIONS = {"-C", "--chdir", "--directory"}
+
+
+def options_end(args, values, cwd):
+    """(index of the first argument past the options, directory they set)."""
+    i = 0
+    while i < len(args) and args[i].startswith("-") and args[i] != "--":
+        key, value, i = option(args, i, values)
+        if key in CHDIR_OPTIONS:
+            cwd = os.path.join(cwd, os.path.expanduser(value))
+    return i + (args[i:i + 1] == ["--"]), cwd
+
+
+def option(args, i, values):
+    """(name, value, next index) of the option at i; a name in values takes the next word unless given `=VALUE`."""
+    key, eq, value = args[i].partition("=")
+    if key in values and not eq:
+        return key, args[i + 1] if i + 1 < len(args) else "", i + 2
+    return key, value, i + 1
+
+
+def wrapped(name, args, cwd):
+    """(command, directory, assignments) a wrapper runs: past its options, `env`'s assignments, `timeout`'s duration."""
+    start, cwd = options_end(args, WRAPPERS[name], cwd)
+    command, assigned = args[start:], {}
+    if name == "env":
+        while command and ASSIGNMENT.match(command[0]):
+            key, _, value = command.pop(0).partition("=")
+            assigned[key] = value
+    if name == "timeout":
+        command = command[1:]
+    return command, os.path.normpath(cwd), assigned
+
+
+def runner_verb(words):
+    """`uv run`, `uvx`, and the like when the words start with one, else None."""
+    name = os.path.basename(words[0])
+    if name not in RUNNERS:
+        return None
+    verb = RUNNERS[name][0]
+    return " ".join([name] + verb) if words[1:1 + len(verb)] == verb else None
+
+
+def run_by(words, cwd):
+    """(command, directory) an exec runner runs."""
+    verb, values = RUNNERS[os.path.basename(words[0])]
+    args = words[1 + len(verb):]
+    start, cwd = options_end(args, values, cwd)
+    return args[start:], os.path.normpath(cwd)
+
+
+def bg_job_command(args):
+    """The command `bg-job start NAME -- COMMAND...` runs, or [] for its other verbs."""
+    if len(args) < 2 or args[0] != "start":
+        return []
+    rest = args[2:]
+    return rest[1:] if rest[:1] == ["--"] else rest
 
 
 # --- Sequence -------------------------------------------------------------------

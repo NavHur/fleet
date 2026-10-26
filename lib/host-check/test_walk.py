@@ -63,5 +63,48 @@ class BackgroundTests(unittest.TestCase):
                          [(["a"], False), (["b"], False), (["c"], False), (["d"], False), (["e"], False)])
 
 
+class WrapperTests(unittest.TestCase):
+    def test_wrappers_run_the_command_after_their_options(self):
+        for command in ("env -u FOO pnpm test", "timeout -s KILL 60 pnpm test", "setsid pnpm test",
+                        "timeout 60 pnpm test", "timeout --kill-after=10s 10m pnpm test", "nice -n 5 pnpm test",
+                        "nohup pnpm test", "stdbuf -o L pnpm test", "time -p pnpm test", "exec -a x pnpm test",
+                        "command pnpm test", "env -i PATH=/bin CI=1 pnpm test", "env -- pnpm test",
+                        "nice timeout 60 env FOO=1 pnpm test"):
+            with self.subTest(command):
+                self.assertEqual(words(command), [["pnpm", "test"]])
+
+    def test_the_walk_records_each_wrapper_it_passes(self):
+        leaf = only("host-check timeout 60 vitest")
+        self.assertEqual(leaf.via, (("wrapper", "host-check"), ("wrapper", "timeout")))
+
+    def test_env_assignments_and_directory_reach_the_leaf(self):
+        leaf = only("env -C sub FOO=1 vitest", "/repo")
+        self.assertEqual((leaf.cwd, leaf.env), ("/repo/sub", {"FOO": "1"}))
+
+    def test_a_wrapper_given_by_path_still_wraps(self):
+        self.assertEqual(words("/Users/me/.local/bin/host-check pnpm lint"), [["pnpm", "lint"]])
+
+    def test_command_v_looks_a_command_up_without_running_it(self):
+        self.assertEqual(words("command -v vitest"), [["command", "-v", "vitest"]])
+
+    def test_bg_job_start_runs_its_command(self):
+        leaf = only("bg-job start gates -- host-check pnpm check")
+        self.assertEqual((leaf.words, leaf.via), (["pnpm", "check"], (("wrapper", "bg-job"), ("wrapper", "host-check"))))
+        self.assertEqual(words("bg-job status gates"), [])
+
+    def test_exec_runners_run_the_command_after_their_verb(self):
+        for command, runner in (("uv run --with pytest-cov pytest -q", "uv run"), ("uvx pytest", "uvx"),
+                                ("poetry run pytest", "poetry run"), ("pipenv run pytest", "pipenv run")):
+            with self.subTest(command):
+                leaf = only(command)
+                self.assertEqual((leaf.words[0], leaf.via), ("pytest", (("runner", runner),)))
+
+    def test_a_runner_verb_that_runs_nothing_is_the_leaf(self):
+        self.assertEqual(words("uv pip install x"), [["uv", "pip", "install", "x"]])
+
+    def test_uv_run_directory_moves_the_leaf(self):
+        self.assertEqual(only("uv run --directory api pytest", "/repo").cwd, "/repo/api")
+
+
 if __name__ == "__main__":
     unittest.main()
