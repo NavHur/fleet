@@ -40,6 +40,11 @@ class MergeGuardTests(unittest.TestCase):
         self.assertIsNone(self.reason("gh pr merge 12 --merge"))
         self.assertIn("#13", self.reason("gh pr merge 12 && gh pr merge 13"))
 
+    def test_merges_behind_wrappers_need_approval(self):
+        for command in ["env -u GH_TOKEN gh pr merge 12 --merge", "setsid gh pr merge 12 --merge"]:
+            with self.subTest(command=command):
+                self.assertIn("hasn't approved merging PR #12", self.reason(command))
+
     def test_negation_withholds_approval(self):
         self.say("don't merge 12 yet")
         self.assertIsNotNone(self.reason("gh pr merge 12"))

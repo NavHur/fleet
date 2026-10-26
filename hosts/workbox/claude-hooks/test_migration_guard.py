@@ -30,6 +30,7 @@ class MigrationGuardTests(unittest.TestCase):
         write(cls.shared / "apps/web/package.json", json.dumps({"name": "web", "scripts": {"db:deploy": "prisma migrate deploy", "db:seed": "tsx seed.ts"}}))
         write(cls.shared / "apps/web/.env", f'DATABASE_URL="{SHARED}"\n')
         cls.web = cls.shared / "apps/web"
+        write(cls.web / "migrate.sh", "#!/usr/bin/env bash\npnpm exec prisma migrate deploy\n")
         cls.local = root / "local"
         write(cls.local / "package.json", json.dumps({"scripts": {"db:deploy": "prisma migrate deploy"}}))
         write(cls.local / ".env", f"DATABASE_URL={SHARED}\n")
@@ -64,6 +65,8 @@ class MigrationGuardTests(unittest.TestCase):
             ('echo "$(cd %s && pnpm exec prisma migrate deploy)"' % self.web, "/"),
             (f"DATABASE_URL='{SHARED}' pnpm exec prisma migrate deploy", self.bare),
             ("pnpm exec prisma migrate deploy", self.bare),  # no URL found: unknown counts as shared
+            ("bash migrate.sh", self.web),
+            ("env -u CI timeout -s KILL 60 pnpm exec prisma migrate deploy", self.web),
         ]:
             with self.subTest(command=command):
                 self.assertIsNotNone(self.denied(command, cwd))
