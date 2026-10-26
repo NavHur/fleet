@@ -27,7 +27,8 @@ class MigrationGuardTests(unittest.TestCase):
         cls.shared = root / "shared"
         write(cls.shared / "package.json", json.dumps({"scripts": {"web": "pnpm --filter web", "migrate:prod": "prisma migrate deploy"}}))
         write(cls.shared / "pnpm-workspace.yaml", "packages:\n  - apps/*\n")
-        write(cls.shared / "apps/web/package.json", json.dumps({"name": "web", "scripts": {"db:deploy": "prisma migrate deploy", "db:seed": "tsx seed.ts"}}))
+        write(cls.shared / "apps/web/package.json", json.dumps({"name": "web", "scripts": {
+            "db:deploy": "prisma migrate deploy", "db:seed": "tsx seed.ts", "db:migrate": "node scripts/migrate.mjs"}}))
         write(cls.shared / "apps/web/.env", f'DATABASE_URL="{SHARED}"\n')
         cls.web = cls.shared / "apps/web"
         write(cls.web / "migrate.sh", "#!/usr/bin/env bash\npnpm exec prisma migrate deploy\n")
@@ -73,6 +74,10 @@ class MigrationGuardTests(unittest.TestCase):
             ("pnpm exec prisma migrate deploy", self.bare),  # no URL found: unknown counts as shared
             ("bash migrate.sh", self.web),
             ("env -u CI timeout -s KILL 60 pnpm exec prisma migrate deploy", self.web),
+            ("pnpm db:migrate", self.web),  # held by its name whatever tool the body runs
+            ("pnpm db:push", self.web),  # no such script: still held by name
+            ("pnpm run db:push", self.web),
+            ("yarn db:push", self.web),
         ]:
             with self.subTest(command=command):
                 self.assertIsNotNone(self.denied(command, cwd))

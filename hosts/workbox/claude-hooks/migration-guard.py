@@ -49,6 +49,7 @@ def load(name, path):
 
 sys.path.insert(0, HOST_CHECK)  # guard.py imports hostconf beside it
 guard = load("host_check_guard", os.path.join(HOST_CHECK, "guard.py"))
+from packages import expansions  # noqa: E402
 from walk import leaves  # noqa: E402
 merge_guard = load("merge_guard", os.path.join(HOOKS, "merge-guard.py"))
 
@@ -67,9 +68,15 @@ def migrates(words):
 
 
 def migration_dirs(command, cwd):
-    """Each directory a migration in the command runs from, through wrappers, shells, scripts, and package scripts.
-    A runner the walk expanded is left to the body it runs; one it could not resolve stays the fallback."""
-    return [leaf.cwd for leaf in leaves(command, cwd) if not leaf.expanded and migrates(leaf.words)]
+    """Each directory a migration in the command runs from, through wrappers, shells, scripts, and package scripts."""
+    return [d for leaf in leaves(command, cwd) if migrates(leaf.words) for d in leaf_dirs(leaf)]
+
+
+def leaf_dirs(leaf):
+    """A runner the walk expanded runs in the packages of the scripts it names (`pnpm --filter api db:migrate`)."""
+    if not leaf.expanded:
+        return [leaf.cwd]
+    return [d for _, d in expansions(os.path.basename(leaf.words[0]), leaf.words[1:], leaf.cwd)] or [leaf.cwd]
 
 
 def file_urls(directory):
