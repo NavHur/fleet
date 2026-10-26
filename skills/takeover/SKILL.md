@@ -25,24 +25,32 @@ Bring the continuation current with its intended base. Fetch the base and the
 source head, then read what landed on the base since the branch diverged until
 every change touching the branch's paths or behavior is accounted for: the same
 problem solved another way, moved APIs or ownership, deleted or simplified
-code, old behavior the branch would bring back. A clean rebase only proves the
-lines merge. When the base has already made the goal moot, stop and report that
-as the remaining decision. Otherwise rebase, resolve each conflict toward the
-goal and the base's newer invariants, and compare the series before and after
-with `git range-diff` to confirm every intended behavior survived. Rework what
-is necessary to finish the same goal, not unrelated features. Simplify the implementation without dropping intended
-behavior or surfaces. Recheck the source PR too: it may have improved while
-you were working.
+code, old behavior the branch would bring back. Also search merged and open PRs
+whose titles, paths, or behavior suggest a competing or replacement
+implementation. A clean rebase only proves the lines merge. When the base or
+such a PR has already made the goal moot, stop and report that as the remaining
+decision. Otherwise rebase, resolve each conflict toward the goal and the
+base's newer invariants, and compare the series before and after with
+`git range-diff` to confirm every intended behavior survived. When a conflict
+exposes a product or architecture disagreement, stop and report it as the
+remaining decision. When the continuation updates an existing branch, push with
+`--force-with-lease=<branch>:<head SHA observed before the rebase>`; when the
+lease fails, fetch and reassess. Rework what is necessary to finish the same
+goal, not unrelated features. Simplify the implementation without dropping
+intended behavior or surfaces. Recheck the source PR too: it may have improved
+while you were working.
 
 Independently verify the original failure and realistic workflows, following
 repository guidance and permissions. Green mocked tests do not prove the user
 experience works. State what remains unverified.
 
 When the requested finish includes a PR, write up the work with the `pr` skill.
-On a replacement PR, that write-up is its description: credit the original
-contributors there and link the original PR. When you continue on a PR someone
-else opened, leave their description as they wrote it and post the write-up as
-a comment on that PR. Merge or close the original PR only when authorized.
+On every PR the takeover opens (replacement, stacked layer, or first PR for a
+branch or thread), that write-up is its description: credit the original
+contributors there and link the original PR when there is one. When you
+continue on a PR someone else opened, leave their description as they wrote it
+and post the write-up as a comment on that PR. Merge or close the original PR
+only when authorized.
 
 Report what you inherited, what you changed, how you verified it, how credit
 was preserved, and any remaining decision.
