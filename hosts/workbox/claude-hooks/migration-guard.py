@@ -20,7 +20,6 @@ migrate internally, such as test-database and preview deploy helpers, are not
 seen. A habit guard, not a security boundary.
 """
 import importlib.util
-import itertools
 import json
 import os
 import re
@@ -74,14 +73,23 @@ def migration_dirs(command, cwd):
 
 
 def leaf_dirs(leaf, after):
-    """A runner the walk expanded is left to its body when that migrates, else held in the packages it ran in."""
+    """A runner the walk expanded is held in each package it ran whose body does not migrate itself."""
     if not leaf.expanded:
         return [leaf.cwd]
+    packages = {}
+    for directory, inner in package_body(leaf, after):
+        packages[directory] = packages.get(directory, False) or migrates(inner.words)
+    return sorted(d for d, judged in packages.items() if not judged) if packages else [leaf.cwd]
+
+
+def package_body(leaf, after):
+    """(package directory, leaf) for the leaves of the package scripts an expanded runner runs, up to its next sibling."""
     depth = len(leaf.via)
-    body = list(itertools.takewhile(lambda inner: len(inner.via) > depth and inner.via[:depth] == leaf.via, after))
-    if any(migrates(inner.words) for inner in body):
-        return []
-    return sorted({inner.via[depth][1] for inner in body if inner.via[depth][0] == "package"}) or [leaf.cwd]
+    for inner in after:
+        step = inner.via[depth:depth + 1]
+        if inner.via[:depth] != leaf.via or not step or step[0][0] != "package":
+            return
+        yield step[0][1], inner
 
 
 def file_urls(directory):

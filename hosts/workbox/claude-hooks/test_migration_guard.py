@@ -44,6 +44,9 @@ class MigrationGuardTests(unittest.TestCase):
         write(cls.monorepo / "packages/api/package.json",
               json.dumps({"name": "api", "scripts": {"db:migrate": "prisma migrate deploy"}}))
         write(cls.monorepo / "packages/api/.env", f"DATABASE_URL={LOCAL}\n")
+        write(cls.monorepo / "packages/web/package.json",
+              json.dumps({"name": "web", "scripts": {"db:migrate": "node scripts/migrate.mjs"}}))
+        write(cls.monorepo / "packages/web/.env", f"DATABASE_URL={SHARED}\n")
 
     @classmethod
     def tearDownClass(cls):
@@ -78,6 +81,7 @@ class MigrationGuardTests(unittest.TestCase):
             ("pnpm db:push", self.web),  # no such script: still held by name
             ("pnpm run db:push", self.web),
             ("yarn db:push", self.web),
+            ("pnpm db:migrate && host-check pnpm -C %s db:deploy" % self.local, self.web),  # a sibling is not the body
         ]:
             with self.subTest(command=command):
                 self.assertIsNotNone(self.denied(command, cwd))
@@ -102,6 +106,11 @@ class MigrationGuardTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(self.denied(command, self.monorepo))
         self.assertIsNotNone(self.denied("pnpm exec prisma migrate deploy", self.monorepo))
+
+    def test_each_package_a_runner_selects_is_judged_on_its_own(self):
+        for command in ("pnpm -r db:migrate", "pnpm --filter '*' db:migrate", "pnpm --filter web db:migrate"):
+            with self.subTest(command=command):
+                self.assertIsNotNone(self.denied(command, self.monorepo))
 
     def test_chat_approval(self):
         command = "pnpm exec prisma migrate deploy"
