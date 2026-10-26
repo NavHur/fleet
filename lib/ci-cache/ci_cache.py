@@ -13,7 +13,6 @@ State lives under $FLEET_CI_STATE, default ~/.cache/fleet-ci, one directory per 
 import argparse
 import hashlib
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -24,8 +23,7 @@ from pathlib import Path
 PASS_MAX_AGE_S = 30 * 24 * 3600
 GODOT_ENTRIES_KEPT = 3
 GODOT_DIR = ".godot"
-# Sources Godot imports. Godot re-imports any whose modification time moved, so restore pins them all.
-IMPORTED = re.compile(r"\.(import|png|jpe?g|webp|svg|wav|ogg|mp3|ttf|otf|woff2?|glb|gltf|fbx|obj)$", re.I)
+TRASH_PREFIX = ".trash-"
 
 
 def state_root():
@@ -80,14 +78,20 @@ def import_files(root):
 
 
 def pinned_assets_key(prefix):
-    """Pin every tracked imported source and `.import` file to mtime 0; the key hashes them and project.godot.
+    """Pin every tracked `.import` file and its source to mtime 0; the key hashes them and project.godot.
 
     Pinned times make Godot's import of a restored entry a no-op for unchanged assets, and the key
     makes a hit mean identical assets.
     """
     listed = subprocess.run(["git", "ls-files", "-z"], check=True, capture_output=True).stdout
+    pinned = set()
+    for path in listed.decode().split("\0"):
+        if path.endswith(".import"):
+            pinned.add(path)
+            if Path(path[: -len(".import")]).is_file():
+                pinned.add(path[: -len(".import")])
     digest = hashlib.sha256()
-    for name in sorted(path for path in listed.decode().split("\0") if IMPORTED.search(path)):
+    for name in sorted(pinned):
         os.utime(name, (0, 0))
         digest.update(name.encode() + b"\0" + hashlib.sha256(Path(name).read_bytes()).digest())
     digest.update(Path("project.godot").read_bytes())
@@ -112,17 +116,18 @@ def godot_restore(prefix):
 
 def godot_save(key):
     """Save the checkout's `.godot` and `.import` files under the key, unless it is already saved."""
+    root = Path.cwd()
+    if not (root / GODOT_DIR).is_dir():
+        sys.exit(f"ci-cache: cannot save {key}: {root / GODOT_DIR} is missing")
     entries = state_root() / "godot"
     entry = entries / entry_name(key)
     if entry.is_dir():
         print(f"ci-cache: {key} is already saved")
         return
     entries.mkdir(parents=True, exist_ok=True)
-    root = Path.cwd()
     staging = Path(tempfile.mkdtemp(dir=entries, prefix=".staging-"))
     try:
-        if (root / GODOT_DIR).is_dir():
-            shutil.copytree(root / GODOT_DIR, staging / GODOT_DIR, symlinks=True)
+        shutil.copytree(root / GODOT_DIR, staging / GODOT_DIR, symlinks=True)
         for path in import_files(root):
             (staging / path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(root / path, staging / path)
@@ -136,10 +141,26 @@ def godot_save(key):
 
 
 def prune(entries):
+    for leftover in entries.glob(f"{TRASH_PREFIX}*"):
+        remove_tree(leftover)
     saved = [path for path in entries.iterdir() if path.is_dir() and not path.name.startswith(".")]
     saved.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     for old in saved[GODOT_ENTRIES_KEPT:]:
-        shutil.rmtree(old, ignore_errors=True)
+        # Renamed first, atomically, so a restore never sees a half-deleted entry.
+        try:
+            trash = old.rename(old.with_name(TRASH_PREFIX + old.name))
+        except OSError as error:
+            print(f"ci-cache: warning: could not prune {old}: {error}", file=sys.stderr)
+            continue
+        remove_tree(trash)
+
+
+def remove_tree(path):
+    """Delete a directory; a failure warns, since pruning must not fail the job."""
+    try:
+        shutil.rmtree(path)
+    except OSError as error:
+        print(f"ci-cache: warning: could not remove {path}: {error}", file=sys.stderr)
 
 
 COMMANDS = {

@@ -1,3 +1,4 @@
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -29,6 +30,13 @@ class Checkout:
             (self.path / name).write_text(text)
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "commit")
+
+    def godot_dir(self):
+        (self.path / ".godot").mkdir(exist_ok=True)
+
+    def run_raw(self, *args):
+        return subprocess.run([sys.executable, str(ROOT / "ci_cache.py"), *args], cwd=self.path,
+                              capture_output=True, text=True, env=self.env)
 
     def run(self, *args):
         """The command's outputs as a dict, read from the GITHUB_OUTPUT file it appended to."""
@@ -78,17 +86,65 @@ class CiCacheTest(unittest.TestCase):
         self.assertEqual((clone.path / ".godot/imported/hero.ctex").read_text(), "texture")
 
     def test_a_changed_asset_misses(self):
+        self.repo.godot_dir()
         key = self.repo.run("godot-restore", "godot-4.7.1")["key"]
         self.repo.run("godot-save", key)
         self.repo.commit({"art/hero.png": "new png"})
         self.assertEqual(self.repo.run("godot-restore", "godot-4.7.1")["hit"], "false")
 
-    def test_save_keeps_the_three_most_recent_entries(self):
-        for version in range(5):
+    def test_a_csv_source_with_an_import_file_is_pinned_and_keyed(self):
+        self.repo.commit({"data/items.csv": "a,b\n", "data/items.csv.import": "[remap]\n"})
+        before = self.repo.run("godot-restore", "godot-4.7.1")["key"]
+        self.assertEqual(os.stat(self.repo.path / "data/items.csv").st_mtime, 0)
+        self.assertEqual(os.stat(self.repo.path / "data/items.csv.import").st_mtime, 0)
+        self.repo.commit({"data/items.csv": "a,b,c\n"})
+        self.assertNotEqual(self.repo.run("godot-restore", "godot-4.7.1")["key"], before)
+
+    def test_save_without_a_godot_directory_fails_and_saves_nothing(self):
+        result = self.repo.run_raw("godot-save", "key")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ci-cache:", result.stderr)
+        self.assertIn(".godot", result.stderr)
+        self.assertEqual(self.entries(), [])
+
+    def save_entries(self, count):
+        """Save `count` entries with increasing mtimes, so their order is deterministic."""
+        self.repo.godot_dir()
+        for version in range(count):
             self.repo.run("godot-save", f"key-{version}")
-        entries = [path for path in (self.temp / "state/owner/game/godot").iterdir()
-                   if not path.name.startswith(".")]
-        self.assertEqual(len(entries), 3)
+            entry = self.state_entry(f"key-{version}")
+            os.utime(entry, (1000 + version, 1000 + version))
+
+    def state_entry(self, key):
+        return self.temp / "state/owner/game/godot" / hashlib.sha256(key.encode()).hexdigest()
+
+    def entries(self):
+        root = self.temp / "state/owner/game/godot"
+        return sorted(path for path in root.iterdir() if not path.name.startswith(".")) if root.is_dir() else []
+
+    def test_save_keeps_exactly_the_last_three_saves(self):
+        self.save_entries(5)
+        self.assertEqual(self.entries(), sorted(self.state_entry(f"key-{version}") for version in (2, 3, 4)))
+        leftovers = [path for path in self.state_entry("key-0").parent.iterdir() if path.name.startswith(".")]
+        self.assertEqual(leftovers, [])
+
+    def test_a_restore_hit_keeps_its_entry_alive(self):
+        self.repo.godot_dir()
+        key_a = self.repo.run("godot-restore", "godot-4.7.1")["key"]
+        self.repo.run("godot-save", key_a)
+        os.utime(self.state_entry(key_a), (1000, 1000))
+        for version, name in enumerate("BC", start=1):
+            self.repo.commit({"art/hero.png": f"png {name}"})
+            key = self.repo.run("godot-restore", "godot-4.7.1")["key"]
+            self.repo.run("godot-save", key)
+            os.utime(self.state_entry(key), (1000 + version, 1000 + version))
+        self.repo.git("checkout", "-q", "HEAD~2", "--", "art/hero.png")
+        self.assertEqual(self.repo.run("godot-restore", "godot-4.7.1"), {"hit": "true", "key": key_a})
+        self.repo.commit({"art/hero.png": "png D"})
+        key = self.repo.run("godot-restore", "godot-4.7.1")["key"]
+        self.repo.run("godot-save", key)
+        self.repo.git("checkout", "-q", "HEAD~3", "--", "art/hero.png")
+        self.assertEqual(self.repo.run("godot-restore", "godot-4.7.1")["hit"], "true")
 
 
 if __name__ == "__main__":
