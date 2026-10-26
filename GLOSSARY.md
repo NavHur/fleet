@@ -40,3 +40,17 @@ A check that answers one question of each leaf: needs the queue, starts a dev
 server, job class, merge method, commit size, agent launch, migration, runs
 tests.
 _Avoid_: walker, guard (for the check itself)
+
+## Queue
+
+**Job class**:
+What a leaf costs the host: none (no validation), light (lint, format,
+typecheck, targeted tests), heavy (whole suites), or build. host-check admits a
+job by its strongest leaf; the guard queues a command when a leaf it can see is
+anything but none.
+_Avoid_: weight, category
+
+**Catalogue**:
+The one table of job classes (`lib/host-check/jobclass.py`) that both the guard
+and host-check read.
+_Avoid_: guard list, DIRECT, validation list
