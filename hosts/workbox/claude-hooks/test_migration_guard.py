@@ -37,6 +37,12 @@ class MigrationGuardTests(unittest.TestCase):
         write(cls.local / ".env.local", f"DATABASE_URL={LOCAL}\n")
         cls.bare = root / "bare"
         cls.bare.mkdir()
+        cls.monorepo = root / "monorepo"  # a workspace root with no .env: only the package has one
+        write(cls.monorepo / "package.json", json.dumps({"private": True}))
+        write(cls.monorepo / "pnpm-workspace.yaml", "packages:\n  - packages/*\n")
+        write(cls.monorepo / "packages/api/package.json",
+              json.dumps({"name": "api", "scripts": {"db:migrate": "prisma migrate deploy"}}))
+        write(cls.monorepo / "packages/api/.env", f"DATABASE_URL={LOCAL}\n")
 
     @classmethod
     def tearDownClass(cls):
@@ -85,6 +91,11 @@ class MigrationGuardTests(unittest.TestCase):
         ]:
             with self.subTest(command=command):
                 self.assertIsNone(self.denied(command, cwd))
+
+    def test_a_workspace_runner_is_judged_by_the_package_it_selects(self):
+        command = "pnpm --filter api db:migrate"
+        self.assertIsNone(self.denied(command, self.monorepo))
+        self.assertIsNotNone(self.denied("pnpm exec prisma migrate deploy", self.monorepo))
 
     def test_chat_approval(self):
         command = "pnpm exec prisma migrate deploy"

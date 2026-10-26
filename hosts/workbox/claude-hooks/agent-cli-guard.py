@@ -18,6 +18,7 @@ CLI_NAMES = {"opencode": "muse", "codex": "codex", "cursor-agent": "cursor", "cl
 
 # This file is linked from ~/.claude/hooks; the fleet repo it lives in has the command walk.
 sys.path.insert(0, str(Path(os.path.realpath(__file__)).parents[3] / "lib" / "host-check"))
+from guard import hook_cwd  # noqa: E402
 from walk import leaves  # noqa: E402
 
 
@@ -79,8 +80,7 @@ def main():
     command = tool_input.get("command")
     if not isinstance(command, str):
         return 0
-    cwd = payload.get("cwd")
-    found = find(command, cwd if isinstance(cwd, str) and os.path.isabs(cwd) else None)
+    found = find(command, hook_cwd(payload, tool_input))
     if not found:
         return 0
     event = payload.get("hook_event_name")

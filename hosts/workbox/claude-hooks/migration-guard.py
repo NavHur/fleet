@@ -67,8 +67,9 @@ def migrates(words):
 
 
 def migration_dirs(command, cwd):
-    """Each directory a migration in the command runs from, through wrappers, shells, scripts, and package scripts."""
-    return [leaf.cwd for leaf in leaves(command, cwd) if migrates(leaf.words)]
+    """Each directory a migration in the command runs from, through wrappers, shells, scripts, and package scripts.
+    A runner the walk expanded is left to the body it runs; one it could not resolve stays the fallback."""
+    return [leaf.cwd for leaf in leaves(command, cwd) if not leaf.expanded and migrates(leaf.words)]
 
 
 def file_urls(directory):

@@ -45,6 +45,13 @@ class MergeGuardTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn("hasn't approved merging PR #12", self.reason(command))
 
+    def test_a_script_is_read_from_the_directory_the_tool_runs_in(self):
+        with tempfile.TemporaryDirectory(prefix="merge-guard-pkg-") as root:
+            Path(root, "package.json").write_text(json.dumps({"scripts": {"ship": "gh pr merge 12 --merge"}}))
+            self.assertIsNone(self.reason("pnpm ship", cwd="/"))
+            workdir = {"command": "pnpm ship", "workdir": root}
+            self.assertIn("hasn't approved merging PR #12", self.reason("pnpm ship", cwd="/", tool_input=workdir))
+
     def test_negation_withholds_approval(self):
         self.say("don't merge 12 yet")
         self.assertIsNotNone(self.reason("gh pr merge 12"))

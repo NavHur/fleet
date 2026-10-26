@@ -1,9 +1,12 @@
 """Run with: cd hosts/workbox/claude-hooks && python3 -m unittest test_agent_cli_guard"""
+import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location("agent_cli_guard", Path(__file__).with_name("agent-cli-guard.py"))
 agent_cli_guard = importlib.util.module_from_spec(spec)
@@ -29,6 +32,16 @@ class AgentCliGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="agent-cli-") as root:
             Path(root, "package.json").write_text(json.dumps({"scripts": {"ask": "claude -p review"}}))
             self.assertEqual(launches("pnpm ask", root), [("direct", "claude", False)])
+
+    def test_a_tool_input_workdir_beats_the_payload_cwd(self):
+        with tempfile.TemporaryDirectory(prefix="agent-cli-") as root:
+            Path(root, "package.json").write_text(json.dumps({"scripts": {"ask": "claude -p review"}}))
+            tool_input = {"command": "pnpm ask", "workdir": root}
+            payload = {"hook_event_name": "PreToolUse", "cwd": "/", "tool_input": tool_input}
+            stdin, out = io.StringIO(json.dumps(payload)), io.StringIO()
+            with mock.patch("sys.stdin", stdin), contextlib.redirect_stdout(out):
+                self.assertEqual(agent_cli_guard.main(), 0)
+            self.assertEqual(json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_help_maintenance_and_unparseable_commands_pass(self):
         for command in ["claude --help", "claude mcp list", "codex login", "echo 'claude -p", "rg 'claude -p'"]:
