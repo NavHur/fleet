@@ -412,8 +412,8 @@ def is_followed(words, parsed, subshell):
 
 
 def commit_refusal(commands):
-    """Why to refuse a command, given its simple commands as (words, cwd) or (words, cwd, runs in `$(...)`)
-    already unwrapped, or None.
+    """Why to refuse a command, given its unwrapped simple commands as walk Leafs (read for .words, .cwd, and
+    .subshell: in `$(...)`), or None.
 
     A commit is checked only when every command before it in the line is `cd` or `pushd` to a path it can
     read, `true`, a shell keyword, read-only git (`status`, `log`, `show`, `diff`, `rev-parse`, `ls-files`,
@@ -429,11 +429,11 @@ def commit_refusal(commands):
     current directory. The pre-commit skill and CI run `check --base` as the backstop.
     """
     changes = []
-    for words, cwd, *subshell in commands:
-        parsed = git_subcommand(words, cwd)
-        if not is_followed(words, parsed, any(subshell)):
+    for leaf in commands:
+        parsed = git_subcommand(leaf.words, leaf.cwd)
+        if not is_followed(leaf.words, parsed, leaf.subshell):
             return None
-        reason = parsed and command_refusal(*parsed, cwd, changes)
+        reason = parsed and command_refusal(*parsed, leaf.cwd, changes)
         if reason:
             return reason
     return None

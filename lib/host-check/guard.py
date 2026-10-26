@@ -205,7 +205,7 @@ def decision(payload):
     if leaves_need_queue(found):
         return True, REASON
     # A script's or package script's own leaf is the commands after it.
-    refusal = commit_guard.commit_refusal((leaf.words, leaf.cwd, leaf.subshell) for leaf in found if not leaf.expanded)
+    refusal = commit_guard.commit_refusal([leaf for leaf in found if not leaf.expanded])
     return refusal is not None, refusal
 
 

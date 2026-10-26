@@ -5,8 +5,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT.parent / "host-check"))  # walk.py, whose Leaf commit_refusal reads
 from commit_guard import commit_refusal  # noqa: E402
 from test_file_size import BIG, SMALL, Repo  # noqa: E402
+from walk import Leaf  # noqa: E402
 
 
 class CommandChainTest(unittest.TestCase):
@@ -23,7 +25,7 @@ class CommandChainTest(unittest.TestCase):
 
     def chain(self, *commands):
         """The refusal for commands run in order here, each a string or its words as the walker reads them."""
-        return commit_refusal([(command.split() if isinstance(command, str) else command, self.cwd)
+        return commit_refusal([Leaf(command.split() if isinstance(command, str) else command, self.cwd)
                                for command in commands])
 
     def test_a_command_the_check_does_not_model_ends_it(self):
