@@ -110,6 +110,21 @@ class CiCacheTest(unittest.TestCase):
         self.repo.commit({"art/hero.png": "new png"})
         self.assertEqual(self.repo.run("godot-restore", "godot-4.7.1")["hit"], "false")
 
+    def test_a_png_without_an_import_file_stays_out_of_the_key_when_import_files_are_tracked(self):
+        self.repo.commit({"assets/source/art.png": "one"})
+        before = self.repo.run("godot-restore", "godot-4.7.1")["key"]
+        self.repo.commit({"assets/source/art.png": "two"})
+        self.assertEqual(self.repo.run("godot-restore", "godot-4.7.1")["key"], before)
+
+    def test_gdignored_directories_stay_out_of_the_key_when_import_files_are_ignored(self):
+        self.repo.git("rm", "-q", "--cached", "art/hero.png.import")
+        self.repo.commit({".gitignore": "*.import\n", "docs/.gdignore": "", "docs/shot.png": "one"})
+        before = self.repo.run("godot-restore", "godot-4.7.1")["key"]
+        self.repo.commit({"docs/shot.png": "two"})
+        self.assertEqual(self.repo.run("godot-restore", "godot-4.7.1")["key"], before)
+        self.repo.commit({"art/hero.png": "new png"})
+        self.assertNotEqual(self.repo.run("godot-restore", "godot-4.7.1")["key"], before)
+
     def test_save_without_a_godot_directory_fails_and_saves_nothing(self):
         result = self.repo.run_raw("godot-save", "key")
         self.assertNotEqual(result.returncode, 0)

@@ -25,8 +25,9 @@ PASS_MAX_AGE_S = 30 * 24 * 3600
 GODOT_ENTRIES_KEPT = 3
 GODOT_DIR = ".godot"
 TRASH_PREFIX = ".trash-"
-# Sources Godot imports. Godot re-imports any whose modification time moved, so restore pins them all.
-IMPORTED = re.compile(r"\.(import|png|jpe?g|webp|svg|wav|ogg|mp3|ttf|otf|woff2?|glb|gltf|fbx|obj)$", re.I)
+# Source types Godot imports: the fallback for repos that ignore `.import` files.
+# Godot re-imports any source whose modification time moved, so restore pins them.
+IMPORTED = re.compile(r"\.(png|jpe?g|webp|svg|wav|ogg|mp3|ttf|otf|woff2?|glb|gltf|fbx|obj)$", re.I)
 
 
 def state_root():
@@ -81,22 +82,26 @@ def import_files(root):
 
 
 def pinned_assets(tracked):
-    """The tracked files to pin: each `.import` file with its source, and every file of an imported type."""
-    pinned = set()
-    for path in tracked:
-        if IMPORTED.search(path):
-            pinned.add(path)
-        if path.endswith(".import") and Path(path[: -len(".import")]).is_file():
-            pinned.add(path[: -len(".import")])
-    return pinned
+    """The tracked files to pin: the `.import` files with their sources, else every imported type.
+
+    Godot writes a `.import` for each asset it imports, so tracked ones name them exactly. Without
+    any (the repo ignores them), pin the imported types outside directories holding a `.gdignore`.
+    """
+    imports = [path for path in tracked if path.endswith(".import")]
+    if not imports:
+        skipped = tuple(path[: -len(".gdignore")] for path in tracked
+                        if path == ".gdignore" or path.endswith("/.gdignore"))
+        return {path for path in tracked if IMPORTED.search(path) and not path.startswith(skipped)}
+    sources = (path[: -len(".import")] for path in imports)
+    return set(imports) | {source for source in sources if Path(source).is_file()}
 
 
 def pinned_assets_key(prefix):
     """Pin the assets to mtime 0; the key hashes them and project.godot.
 
-    The assets are every tracked `.import` file with its source, plus every tracked file of a type
-    Godot imports, for projects that gitignore `.import`. Pinned times make Godot's import of a
-    restored entry a no-op for unchanged assets, and the key makes a hit mean identical assets.
+    The assets are the tracked `.import` files with their sources or, for projects that gitignore
+    `.import`, the tracked imported types outside `.gdignore` directories. Pinned times make Godot's
+    import of a restored entry a no-op for unchanged assets, and the key makes a hit mean identical assets.
     """
     listed = subprocess.run(["git", "ls-files", "-z"], check=True, capture_output=True).stdout
     pinned = pinned_assets(listed.decode().split("\0"))
