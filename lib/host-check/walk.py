@@ -5,18 +5,30 @@ directory it runs in.
 
 Every shell-command judge reads leaves: guard.py, jobclass.py,
 merge_method.py, commit_guard.py, the pre-commit skill's ci_covers.py, and
-the workbox hooks. The walk follows `cd` and expands a command word stored in
-a variable. Not a shell implementation: it recognizes the common spellings
-(docs/adr/0001-command-walk-recognizes-spellings.md).
+the workbox hooks. The walk sees past keywords, assignments, wrappers
+(`env -u NAME`, `timeout -s KILL 60`, `setsid`, `host-check`), exec runners
+(`uv run`), `bg-job start`, and `bash -c` strings; follows `cd`; expands a
+command word stored in a variable; and reads the shell scripts and package
+scripts a command runs, up to MAX_DEPTH levels deep. What it cannot see into
+is an opaque leaf. Not a shell implementation: it recognizes the common
+spellings (docs/adr/0001-command-walk-recognizes-spellings.md).
 """
 from __future__ import annotations
 
 import dataclasses
+import functools
 import os
 import re
 import shlex
 
-from shell import ASSIGNMENT, PREFIXES, commands
+from packages import expansions
+from shell import ASSIGNMENT, PREFIXES, SHELLS, commands, read_script, shell_invocation, shell_script
+
+# How far shell strings, script files, and package scripts are followed.
+MAX_DEPTH = 6
+# Arguments that ask a command about itself, so it runs nothing it names.
+HELP = {"--help", "-h", "--version", "-v"}
+PACKAGE_RUNNERS = {"pnpm", "npm", "yarn", "bun", "npx", "bunx", "turbo"}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -25,10 +37,14 @@ class Leaf:
 
     words: the command and its arguments, past keywords and assignments.
     cwd: the directory it runs in.
-    via: how the walk reached it, outermost first: ("wrapper", "host-check"), ("runner", "uv run").
+    via: how the walk reached it, outermost first: ("wrapper", "host-check"), ("runner", "uv run"),
+        ("shell", "bash") for a -c string, ("script", PATH), ("package", DIRECTORY).
     subshell: it runs inside `$(...)`.
-    background: a lone `&` ends it.
-    env: the assignments it sees: its prefixes and those made before it.
+    background: it, or the command that runs it, ends in a lone `&`.
+    env: the assignments it sees: its prefixes, `env NAME=VALUE`, and those made before it.
+    opaque: why the walk cannot see what it runs ("eval", "variable", "stdin", "unreadable",
+        "unparseable", "too-deep"), or None.
+    expanded: the leaves after it include what it runs: a script's commands, a package script's body.
     """
     words: list
     cwd: str
@@ -36,6 +52,8 @@ class Leaf:
     subshell: bool = False
     background: bool = False
     env: dict = dataclasses.field(default_factory=dict)
+    opaque: str | None = None
+    expanded: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -45,6 +63,7 @@ class Frame:
     env: tuple = ()
     subshell: bool = False
     background: bool = False
+    depth: int = 0
 
     def inside(self, segment, variables):
         """The frame of one simple command, with the variables set before it."""
@@ -52,16 +71,28 @@ class Frame:
                                    subshell=self.subshell or segment.subshell,
                                    background=self.background or segment.background)
 
-    def through(self, kind, name, assigned):
+    def through(self, kind, name, assigned=None):
         """The frame past a wrapper or runner, with the assignments it makes."""
-        return dataclasses.replace(self, via=self.via + ((kind, name),), env=self.env + tuple(assigned.items()))
+        return dataclasses.replace(self.assigning(assigned or {}), via=self.via + ((kind, name),))
 
-    def leaf(self, words, cwd, assigned):
-        return Leaf(list(words), cwd, self.via, self.subshell, self.background, {**dict(self.env), **assigned})
+    def assigning(self, assigned):
+        return dataclasses.replace(self, env=self.env + tuple(assigned.items()))
+
+    def deeper(self, kind, name):
+        """The frame of a shell string, script, or package script this one runs."""
+        return dataclasses.replace(self.through(kind, name), depth=self.depth + 1)
+
+    def leaf(self, words, cwd, opaque=None, expanded=False):
+        return Leaf(list(words), cwd, self.via, self.subshell, self.background, dict(self.env), opaque, expanded)
 
 
 def leaves(command, cwd):
-    """Each command a shell string runs, in order. Raises ValueError for a string shlex cannot parse."""
+    """Each command a shell string runs, in order.
+
+    Raises ValueError when shlex cannot parse the string or a `bash -c` string
+    in it; text read from a script or package script that cannot be parsed is
+    an opaque leaf instead.
+    """
     return walk_text(command, cwd, Frame())
 
 
@@ -75,17 +106,12 @@ def follow(words, cwd, frame):
     words, assigned = command_part(words)
     if not words:
         return
-    name = os.path.basename(words[0])
-    if name in WRAPPERS and not (name == "command" and LOOKUPS & set(words[1:2])):
-        command, here, made = wrapped(name, words[1:], cwd)
-        yield from follow(command, here, frame.through("wrapper", name, {**assigned, **made}))
-    elif name == "bg-job":
-        yield from follow(bg_job_command(words[1:]), cwd, frame.through("wrapper", name, assigned))
-    elif runner_verb(words):
-        command, here = run_by(words, cwd)
-        yield from follow(command, here, frame.through("runner", runner_verb(words), assigned))
+    passed = passed_through(words, cwd)
+    if passed:
+        kind, name, command, here, made = passed
+        yield from follow(command, here, frame.through(kind, name, {**assigned, **made}))
     else:
-        yield frame.leaf(words, cwd, assigned)
+        yield from ends(words, cwd, frame.assigning(assigned))
 
 
 def command_part(words):
@@ -97,6 +123,113 @@ def command_part(words):
             assigned[name.rstrip("+")] = value
         start += 1
     return words[start:], assigned
+
+
+def passed_through(words, cwd):
+    """(kind, name, command, directory, assignments) when the words start with a wrapper or runner, else None."""
+    name = os.path.basename(words[0])
+    if name in WRAPPERS and not (name == "command" and LOOKUPS & set(words[1:2])):
+        return ("wrapper", name, *wrapped(name, words[1:], cwd))
+    if name == "bg-job":
+        return "wrapper", name, bg_job_command(words[1:]), cwd, {}
+    verb = runner_verb(words)
+    return ("runner", verb, *run_by(words, cwd), {}) if verb else None
+
+
+def ends(words, cwd, frame):
+    """The leaf a command is, then what it runs when it runs a shell string, a script, or a package script."""
+    name, hidden = os.path.basename(words[0]), hidden_command(words)
+    if hidden or (words[1:] and all(arg in HELP for arg in words[1:])):
+        yield frame.leaf(words, cwd, opaque=hidden)
+        return
+    if name in SHELLS:
+        yield from shell_leaves(words, cwd, frame)
+        return
+    path = script_path(words, cwd)
+    if path:
+        yield from script_leaves(words, path, cwd, frame)
+    elif name in PACKAGE_RUNNERS:
+        yield from package_leaves(words, cwd, frame)
+    else:
+        yield frame.leaf(words, cwd)
+
+
+def hidden_command(words):
+    """Why the command a command runs cannot be seen: `eval`, or a `$` word the walk could not expand."""
+    if os.path.basename(words[0]) == "eval":
+        return "eval"
+    return "variable" if "$" in words[0] else None
+
+
+def script_path(words, cwd):
+    """The script `source FILE`, `. FILE`, or `./script.sh` runs, or None."""
+    if words[0] in {"source", "."}:
+        return words[1] if words[1:] else None
+    return shell_script(words[0], cwd)
+
+
+# --- Shell strings, scripts, and package scripts ---------------------------------
+
+def shell_leaves(words, cwd, frame):
+    """What a shell runs: its -c string, a script file, or stdin, which the walk cannot see."""
+    kind, value = shell_invocation(words[1:])
+    if kind == "string" and frame.depth >= MAX_DEPTH:
+        yield frame.leaf(words, cwd, opaque="too-deep")
+    elif kind == "string":
+        yield from walk_text(value, cwd, frame.deeper("shell", os.path.basename(words[0])))
+    elif kind == "file":
+        yield from script_leaves(words, value, cwd, frame)
+    else:
+        yield frame.leaf(words, cwd, opaque="stdin" if kind == "stdin" else None)
+
+
+def script_leaves(words, path, cwd, frame):
+    """A script's own leaf, then its commands and the commands it stores in variables."""
+    text = read_script(path, cwd) if frame.depth < MAX_DEPTH else None
+    if text is None:
+        yield frame.leaf(words, cwd, opaque="unreadable" if frame.depth < MAX_DEPTH else "too-deep")
+        return
+    inner = frame.deeper("script", os.path.normpath(os.path.join(cwd, os.path.expanduser(path))))
+    try:
+        found = read_leaves((text,) + tuple(stored_commands(text)), cwd, inner)
+    except ValueError:
+        yield frame.leaf(words, cwd, opaque="unparseable")
+        return
+    yield frame.leaf(words, cwd, expanded=True)
+    yield from found
+
+
+def package_leaves(words, cwd, frame):
+    """A package runner's own leaf, then the body of each package script it runs, in that script's package."""
+    runs = expansions(os.path.basename(words[0]), words[1:], cwd) if frame.depth < MAX_DEPTH else []
+    yield frame.leaf(words, cwd, expanded=bool(runs))
+    for body, directory in runs:
+        try:
+            yield from read_leaves((body,), directory, frame.deeper("package", directory))
+        except ValueError:
+            yield frame.leaf(words, cwd, opaque="unparseable")
+
+
+@functools.lru_cache(maxsize=None)  # a script that runs another many times reads it once
+def read_leaves(texts, cwd, frame):
+    return tuple(leaf for text in texts for leaf in walk_text(text, cwd, frame))
+
+
+DEFAULT_EXPANSION = re.compile(r"\$\{[A-Za-z_][A-Za-z_0-9]*:?[-=]([^}]*)\}")
+# The first words of a stored string worth reading as a command.
+COMMAND_WORDS = {
+    "pnpm", "npm", "yarn", "bun", "npx", "bunx", "turbo", "nx", "make", "just", "next", "vite", "webpack", "rollup",
+    "astro", "tsup", "playwright", "jest", "vitest", "tsc", "eslint", "oxlint", "prettier", "biome", "vue-tsc", "tsgo",
+    "tsrs", "svelte-check", "oxfmt", "hyperfine", "tsx", "node", "ts-node", "vite-node", "deno",
+} | SHELLS
+
+
+def stored_commands(text):
+    """Commands a script keeps in variables: `${CMD:-pnpm test}` defaults and `cmd="pnpm lint"`."""
+    found = [m.group(1) for m in DEFAULT_EXPANSION.finditer(text)]
+    for segment in commands(text):
+        found += [word.partition("=")[2] for word in segment.words if ASSIGNMENT.match(word)]
+    return [command for command in found if command.split() and os.path.basename(command.split()[0]) in COMMAND_WORDS]
 
 
 # --- Wrappers and runners ------------------------------------------------------
