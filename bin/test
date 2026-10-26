@@ -7,7 +7,7 @@ run() {
   echo "== $1"
   (cd "$1" && shift && python3 -m unittest "$@") || status=1
 }
-run lib/host-check test_walk test_guard test_commit_guard test_merge_method test_scheduler test_bg_job
+run lib/host-check test_walk test_queue_judges test_guard test_commit_guard test_merge_method test_scheduler test_bg_job
 run bin test_idle_compact test_actions_runners
 run lib/file-size test_file_size test_commit_guard test_command_chain
 run lib/ci-cache test_ci_cache
