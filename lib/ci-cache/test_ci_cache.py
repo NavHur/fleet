@@ -100,6 +100,16 @@ class CiCacheTest(unittest.TestCase):
         self.repo.commit({"data/items.csv": "a,b,c\n"})
         self.assertNotEqual(self.repo.run("godot-restore", "godot-4.7.1")["key"], before)
 
+    def test_a_project_that_ignores_import_files_still_pins_and_keys_its_images(self):
+        self.repo.git("rm", "-q", "--cached", "art/hero.png.import")
+        self.repo.commit({".gitignore": "*.import\n"})
+        self.repo.godot_dir()
+        key = self.repo.run("godot-restore", "godot-4.7.1")["key"]
+        self.assertEqual(os.stat(self.repo.path / "art/hero.png").st_mtime, 0)
+        self.repo.run("godot-save", key)
+        self.repo.commit({"art/hero.png": "new png"})
+        self.assertEqual(self.repo.run("godot-restore", "godot-4.7.1")["hit"], "false")
+
     def test_save_without_a_godot_directory_fails_and_saves_nothing(self):
         result = self.repo.run_raw("godot-save", "key")
         self.assertNotEqual(result.returncode, 0)

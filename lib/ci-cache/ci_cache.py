@@ -13,6 +13,7 @@ State lives under $FLEET_CI_STATE, default ~/.cache/fleet-ci, one directory per 
 import argparse
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,8 @@ PASS_MAX_AGE_S = 30 * 24 * 3600
 GODOT_ENTRIES_KEPT = 3
 GODOT_DIR = ".godot"
 TRASH_PREFIX = ".trash-"
+# Sources Godot imports. Godot re-imports any whose modification time moved, so restore pins them all.
+IMPORTED = re.compile(r"\.(import|png|jpe?g|webp|svg|wav|ogg|mp3|ttf|otf|woff2?|glb|gltf|fbx|obj)$", re.I)
 
 
 def state_root():
@@ -77,19 +80,26 @@ def import_files(root):
     return sorted(found)
 
 
-def pinned_assets_key(prefix):
-    """Pin every tracked `.import` file and its source to mtime 0; the key hashes them and project.godot.
+def pinned_assets(tracked):
+    """The tracked files to pin: each `.import` file with its source, and every file of an imported type."""
+    pinned = set()
+    for path in tracked:
+        if IMPORTED.search(path):
+            pinned.add(path)
+        if path.endswith(".import") and Path(path[: -len(".import")]).is_file():
+            pinned.add(path[: -len(".import")])
+    return pinned
 
-    Pinned times make Godot's import of a restored entry a no-op for unchanged assets, and the key
-    makes a hit mean identical assets.
+
+def pinned_assets_key(prefix):
+    """Pin the assets to mtime 0; the key hashes them and project.godot.
+
+    The assets are every tracked `.import` file with its source, plus every tracked file of a type
+    Godot imports, for projects that gitignore `.import`. Pinned times make Godot's import of a
+    restored entry a no-op for unchanged assets, and the key makes a hit mean identical assets.
     """
     listed = subprocess.run(["git", "ls-files", "-z"], check=True, capture_output=True).stdout
-    pinned = set()
-    for path in listed.decode().split("\0"):
-        if path.endswith(".import"):
-            pinned.add(path)
-            if Path(path[: -len(".import")]).is_file():
-                pinned.add(path[: -len(".import")])
+    pinned = pinned_assets(listed.decode().split("\0"))
     digest = hashlib.sha256()
     for name in sorted(pinned):
         os.utime(name, (0, 0))
