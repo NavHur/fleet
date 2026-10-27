@@ -33,6 +33,8 @@ import subprocess
 import sys
 import tempfile
 
+from stack_layers import GitHub, Stack, StackError
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_GENERATED = [
     "data/*.json", "*/data/*.json", "prisma/municipalities.json", "*/prisma/municipalities.json",
@@ -45,34 +47,6 @@ GATES_PREFIX = "Layer gates at"
 
 def run(*args, check=True):
     return subprocess.run(args, capture_output=True, text=True, check=check)
-
-
-def git(*args):
-    return run("git", *args).stdout.strip()
-
-
-def header(path, key):
-    with open(path) as fh:
-        for line in fh:
-            m = re.match(rf"#\s*{key}:\s*(.+)", line.strip())
-            if m:
-                return m.group(1).strip()
-    return None
-
-
-def repo_slug(explicit):
-    if explicit:
-        return explicit
-    url = run("git", "remote", "get-url", "origin", check=False).stdout.strip()
-    m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
-    return m.group(1) if m else None
-
-
-def find_pr(repo, branch):
-    owner = repo.split("/")[0]
-    out = run("gh", "api", f"repos/{repo}/pulls?head={owner}:{branch}&state=open", "--jq", ".[].number")
-    numbers = out.stdout.split()
-    return int(numbers[0]) if numbers else None
 
 
 def set_line(body, prefix, line):
@@ -172,13 +146,6 @@ def size_line(size, commits):
     )
 
 
-def layer_pr(manifest, repo, branch):
-    pr = header(manifest, "pr")
-    if pr:
-        return int(pr)
-    return find_pr(repo, branch) if repo else None
-
-
 def patch_body(name, repo, pr, new, line):
     """PATCH the body, read it back; 1 when the size line did not take, else 0."""
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
@@ -227,47 +194,38 @@ def apply_body_change(name, branch, pr, repo, line, gate_text):
     return patch_body(name, repo, pr, change[1], line)
 
 
-def manifest_names(directory):
-    return sorted(
-        f for f in os.listdir(directory)
-        if not f.startswith(".") and os.path.isfile(os.path.join(directory, f))
-    )
-
-
-def stack_base(args, names):
-    base = args.base or header(os.path.join(args.manifests, names[0]), "base")
-    if not base:
-        sys.exit("no --base and no '# base:' header in the first manifest")
-    return base
+def github_or_none(explicit):
+    """The repository's GitHub; None when origin is not GitHub, so the bodies are skipped with a reason."""
+    try:
+        return GitHub.from_origin(explicit)
+    except StackError:
+        return None
 
 
 def main():
     args = parse_args()
-    names = manifest_names(args.manifests)
-    base = stack_base(args, names)
+    github = github_or_none(args.repo)
+    try:
+        stack = Stack.from_manifests(args.manifests, args.prefix, args.base, github=github)
+    except StackError as error:
+        sys.exit(str(error))
     flags = budget_flags(args)
-    repo = repo_slug(args.repo)
+    repo = github.slug if github else None
     sync = apply_body_change if args.update_prs else show_body_change
 
-    over, errors, parent = False, 0, base
+    over, errors = False, 0
     rows = []
-    for name in names:
-        manifest = os.path.join(args.manifests, name)
-        branch = header(manifest, "branch") or args.prefix + name
-        head = git("rev-parse", branch)
-        fork = git("merge-base", parent, branch)
-        size = budget(fork, head, flags)
-        commits = budget(fork, head, ["--per-commit", *flags])["commits"]
+    for layer in stack.layers:
+        size = budget(layer.fork, layer.head, flags)
+        commits = budget(layer.fork, layer.head, ["--per-commit", *flags])["commits"]
         status = layer_status(size, commits)
         over |= status in ("cap-violation", "commit-over")
-        gate_text, gate_note = gates_line(args.gates, name, head) if args.gates else (None, "")
-        pr = layer_pr(manifest, repo, branch)
-        rows.append((name, pr, size, commits, status, gate_note))
-        errors += sync(name, branch, pr, repo, size_line(size, commits), gate_text)
-        parent = branch
+        gate_text, gate_note = gates_line(args.gates, layer.name, layer.head) if args.gates else (None, "")
+        rows.append((layer.name, layer.pr, size, commits, status, gate_note))
+        errors += sync(layer.name, layer.branch, layer.pr, repo, size_line(size, commits), gate_text)
 
     print_table(rows)
-    print(f"{len(rows)}/{len(names)} layers measured")
+    print(f"{len(rows)}/{len(stack.layers)} layers measured")
     if errors:
         return 1
     return 2 if over else 0

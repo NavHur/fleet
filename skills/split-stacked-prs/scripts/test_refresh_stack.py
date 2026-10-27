@@ -48,6 +48,9 @@ class RefreshStackTests(unittest.TestCase):
              "--manifests", str(self.manifests), "--prefix", "s-"],
             cwd=self.root, check=True, capture_output=True, env=env,
         )
+        return self.refresh()
+
+    def refresh(self):
         return subprocess.run(
             [sys.executable, str(HERE / "refresh_stack.py"), "--manifests", str(self.manifests),
              "--prefix", "s-", "--base", "main"],
@@ -79,6 +82,14 @@ class RefreshStackTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.row(result, "01-ab")[7], "within-cap")
         self.assertEqual(self.row(result, "02-c")[7], "small")
+
+    def test_a_layer_whose_branch_is_missing_stops_with_the_reason(self):
+        self.stack({"a.ts": lines(10)}, {"01-feature": "a.ts\n"})
+        (self.manifests / "02-gone").write_text("b.ts\n")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("s-02-gone", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
 
 if __name__ == "__main__":
