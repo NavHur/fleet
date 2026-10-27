@@ -65,9 +65,6 @@
     "shadcn-ui/ui": [
       "shadcn"
     ],
-    "t3dotgg/tstack": [
-      "takeover"
-    ],
     "vercel-labs/agent-skills": [
       "vercel-composition-patterns",
       "vercel-react-best-practices"
