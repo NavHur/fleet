@@ -4,8 +4,8 @@
   loop.py brief LOOP ROUND ROLE --model TEXT [--pr PR ...] [--delta] [--checkout DIR]
   loop.py check LOOP ROUND [--only NAME] [--checkout DIR]
   loop.py outcome LOOP ID STATUS [--commit SHA] [--note TEXT]
-  loop.py render LOOP PR --checkout DIR
-  loop.py publish LOOP --checkout DIR [--dry-run]
+  loop.py render LOOP PR --checkout DIR [--earlier LOOP ...]
+  loop.py publish LOOP --checkout DIR [--earlier LOOP ...] [--dry-run]
 
 LOOP is the loop's directory (~/.cache/review-loop/<slug>) and ROUND a round
 number; round N lives in LOOP/rN with its heads.tsv
@@ -20,7 +20,8 @@ registered reviewer's file and prints the round's findings. outcome appends a
 finding's triage result (fixed, declined, decision, or ruled) to
 LOOP/outcomes.jsonl; the last record for an ID wins. render prints one PR's
 comment, and publish posts it on every PR whose GitHub head is the head the
-last round reviewed, once per round.
+last round reviewed, once per round. --earlier names an earlier pass's loop
+(oldest first): its rounds and findings join the same comment, ahead of LOOP's.
 """
 from __future__ import annotations
 
@@ -276,12 +277,12 @@ def gh(checkout, *args):
     return subprocess.run(["gh", *args], cwd=checkout, capture_output=True, text=True, check=True).stdout.strip()
 
 
-def publish_pr(loop, checkout, repo, pr, head, dry_run):
+def publish_pr(loops, checkout, repo, pr, head, dry_run):
     remote = gh(checkout, "pr", "view", pr, "--repo", repo, "--json", "headRefOid", "--jq", ".headRefOid")
     if remote != head:
         return (f"PR {pr}: GitHub has {remote[:9]} but the loop reviewed {head[:9]}; not posted. "
                 "Run publish again once the reviewed head is pushed.")
-    body = render(loop, pr, repo)
+    body = render(loops, pr, repo)
     marker = body.splitlines()[0]
     query = f".[] | select(.body | startswith({json.dumps(marker)})) | .html_url"
     posted = gh(checkout, "api", f"repos/{repo}/issues/{pr}/comments", "--paginate", "--jq", query)
@@ -294,13 +295,17 @@ def publish_pr(loop, checkout, repo, pr, head, dry_run):
     return f"PR {pr}: posted {gh(checkout, 'pr', 'comment', pr, '--repo', repo, '--body-file', handle.name)}"
 
 
-def publish(loop, checkout, dry_run):
-    repo, n = github_repo(checkout), rounds(loop)[-1]
-    for pr, head in heads(loop, n).items():
+def publish(loops, checkout, dry_run):
+    """Posts on the PRs of the final loop's last round; loops runs oldest pass first."""
+    repo, n = github_repo(checkout), rounds(loops[-1])[-1]
+    for pr, head in heads(loops[-1], n).items():
         if pr.isdigit():
-            print(publish_pr(loop, checkout, repo, pr, head.head, dry_run))
+            print(publish_pr(loops, checkout, repo, pr, head.head, dry_run))
         else:
             print(f"{pr}: no PR number in r{n}/heads.tsv; not posted")
+
+
+EARLIER = "an earlier pass's loop on the same PRs, reported first in the same comment; repeatable, oldest first"
 
 
 def parser():
@@ -329,11 +334,18 @@ def parser():
     cmd.add_argument("loop", type=Path)
     cmd.add_argument("pr")
     cmd.add_argument("--checkout", type=Path, required=True)
+    cmd.add_argument("--earlier", type=Path, action="append", default=[], help=EARLIER)
     cmd = commands.add_parser("publish")
     cmd.add_argument("loop", type=Path)
     cmd.add_argument("--checkout", type=Path, required=True)
+    cmd.add_argument("--earlier", type=Path, action="append", default=[], help=EARLIER)
     cmd.add_argument("--dry-run", action="store_true")
     return root
+
+
+def passes(args):
+    """The loops a comment reports, oldest pass first and args.loop last."""
+    return [path.expanduser().resolve() for path in (*args.earlier, args.loop)]
 
 
 def run(args):
@@ -347,9 +359,9 @@ def run(args):
     elif args.command == "outcome":
         record_outcome(loop, args.id, args.status, args.commit, args.note)
     elif args.command == "render":
-        print(render(loop, args.pr, github_repo(args.checkout)))
+        print(render(passes(args), args.pr, github_repo(args.checkout)))
     else:
-        publish(loop, args.checkout, args.dry_run)
+        publish(passes(args), args.checkout, args.dry_run)
     return 0
 
 
