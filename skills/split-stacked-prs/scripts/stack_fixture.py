@@ -18,8 +18,9 @@ class StackRepo:
         temp = tempfile.TemporaryDirectory()
         test.addCleanup(temp.cleanup)
         self.temp = Path(temp.name)
+        if "GIT_DIR" in os.environ:  # a hook's GIT_DIR would point every git, here or in a script, at the outer repository
+            test.addCleanup(os.environ.__setitem__, "GIT_DIR", os.environ.pop("GIT_DIR"))
         self.environ = {**os.environ, **IDENTITY}
-        self.environ.pop("GIT_DIR", None)  # a hook's GIT_DIR would point every call at the outer repository
         self.root = self.temp / "repo"
         self.manifests = self.temp / "layers"
         self.root.mkdir()

@@ -1,4 +1,4 @@
-"""Drive restack.py against a real bare origin and clone."""
+"""Drive restack.py against a repository with a real bare origin."""
 
 from pathlib import Path
 import subprocess
@@ -16,15 +16,16 @@ class RestackTests(unittest.TestCase):
         self.repo.add_origin()
         self.repo.environ.update(HOME=str(self.repo.temp))
         self.commit("main", {"app.txt": "one\ntwo\nthree\n"})
-        self.commit("l1", {"f1.txt": "layer one\n"}, new=True, start="main")
-        self.commit("l2", {"f2.txt": "layer two\n"}, new=True, start="l1")
-        self.commit("l3", {"f3.txt": "layer three\n"}, new=True, start="l2")
+        self.commit("l1", {"f1.txt": "layer one\n"}, start="main")
+        self.commit("l2", {"f2.txt": "layer two\n"}, start="l1")
+        self.commit("l3", {"f3.txt": "layer three\n"}, start="l2")
 
     def git_in(self, cwd, *args):
         return subprocess.run(["git", *args], cwd=cwd, env=self.repo.environ, text=True, check=True, capture_output=True).stdout.strip()
 
-    def commit(self, branch, files, new=False, start=None):
-        self.repo.git("checkout", "--quiet", *(["-B", branch, start] if new else [branch]))
+    def commit(self, branch, files, start=None):
+        """Commit FILES on BRANCH (created at START when given) and force-push it."""
+        self.repo.git("checkout", "--quiet", *(["-B", branch, start] if start else [branch]))
         self.repo.commit(files, f"{branch} change")
         self.repo.git("push", "--quiet", "--force", "origin", branch)
 
@@ -64,7 +65,7 @@ class RestackTests(unittest.TestCase):
 
     def test_stops_on_a_conflict_and_resumes(self):
         self.commit("l2", {"app.txt": "one\nTWO from l2\nthree\n"})
-        self.commit("l3", {"f3.txt": "layer three again\n"}, new=True, start="l2")
+        self.commit("l3", {"f3.txt": "layer three again\n"}, start="l2")
         self.repo.git("push", "--quiet", "--force", "origin", "l3")
         self.commit("main", {"app.txt": "one\nTWO from main\nthree\n"})
         out = self.restack("start", "--base", "origin/main", "l1", "l2", "l3", "--no-gates", expected=3)

@@ -1,11 +1,10 @@
 """Drive fix_layers.sh over a stack built by build_layers.sh."""
 
-import os
 from pathlib import Path
 import subprocess
 import unittest
 
-from stack_fixture import IDENTITY, StackRepo
+from stack_fixture import StackRepo
 
 HERE = Path(__file__).parent
 
@@ -24,7 +23,7 @@ class FixLayersTests(unittest.TestCase):
     def run_script(self, script, *args):
         result = subprocess.run(
             ["bash", str(HERE / script), *args, "--manifests", str(self.repo.manifests), "--prefix", "s-"],
-            cwd=self.repo.root, text=True, capture_output=True, env={**os.environ, **IDENTITY},
+            cwd=self.repo.root, text=True, capture_output=True, env=self.repo.env(),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         return result
