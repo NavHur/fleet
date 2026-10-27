@@ -26,10 +26,11 @@ Run builds, tests, lint, typechecks, format checks, and benchmarks through
 - Commit subjects: a Conventional Commits type, a scope when obvious
   (`fix(vacant-land): …`), imperative, under 72 characters; reasoning in the
   body.
-- Commit in small steps within the commit ceiling below, running format, lint,
-  and typecheck on each commit's changed files. Before pushing, run the
-  `pre-commit` skill once on the top head (the branch, or the last layer's
-  tip). Review-loop rounds and stacked PRs use their light check.
+- Commit one step at a time, as soon as it typechecks: the commit ceiling
+  below is a hard limit, not a target. Run format, lint, and typecheck on
+  each commit's changed files. Before pushing, run the `pre-commit` skill once
+  on the top head (the branch, or the last layer's tip). Review-loop rounds
+  and stacked PRs use their light check.
 
 ## Tests
 
@@ -47,8 +48,8 @@ confidence.
 - Stacks use `gh stack`: fix on the layer that owns the code, `gh stack rebase`
   descendants when their dependencies need it or Pedro asks, and merge with
   `gh stack merge --yes --merge` on the top PR.
-- Size, in bytes of added and deleted lines: a PR or stack layer within 48 KB
-  weighted and 96 KB raw churn, each commit within 12 KB and 24 KB, a layer at
+- Size, in bytes of added and deleted lines: a PR or stack layer within 72 KB
+  weighted and 144 KB raw churn, each commit within 12 KB and 24 KB, a layer at
   least 12 KB weighted, at most 5 per stack. Measure before pushing per
   `~/.agents/skills/split-stacked-prs/references/size-policy.md`.
   The rule is personal: it stays out of repositories.

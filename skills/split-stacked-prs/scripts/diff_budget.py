@@ -43,7 +43,7 @@ LOCKFILE_NAMES = {
     "yarn.lock",
 }
 # (weighted, raw) bytes: a pull request or stack layer, and one commit in it
-PR_CEILINGS = (48_000, 96_000)
+PR_CEILINGS = (72_000, 144_000)
 COMMIT_CEILINGS = (12_000, 24_000)
 DELETION_WEIGHT = 0.25
 BYTES_PER_TOKEN = 4
@@ -365,11 +365,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--cap", type=int,
-        help="weighted size ceiling in bytes (default: 48000, or 12000 with --per-commit)",
+        help="weighted size ceiling in bytes (default: 72000, or 12000 with --per-commit)",
     )
     parser.add_argument(
         "--raw-cap", type=int,
-        help="raw churn ceiling in bytes (default: 96000, or 24000 with --per-commit)",
+        help="raw churn ceiling in bytes (default: 144000, or 24000 with --per-commit)",
     )
     parser.add_argument("--json", action="store_true", help="emit JSON")
     args = parser.parse_args()
