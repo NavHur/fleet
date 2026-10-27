@@ -212,7 +212,7 @@ each round costs 25 to 75 minutes on this host, even for a three-line fix.
 
 2. Review the local layer heads (`git rev-parse` of each stack branch), not the
    pushed ones. Run `pedro-best-practices` audits local-only; a review loop
-   posts its results after the push (`review-loop` step 5).
+   posts its results after the push (`review-loop`'s finish step).
 3. Make all fixes on one branch off the top (the fixed source), then carry them
    down into their layers from a worktree where no stack branch is checked out:
 

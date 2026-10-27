@@ -9,8 +9,8 @@ over anything here.
 
 `code-review` runs Standards and Spec review, `pedro-best-practices` runs
 Pedro's code audit, and `review-loop` runs both in rounds with fixes between
-them, re-reviewing only the delta until a round is clean. The user picks
-reviewer models, effort, and roles at invocation.
+them, re-reviewing only the delta until a round is clean. Its models default to
+the table in its SKILL.md; the user overrides them at invocation.
 
 ## Launch
 
