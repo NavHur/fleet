@@ -28,7 +28,11 @@ def rounds(loop):
 
 def heads(loop, n):
     """{pr: Head}, bottom to top."""
-    path = round_dir(loop, n) / "heads.tsv"
+    return read_heads(round_dir(loop, n) / "heads.tsv")
+
+
+def read_heads(path):
+    """{pr: Head} from a heads file (stack_layers.py heads), bottom to top."""
     if not path.exists():
         raise LoopError(f"{path} does not exist")
     rows = {}

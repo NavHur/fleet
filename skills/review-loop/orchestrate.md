@@ -38,7 +38,7 @@ Write `rN/heads.tsv` from the local branches. A pass's round 1, or a PR new
 since the last round, is reviewed **whole**; otherwise compute the delta:
 
 ```bash
-bash "$SKILL_DIR/scripts/delta.sh" --prev rN-1/heads.tsv --heads rN/heads.tsv \
+python3 "$SKILL_DIR/scripts/delta.py" --prev rN-1/heads.tsv --heads rN/heads.tsv \
   --out rN [--manifests "$plan/layers"] --repo "$checkout"
 ```
 

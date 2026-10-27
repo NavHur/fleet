@@ -17,7 +17,7 @@ import fnmatch
 import json
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import PurePosixPath
 
@@ -156,10 +156,12 @@ def parse_patch(raw: bytes) -> list[list[int]]:
     return [section_bytes(section) for section in file_sections(raw)]
 
 
-def changed_files(start: str, head: str) -> list[tuple[str | None, str, int | None, int | None]]:
-    """(old path, path, added bytes, deleted bytes) per file; a binary file has no byte counts."""
-    listed = parse_numstat(git("diff", "--numstat", "-z", *DIFF_OPTIONS, start, head, "--", text=False))
-    sizes = parse_patch(git("diff", "-U0", *DIFF_OPTIONS, start, head, "--", text=False))
+def changed_files(
+    start: str, head: str, paths: Sequence[str] = ()
+) -> list[tuple[str | None, str, int | None, int | None]]:
+    """(old path, path, added bytes, deleted bytes) per file, within PATHS when given; binaries have no counts."""
+    listed = parse_numstat(git("diff", "--numstat", "-z", *DIFF_OPTIONS, start, head, "--", *paths, text=False))
+    sizes = parse_patch(git("diff", "-U0", *DIFF_OPTIONS, start, head, "--", *paths, text=False))
     if len(sizes) != len(listed):
         raise RuntimeError(f"git listed {len(listed)} changed files but patched {len(sizes)}")
     return [
