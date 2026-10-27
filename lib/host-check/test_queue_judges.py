@@ -38,6 +38,8 @@ AGREEMENT = [
     ("tsup", True, "build"),
     ("tsup src/index.ts --format esm", True, "build"),
     ("tsup --watch", False, "none"),
+    ("tsup src/index.ts --help", False, "none"),
+    ("pnpm lint njhomes-page-gates.ts", True, "light"),
     ("pnpm add -D tsup", False, "none"),
     ("hyperfine 'node a.js'", True, "heavy"),
     # Background commands run side by side, so the job is a fan-out; `wait` itself runs nothing.

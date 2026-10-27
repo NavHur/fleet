@@ -63,8 +63,8 @@ def framework_class(args):
 
 
 def tsup_class(args):
-    """tsup builds when run at all, unless it only watches."""
-    return "none" if "--watch" in args or "-w" in args else "build"
+    """tsup builds when run at all, unless it watches or prints help."""
+    return "none" if any(arg in HELP or arg in {"--watch", "-w"} for arg in args) else "build"
 
 
 def playwright_class(args):
@@ -114,8 +114,8 @@ def name_class(name, args):
 
 
 def queues_itself(words):
-    """A gate that calls host-check itself, such as njhomes-page-gates."""
-    return any(os.path.basename(w).startswith("njhomes-page-gates") for w in words)
+    """A gate that calls host-check itself, such as njhomes-page-gates, run as the command."""
+    return os.path.basename(words[0]).startswith("njhomes-page-gates")
 
 
 def leaf_class(leaf, depth=0):
