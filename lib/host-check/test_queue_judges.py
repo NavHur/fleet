@@ -3,6 +3,7 @@ import unittest
 
 from guard import needs_queue, starts_dev
 from jobclass import job_class
+from walk import leaves
 
 # (command, needs the queue, job class), judged in a directory with no package.json.
 AGREEMENT = [
@@ -19,9 +20,39 @@ AGREEMENT = [
     ("yarn node --test", True, "heavy"),
     ("pnpm run node --test", True, "heavy"),
     ("pnpm node --test x.test.js", True, "light"),
-    ("command -v vitest", False, "light"),
-    ("echo pnpm test", False, "light"),
+    ("command -v vitest", False, "none"),
+    ("echo pnpm test", False, "none"),
+    # The catalogue's rows, which the guard and the queue once kept apart.
+    ("godot-guard gate", True, "heavy"),
+    ("godot-guard gate --fast --staged", True, "light"),
+    ("godot-guard check", True, "light"),
+    ("godot-guard format", False, "none"),
+    ("tsrs", True, "light"),
+    ("svelte-check --tsconfig tsconfig.json", True, "light"),
+    ("oxfmt --check .", True, "light"),
+    ("tsx scripts/a11y-pages.ts", True, "light"),
+    ("playwright screenshot https://x", True, "light"),
+    ("next lint", True, "light"),
+    ("pnpm fmt", True, "light"),
+    ("make bench", True, "light"),
+    ("pnpm exec eslint .", True, "light"),
+    ("tsup", True, "build"),
+    ("tsup src/index.ts --format esm", True, "build"),
+    ("tsup --watch", False, "none"),
+    ("tsup --watch=src", False, "none"),
+    ("tsup src/index.ts --help", False, "none"),
+    ("pnpm lint njhomes-page-gates.ts", True, "light"),
+    ("pnpm add -D tsup", False, "none"),
+    ("hyperfine 'node a.js'", True, "heavy"),
+    # Background commands run side by side, so the job is a fan-out; `wait` itself runs nothing.
+    ("wait", False, "none"),
+    ("pnpm lint & pnpm typecheck & wait", True, "heavy"),
+    ("sleep 1 & wait", False, "heavy"),
+    ("vitest --help", False, "none"),
+    ("ls", False, "none"),
 ]
+# Leaves the walk cannot see: heavy for the queue, but the guard never asks for the queue on a guess.
+OPAQUE = [("eval \"$CMD\"", "heavy"), ("bash -s", "heavy"), ("$RUN", "heavy")]
 
 
 class QueueJudgesAgreeTests(unittest.TestCase):
@@ -32,6 +63,23 @@ class QueueJudgesAgreeTests(unittest.TestCase):
             for command, queued, job in AGREEMENT:
                 with self.subTest(command=command):
                     self.assertEqual((needs_queue(command, cwd), job_class(command, cwd)), (queued, job))
+
+    def test_the_guard_queues_what_the_catalogue_classes(self):
+        with tempfile.TemporaryDirectory(prefix="queue-judges-") as cwd:
+            for command, _, _ in AGREEMENT:
+                if any(leaf.background for leaf in leaves(command, cwd)):
+                    continue  # the fan-out is the job's, not a leaf's
+                with self.subTest(command=command):
+                    self.assertEqual(needs_queue(command, cwd), job_class(command, cwd) != "none")
+
+    def test_opaque_leaves_are_heavy_but_never_queued(self):
+        for command, job in OPAQUE:
+            with self.subTest(command=command):
+                self.assertEqual((needs_queue(command, "/"), job_class(command, "/")), (False, job))
+
+    def test_a_gate_that_queues_itself_is_left_to_queue(self):
+        self.assertEqual((needs_queue("njhomes-page-gates a.tsx", "/"), job_class("njhomes-page-gates a.tsx", "/")),
+                         (False, "build"))
 
 
 class DevServerTests(unittest.TestCase):

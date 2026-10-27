@@ -232,10 +232,11 @@ class ClassTests(Fixtures):
             # A log path after a redirection is not a test target.
             ("bash -lc 'pnpm test > /tmp/test.log 2>&1'", "heavy"),
             ("vitest run --changed > /tmp/v.log", "heavy"),
-            ("vitest --help", "light"),
+            ("vitest --help", "none"),
             # Commands that cannot be seen are heavy, never build.
             ("bash", "heavy"), ("bash -lc 'for c in lint test; do pnpm $c; done'", "heavy"),
             ("bash -lc 'eval \"$CMD\"'", "heavy"), ("bash /nonexistent/gates.sh", "heavy"),
+            ("bash -c \"echo 'unclosed\"", "heavy"),
             ("node --test", "heavy"), ("node --import tsx --test 'tests/**/*.test.ts'", "heavy"),
             ("node --test tests/one.test.ts", "light"),
             (".venv/bin/godot-guard gate", "heavy"), ("godot-guard gate --jobs 4", "heavy"),
@@ -250,16 +251,16 @@ class ClassTests(Fixtures):
             ("pnpm review:coverage", app, "heavy"), ("pnpm run review:coverage --base abc", app, "heavy"),
             ("npm run review:coverage", app, "heavy"), ("pnpm test:run", app, "heavy"),
             ("pnpm test src/a.test.ts", app, "light"), ("pnpm test -- src/a.test.ts", app, "light"),
-            ("pnpm unit", app, "light"), ("pnpm amplify:env", app, "light"), ("pnpm loop", app, "light"),
+            ("pnpm unit", app, "light"), ("pnpm amplify:env", app, "none"), ("pnpm loop", app, "none"),
             ("pnpm web build", repo, "build"), ("pnpm web test", repo, "heavy"), ("pnpm web quality", repo, "heavy"),
             # A validation name keeps its class even when the body looks lighter.
-            ("pnpm web test:one", repo, "heavy"), ("pnpm --filter @mono/web data:parcels", repo, "light"),
+            ("pnpm web test:one", repo, "heavy"), ("pnpm --filter @mono/web data:parcels", repo, "none"),
             ("pnpm --filter ./apps/web quality", repo, "heavy"), ("pnpm -F '@mono/*' quality", repo, "heavy"),
             ("pnpm build", repo, "build"), ("turbo run test --filter=@mono/api", repo, "heavy"),
             ("pnpm --filter @mono/api verify-db", repo, "heavy"), ("pnpm test", api, "heavy"),
             ("pnpm quality", web, "heavy"), ("pnpm a11y:changed", web, "light"),
             # Names still decide when the body cannot be found.
-            ("pnpm review:coverage", "/", "light"), ("pnpm test", "/", "heavy"), ("pnpm build:data", "/", "build"),
+            ("pnpm review:coverage", "/", "none"), ("pnpm test", "/", "heavy"), ("pnpm build:data", "/", "build"),
         ]:
             with self.subTest(command=command, cwd=cwd):
                 self.assertEqual(job_class(command, cwd), expected)
@@ -270,8 +271,8 @@ class ClassTests(Fixtures):
             (f"bash {s}/gates.sh", "heavy"), (f"{s}/gates.sh", "heavy"), (f"{s}/gates", "heavy"),
             (f"bash {s}/light.sh", "light"), (f"bash {s}/stored.sh", "heavy"), (f"bash {s}/opaque.sh", "heavy"),
             (f"bash {s}/fanout.sh", "heavy"), (f"bash {s}/variable.sh", "light"),
-            (f"bash -lc 'source {s}/env.sh && pnpm lint'", "light"), (f"source {s}/missing.sh", "light"),
-            (f"bash -n {s}/gates.sh", "light"), (f"bash -x {s}/gates.sh", "heavy"),
+            (f"bash -lc 'source {s}/env.sh && pnpm lint'", "light"), (f"source {s}/missing.sh", "none"),
+            (f"bash -n {s}/gates.sh", "none"), (f"bash -x {s}/gates.sh", "heavy"),
         ]:
             with self.subTest(command=command):
                 self.assertEqual(job_class(command, str(s)), expected)
@@ -291,6 +292,7 @@ class ClassTests(Fixtures):
             (["bash", str(self.scripts / "gates.sh")], "/", "heavy"),
             (["bash", "-lc", "pnpm lint && pnpm build"], "/", "build"),
             (["pnpm", "lint"], self.app, "light"),
+            (["ls"], "/", "none"),
         ]:
             result = subprocess.run(["/usr/bin/python3", str(ROOT / "jobclass.py"), *argv],
                                     cwd=cwd, text=True, capture_output=True, check=True)

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import platform
 import select
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -184,6 +185,26 @@ class SchedulerTests(unittest.TestCase):
         _, stderr = process.communicate(timeout=5)
         self.assertEqual(process.returncode, 64)
         self.assertIn("nested invocation refused", stderr)
+
+    def test_broken_classifier_stops_the_job_before_it_runs(self):
+        # A copy of the wrapper beside a job classifier that cannot load.
+        lib = self.root / "lib" / "host-check"
+        lib.mkdir(parents=True)
+        (self.root / "bin").mkdir()
+        shutil.copy(WRAPPER.parent.parent / "lib" / "host-check" / "hostconf.py", lib)
+        (lib / "jobclass.py").write_text("raise RuntimeError('catalogue failed to load')\n")
+        self.wrapper = self.root / "bin" / "host-check"
+        shutil.copy(WRAPPER, self.wrapper)
+        process = self.launch(self.a, "touch", "ran")
+        _, stderr = process.communicate(timeout=5)
+        self.assertNotEqual(process.returncode, 0)
+        self.assertIn("catalogue failed to load", stderr)
+        self.assertIn("HOST_CHECK_CLASS", stderr)
+        self.assertFalse((self.a / "ran").exists())
+        self.env["HOST_CHECK_CLASS"] = "heavy"
+        overridden = self.launch(self.a, "touch", "ran")
+        overridden.communicate(timeout=5)
+        self.assertEqual(overridden.returncode, 0)
 
     def test_termination_releases_slot(self):
         process = self.launch(self.a)

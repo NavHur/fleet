@@ -27,6 +27,8 @@ sys.path.insert(0, str(LIB))
 import hostconf  # noqa: E402
 
 CLASSES = ("build", "heavy", "light")
+# The slot each job class takes: a job that runs no validation still takes a light one.
+SLOT_CLASS = {"none": "light", "light": "light", "heavy": "heavy", "build": "build"}
 
 
 def say(message):
@@ -74,14 +76,17 @@ def worktree_root():
 
 
 def classify(argv):
+    """The slot class a job takes: HOST_CHECK_CLASS, else the job class catalogue's answer."""
     chosen = os.environ.get("HOST_CHECK_CLASS")
-    if chosen not in CLASSES:
-        try:
-            import jobclass
-            chosen = jobclass.job_class(shlex.join(argv))
-        except Exception:  # an unreadable command is treated as heavy
-            chosen = "heavy"
-    return chosen if chosen in CLASSES else "heavy"
+    if chosen in CLASSES:
+        return chosen
+    try:
+        import jobclass
+        return SLOT_CLASS[jobclass.job_class(shlex.join(argv))]
+    except Exception:
+        # A broken catalogue stops the job instead of making every job heavy.
+        say("could not classify the job; HOST_CHECK_CLASS=build|heavy|light before host-check overrides it")
+        raise
 
 
 def launcher(conf):
