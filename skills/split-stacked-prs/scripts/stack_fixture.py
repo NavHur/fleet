@@ -9,13 +9,19 @@ IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NA
 
 
 class StackRepo:
-    """`root` is a repository on `main` with one commit; `manifests` is an empty directory."""
+    """`root` is a repository on `main` with one commit; `manifests` is an empty directory.
+
+    `temp` holds both; `environ` is the environment every git call and `env()` start from.
+    """
 
     def __init__(self, test):
         temp = tempfile.TemporaryDirectory()
         test.addCleanup(temp.cleanup)
-        self.root = Path(temp.name) / "repo"
-        self.manifests = Path(temp.name) / "layers"
+        self.temp = Path(temp.name)
+        self.environ = {**os.environ, **IDENTITY}
+        self.environ.pop("GIT_DIR", None)  # a hook's GIT_DIR would point every call at the outer repository
+        self.root = self.temp / "repo"
+        self.manifests = self.temp / "layers"
         self.root.mkdir()
         self.manifests.mkdir()
         self.git("init", "-q", "-b", "main")
@@ -24,9 +30,19 @@ class StackRepo:
         os.chdir(self.root)
         test.addCleanup(os.chdir, cwd)
 
+    def env(self, **extra):
+        return {**self.environ, **extra}
+
     def git(self, *args):
-        env = {**os.environ, **IDENTITY}
-        return subprocess.check_output(["git", *args], cwd=self.root, text=True, env=env).strip()
+        return subprocess.check_output(["git", *args], cwd=self.root, text=True, env=self.environ).strip()
+
+    def add_origin(self):
+        """Create a bare `origin.git` beside the repository, add it as `origin`, and push `main`."""
+        origin = self.temp / "origin.git"
+        self.git("init", "-q", "--bare", "-b", "main", str(origin))
+        self.git("remote", "add", "origin", str(origin))
+        self.git("push", "-q", "origin", "main")
+        return origin
 
     def manifest(self, name, text):
         (self.manifests / name).write_text(text)
