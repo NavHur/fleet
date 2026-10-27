@@ -195,10 +195,11 @@ def apply_body_change(name, branch, pr, repo, line, gate_text):
 
 
 def github_or_none(explicit):
-    """The repository's GitHub; None when origin is not GitHub, so the bodies are skipped with a reason."""
+    """The repository's GitHub; None after saying why, so the bodies are skipped with a reason."""
     try:
         return GitHub.from_origin(explicit)
-    except StackError:
+    except StackError as error:
+        print(f"PR bodies skipped: {error}", file=sys.stderr)
         return None
 
 

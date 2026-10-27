@@ -91,6 +91,11 @@ class RefreshStackTests(unittest.TestCase):
         self.assertIn("s-02-gone", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
+    def test_without_an_origin_the_bodies_are_skipped_with_git_s_reason(self):
+        result = self.stack({"a.ts": lines(10)}, {"01-feature": "a.ts\n"})
+        self.assertIn("PR bodies skipped: git -C . remote get-url origin", result.stderr)
+        self.assertIn("No such remote", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
