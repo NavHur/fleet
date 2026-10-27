@@ -10,7 +10,7 @@ import unittest
 
 
 SCRIPT = Path(__file__).with_name("diff_budget.py")
-LINE_BYTES = 48  # 1000 lines fill the pull request's weighted ceiling
+LINE_BYTES = 48  # 1500 lines fill the pull request's weighted ceiling
 IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
 
 
@@ -63,23 +63,23 @@ class DiffBudgetTests(unittest.TestCase):
     def test_tests_still_exceed_raw_ceiling(self):
         report = self.run_budget({
             "src/app.ts": self.lines(700),
-            "src/app.spec.tsx": self.lines(1500),
+            "src/app.spec.tsx": self.lines(2400),
         }, expected=2)
         self.assertEqual(report["weighted_size"], 700 * LINE_BYTES)
-        self.assertEqual(report["raw_churn"], 2200 * LINE_BYTES)
+        self.assertEqual(report["raw_churn"], 3100 * LINE_BYTES)
 
     def test_exact_ceilings_pass(self):
         report = self.run_budget({
-            "app.ts": self.lines(1000), "app.test.ts": self.lines(1000),
+            "app.ts": self.lines(1500), "app.test.ts": self.lines(1500),
         })
-        self.assertEqual(report["weighted_size"], 48_000)
-        self.assertEqual(report["raw_churn"], 96_000)
+        self.assertEqual(report["weighted_size"], 72_000)
+        self.assertEqual(report["raw_churn"], 144_000)
 
     def test_weighted_ceiling_fails_independently(self):
-        self.run_budget({"app.ts": self.lines(1001)}, expected=2)
+        self.run_budget({"app.ts": self.lines(1501)}, expected=2)
 
     def test_test_only_change_has_raw_limit(self):
-        report = self.run_budget({"app.test.ts": self.lines(2001)}, expected=2)
+        report = self.run_budget({"app.test.ts": self.lines(3001)}, expected=2)
         self.assertEqual(report["weighted_size"], 0)
 
     def test_supported_test_names_across_languages(self):
@@ -93,11 +93,11 @@ class DiffBudgetTests(unittest.TestCase):
         self.assertEqual(report["test_churn"], 700 * LINE_BYTES)
 
     def test_helpers_fixtures_and_setup_count_in_both(self):
-        files = {path: self.lines(300) for path in (
+        files = {path: self.lines(400) for path in (
             "tests/helpers.ts", "tests/setup.ts", "tests/fixtures.ts", "vitest.config.ts",
         )}
         report = self.run_budget(files, expected=2)
-        self.assertEqual(report["weighted_size"], 1200 * LINE_BYTES)
+        self.assertEqual(report["weighted_size"], 1600 * LINE_BYTES)
         self.assertEqual(report["test_churn"], 0)
 
     def test_verified_accessibility_test_glob(self):
@@ -119,8 +119,8 @@ class DiffBudgetTests(unittest.TestCase):
 
     def test_fractional_deletion_weight_is_not_truncated(self):
         self.base = self.tree({"old.ts": self.lines(1)})
-        report = self.run_budget({"new.ts": self.lines(1000, "different")}, expected=2)
-        self.assertEqual(report["weighted_size"], 48_000 + LINE_BYTES / 4)
+        report = self.run_budget({"new.ts": self.lines(1500, "different")}, expected=2)
+        self.assertEqual(report["weighted_size"], 72_000 + LINE_BYTES / 4)
 
     def test_rename_to_test_does_not_hide_production_changes(self):
         original = self.lines(1100)
@@ -144,9 +144,9 @@ class DiffBudgetTests(unittest.TestCase):
 
     def test_long_lines_count_by_their_bytes(self):
         """One minified line costs what it takes to read, not one line."""
-        report = self.run_budget({"bundle.js": "x" * 49_999 + "\n"}, expected=2)
-        self.assertEqual(report["weighted_size"], 50_000)
-        self.assertEqual(report["files"][0]["bytes"], 50_000)
+        report = self.run_budget({"bundle.js": "x" * 74_999 + "\n"}, expected=2)
+        self.assertEqual(report["weighted_size"], 75_000)
+        self.assertEqual(report["files"][0]["bytes"], 75_000)
 
     def test_rewrite_counts_both_sides(self):
         self.base = self.tree({"app.ts": self.lines(100, "old")})

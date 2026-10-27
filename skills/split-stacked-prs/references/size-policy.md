@@ -9,10 +9,10 @@ Every pull request Pedro authors, stacked or not, stays within two ceilings
 against its direct base branch:
 
 - **Weighted size** is non-test added bytes plus one quarter of non-test
-  deleted bytes, at most **48 KB** (about 12k tokens). Test files are excluded
+  deleted bytes, at most **72 KB** (about 18k tokens). Test files are excluded
   from this ceiling only.
 - **Raw churn** is added plus deleted bytes, including test files, at most
-  **96 KB**. Report test churn separately.
+  **144 KB**. Report test churn separately.
 
 A pull request is made of commits, and a stack of layers:
 
@@ -20,7 +20,7 @@ A pull request is made of commits, and a stack of layers:
   extracted helper, a new type, a behavior change with its tests, the wiring.
   Refactors and behavior changes go in separate commits, and each commit
   typechecks. Against its parent, a commit stays within **12 KB** weighted and
-  **24 KB** raw, measured like a pull request, so a pull request holds four
+  **24 KB** raw, measured like a pull request, so a pull request holds six
   full commits. A commit that cannot be split, such as one cohesive new
   module or a mechanical edit across many files, carries a
   `Size-Exception: <reason>` trailer.
