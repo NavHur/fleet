@@ -24,8 +24,10 @@ reached:
   one line per round. Update it at the end of every step that changes it.
 - `outcomes.jsonl`: written only by `loop.py outcome`. A finding with an
   outcome is **settled**.
-- `rN/heads.tsv`: one line per PR, bottom to top, by PR number when the PR
-  exists; only numbered PRs get a comment.
+- `rN/heads.tsv`: `PR<TAB>LAYER<TAB>FORK<TAB>HEAD` per PR, bottom to top,
+  from `stack_layers.py heads` (step 1). FORK is the layer's fork point, so
+  `git diff FORK HEAD` is its own change. PR is the number, or the branch
+  while no PR is open; only numbered PRs get a comment.
 
 ## Steps
 
@@ -34,8 +36,17 @@ pass 2.
 
 ### 1. Pin the round
 
-Write `rN/heads.tsv` from the local branches. A pass's round 1, or a PR new
-since the last round, is reviewed **whole**; otherwise compute the delta:
+Write `rN/heads.tsv` from the local branches, for a split-stacked-prs stack or
+a branch list (one branch for a single PR):
+
+```bash
+stack_layers="$SKILL_DIR/../split-stacked-prs/scripts/stack_layers.py"
+python3 "$stack_layers" heads --manifests "$plan/layers" --prefix "<source>-" >rN/heads.tsv
+python3 "$stack_layers" heads --base "$base" "$branch_1" "$branch_2" >rN/heads.tsv
+```
+
+A pass's round 1, or a PR new since the last round, is reviewed **whole**;
+otherwise compute the delta:
 
 ```bash
 python3 "$SKILL_DIR/scripts/delta.py" --prev rN-1/heads.tsv --heads rN/heads.tsv \

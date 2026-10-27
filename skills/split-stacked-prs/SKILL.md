@@ -11,7 +11,8 @@ include that path in any handoff that validates.
 
 Set `SKILL_DIR` to this skill's absolute directory. The scripts are in
 `$SKILL_DIR/scripts`; each prints its usage with `--help`. The manifest format
-and the hook contract are in the header of `scripts/lib.sh`.
+and the hook contract are in the header of `scripts/lib.sh`; `stack_layers.py`
+answers a stack's layers (branch, fork point, head, PR) for scripts and prose.
 
 ## Enforce the contract
 
