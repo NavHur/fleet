@@ -262,7 +262,7 @@ class LoopTests(unittest.TestCase):
                       out)
         self.assertIn("| Ruled: Pedro keeps it |", out)
 
-    def publish(self, remote_head, posted=""):
+    def publish(self, remote_head, *args, posted=""):
         state = self.root / "gh"
         state.mkdir(exist_ok=True)
         (state / "head").write_text(remote_head)
@@ -271,7 +271,7 @@ class LoopTests(unittest.TestCase):
         fake.write_text(FAKE_GH)
         fake.chmod(0o755)
         env = {**os.environ, "PATH": f"{state}:{os.environ['PATH']}", "FAKE_GH_STATE": str(state)}
-        return self.run_loop("publish", self.loop, "--checkout", self.repo, env=env), state
+        return self.run_loop("publish", self.loop, "--checkout", self.repo, *args, env=env), state
 
     def test_publish_posts_the_rendered_comment_when_github_has_the_reviewed_head(self):
         self.two_rounds()
@@ -286,6 +286,79 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(out, f"PR 7: GitHub has {self.first[:9]} but the loop reviewed {self.second[:9]}; "
                               "not posted. Run publish again once the reviewed head is pushed.\n")
         self.assertFalse((state / "body.md").exists())
+
+    def final_pass(self):
+        """A second ledger on the same PR: one whole round at the first pass's final head."""
+        earlier, self.loop = self.loop, self.root / "pr-7-opus"
+        self.heads(1, self.second)
+        (self.loop / "ledger.md").write_text("# Review loop: acme/app #7, Opus pass\n")
+        self.run_loop("brief", self.loop, 1, "standards", "--model", "claude-opus-5-5 medium")
+        self.write(1, "standards", {"findings": [finding(priority="P3", kind="violation", line=1, failure="",
+                                                         title="A stale comment.")]})
+        self.run_loop("outcome", self.loop, "R1-STD-1", "declined", "--note", "The comment is accurate")
+        return earlier
+
+    def test_render_with_an_earlier_pass_reports_both_ledgers_in_one_comment(self):
+        self.two_rounds()
+        earlier = self.final_pass()
+        code, out = self.run_loop("render", self.loop, "7", "--checkout", self.repo, "--earlier", earlier)
+        self.assertEqual(code, 0, out)
+        s, f = self.second, self.first
+        self.assertTrue(out.startswith(textwrap.dedent(f"""\
+            <!-- review-loop pr-7-opus r1 {s} -->
+            ## Review loop
+
+            > [!WARNING]
+            > 3 findings over 3 rounds in 2 passes: 1 fixed, 1 declined, 1 open. Coverage: incomplete (Standards: Core runtime, Cognitive complexity (limit 8)).
+
+            Reviewed head [`{s[:9]}`](https://github.com/acme/app/commit/{s}) on base `{self.base[:9]}` · reviewers: claude-opus-5-5 medium, gpt-6.1-sol high
+
+            ### Pass 1: gpt-6.1-sol high
+
+            #### Rounds
+
+            | Round | Review | Head | Findings | Fixed |
+            | --- | --- | --- | ---: | ---: |
+            | r1 | whole: standards, audit | `{f[:9]}` | 1 | 1 |
+            | r2 | delta: delta | `{s[:9]}` | 1 | 0 |
+
+            #### Findings
+            """)), out)
+        self.assertIn("| R2-DELTA-1 | P3 advisory | pedro/no-nested-ternary | `app.py:1` | A \\| in the title. | Open |",
+                      out, "only the final pass's last round links its locations")
+        self.assertIn("\n##### R1-STD-1: Errors are swallowed.\n", out)
+        self.assertIn(textwrap.dedent(f"""\
+            ### Pass 2: claude-opus-5-5 medium
+
+            #### Rounds
+
+            | Round | Review | Head | Findings | Fixed |
+            | --- | --- | --- | ---: | ---: |
+            | r1 | whole: standards | `{s[:9]}` | 1 | 0 |
+
+            #### Findings
+
+            | ID | Priority | Rule | Location | Finding | Outcome |
+            | --- | --- | --- | --- | --- | --- |
+            | R1-STD-1 | P3 violation | README.md "Errors" | [`app.py:1`](https://github.com/acme/app/blob/{s}/app.py#L1) | A stale comment. | Declined: The comment is accurate |
+            """), out)
+        self.assertIn("\n### Coverage\n", out)
+
+    def test_render_refuses_an_earlier_pass_that_never_pinned_the_pr(self):
+        self.two_rounds()
+        earlier = self.final_pass()
+        (earlier / "r1" / "heads.tsv").write_text(f"8\tother\t{self.base}\t{self.first}\n")
+        (earlier / "r2" / "heads.tsv").write_text(f"8\tother\t{self.base}\t{self.second}\n")
+        code, out = self.run_loop("render", self.loop, "7", "--checkout", self.repo, "--earlier", earlier)
+        self.assertEqual((code, out), (2, "loop.py: PR 7 is in no round's heads.tsv\n"))
+
+    def test_publish_with_an_earlier_pass_posts_the_unified_comment(self):
+        self.two_rounds()
+        earlier = self.final_pass()
+        (code, out), state = self.publish(self.second, "--earlier", earlier)
+        self.assertEqual((code, out), (0, "PR 7: posted https://github.com/acme/app/pull/7#issuecomment-1\n"))
+        rendered = self.run_loop("render", self.loop, "7", "--checkout", self.repo, "--earlier", earlier)[1]
+        self.assertEqual((state / "body.md").read_text() + "\n", rendered)
 
     def test_publish_posts_a_round_once(self):
         self.two_rounds()

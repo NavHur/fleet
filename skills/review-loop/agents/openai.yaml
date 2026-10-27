@@ -1,6 +1,6 @@
 interface:
   display_name: "Review loop"
-  short_description: "Review, fix and re-review a PR or stack until it converges"
+  short_description: "Review a PR or stack in two passes, Terra then Opus, until each converges"
   default_prompt: "Use $review-loop on this stack."
 policy:
   allow_implicit_invocation: false
