@@ -104,8 +104,9 @@ class GitHub:
             raise StackError(f"origin is not a GitHub repository: {url}")
         return cls(match.group(1))
 
-    def api(self, path: str, *jq: str) -> str:
-        result = subprocess.run(["gh", "api", f"repos/{self.slug}/{path}", *jq], capture_output=True, text=True)
+    def api(self, path: str, *options: str) -> str:
+        """`gh api repos/SLUG/PATH OPTIONS...`'s output; StackError with gh's message when it fails."""
+        result = subprocess.run(["gh", "api", f"repos/{self.slug}/{path}", *options], capture_output=True, text=True)
         if result.returncode != 0:
             raise StackError(f"gh api repos/{self.slug}/{path}: {(result.stderr or result.stdout).strip()}")
         return result.stdout.strip()
