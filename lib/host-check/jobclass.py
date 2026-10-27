@@ -5,9 +5,12 @@
 A job class is none (no validation), light (lint, format, typecheck, targeted
 tests), heavy (whole suites), or build. host-check admits a job by its
 strongest leaf, and the guard (guard.py) sends a command to the queue when a
-leaf it can see is anything but none, so the two cannot disagree. Leaves come
-from the command walk (walk.py): package scripts and shell script files are
-judged by the commands they run, and script names remain the fallback.
+leaf it can see is anything but none. They agree on every leaf the walk can
+see that host-check does not already run. Exceptions: opaque leaves are heavy
+here but never queued (docs/adr/0002), a script or gate that queues itself
+is classed here but left to queue, and fan-out is judged per job by host-check.
+Leaves come from the command walk (walk.py): package scripts and shell script
+files are judged by the commands they run, and script names remain the fallback.
 """
 import os
 import re
@@ -25,6 +28,8 @@ RANK = {"none": 0, "light": 1, "heavy": 2, "build": 3}
 BUILD_TASK = re.compile(r"^build([:.-].*)?$")
 SUITE_TASK = re.compile(r"^(check|test|verify|validate|precommit|pre-commit)([:.-].*)?$")
 LIGHT_TASK = re.compile(r"^(lint|typecheck|type-check|format|fmt|bench|benchmark)([:.-].*)?$")
+# The walk's set is the runners whose package.json scripts it expands; nx runs
+# project targets instead, so only the catalogue adds it.
 PACKAGE_RUNNERS = walk.PACKAGE_RUNNERS | {"nx"}
 # Commands whose arguments name a validation task: `pnpm test`, `make lint`.
 TASK_RUNNERS = PACKAGE_RUNNERS | {"make", "just"}
@@ -64,7 +69,8 @@ def framework_class(args):
 
 def tsup_class(args):
     """tsup builds when run at all, unless it watches or prints help."""
-    return "none" if any(arg in HELP or arg in {"--watch", "-w"} for arg in args) else "build"
+    watching = any(arg in {"--watch", "-w"} or arg.startswith("--watch=") for arg in args)
+    return "none" if watching or any(arg in HELP for arg in args) else "build"
 
 
 def playwright_class(args):

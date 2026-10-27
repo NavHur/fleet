@@ -3,6 +3,7 @@ import unittest
 
 from guard import needs_queue, starts_dev
 from jobclass import job_class
+from walk import leaves
 
 # (command, needs the queue, job class), judged in a directory with no package.json.
 AGREEMENT = [
@@ -38,6 +39,7 @@ AGREEMENT = [
     ("tsup", True, "build"),
     ("tsup src/index.ts --format esm", True, "build"),
     ("tsup --watch", False, "none"),
+    ("tsup --watch=src", False, "none"),
     ("tsup src/index.ts --help", False, "none"),
     ("pnpm lint njhomes-page-gates.ts", True, "light"),
     ("pnpm add -D tsup", False, "none"),
@@ -65,7 +67,7 @@ class QueueJudgesAgreeTests(unittest.TestCase):
     def test_the_guard_queues_what_the_catalogue_classes(self):
         with tempfile.TemporaryDirectory(prefix="queue-judges-") as cwd:
             for command, _, _ in AGREEMENT:
-                if "&" in command:
+                if any(leaf.background for leaf in leaves(command, cwd)):
                     continue  # the fan-out is the job's, not a leaf's
                 with self.subTest(command=command):
                     self.assertEqual(needs_queue(command, cwd), job_class(command, cwd) != "none")

@@ -292,6 +292,7 @@ class ClassTests(Fixtures):
             (["bash", str(self.scripts / "gates.sh")], "/", "heavy"),
             (["bash", "-lc", "pnpm lint && pnpm build"], "/", "build"),
             (["pnpm", "lint"], self.app, "light"),
+            (["ls"], "/", "none"),
         ]:
             result = subprocess.run(["/usr/bin/python3", str(ROOT / "jobclass.py"), *argv],
                                     cwd=cwd, text=True, capture_output=True, check=True)

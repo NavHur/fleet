@@ -4,9 +4,13 @@ file over the size cap (commit_guard.py).
 
     python3 guard.py [claude|codex|cursor|opencode] < hook-payload.json
 
-Each check judges the leaves of the command walk (walk.py). A leaf needs the
-queue when the validation catalogue (jobclass.py) gives it a job class other
-than none. Not a shell security boundary: it recognizes the common spellings.
+Each check judges the leaves of the command walk (walk.py). A leaf the walk
+can see, and host-check does not already run, needs the queue when the
+validation catalogue (jobclass.py) gives it a job class other than none.
+Opaque leaves are never queued (docs/adr/0002), a script or gate that queues
+itself is left to queue, and background fan-out is judged per job by
+host-check only. Not a shell security boundary: it recognizes the common
+spellings.
 Package scripts (`pnpm review:coverage`, `pnpm --filter X test`, `pnpm web
 build`) are resolved to their bodies through the nearest package.json and the
 workspace, and shell script files (`bash gates.sh`, `./gates.sh`) are read, so
@@ -101,7 +105,7 @@ def queued(leaf, scripts):
 
 
 def leaves_need_queue(found):
-    """Whether a leaf the walk can see, and host-check does not already run, has a job class.
+    """Whether a leaf the walk can see, and host-check does not already run, has a job class other than none.
 
     Opaque leaves are heavy for the queue but never send a command to it: the
     guard does not deny what it cannot see (docs/adr/0002).

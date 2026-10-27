@@ -224,8 +224,8 @@ def read_leaves(texts, cwd, frame):
 
 DEFAULT_EXPANSION = re.compile(r"\$\{[A-Za-z_][A-Za-z_0-9]*:?[-=]([^}]*)\}")
 # The first words of a stored string worth reading as a command.
-COMMAND_WORDS = {
-    "pnpm", "npm", "yarn", "bun", "npx", "bunx", "turbo", "nx", "make", "just", "next", "vite", "webpack", "rollup",
+COMMAND_WORDS = PACKAGE_RUNNERS | {
+    "nx", "make", "just", "next", "vite", "webpack", "rollup",
     "astro", "tsup", "playwright", "jest", "vitest", "tsc", "eslint", "oxlint", "prettier", "biome", "vue-tsc", "tsgo",
     "tsrs", "svelte-check", "oxfmt", "hyperfine", "tsx", "node", "ts-node", "vite-node", "deno",
 } | SHELLS
