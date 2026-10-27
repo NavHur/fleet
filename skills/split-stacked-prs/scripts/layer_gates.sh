@@ -52,14 +52,14 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 . "$script_dir/lib.sh"
 manifests=$(cd "$manifests" && pwd)
 
-base=$(stack_base "$manifests" "$base")
+base=$(stack_base "$manifests" "$base" || true)
 [[ -n $base ]] || { echo "no --base and no '# base:' header in the first manifest" >&2; exit 2; }
 typecheck_cmd=${TYPECHECK_CMD:-pnpm typecheck}
 lint_cmd=${LINT_CMD:-pnpm lint}
 format_cmd=${FORMAT_CMD:-pnpm exec oxfmt --check}
 test_cmd=${TEST_CMD:-pnpm exec vitest run --testTimeout=20000 --changed}
 
-mapfile -t branches < <(for n in $(layer_names "$manifests"); do layer_branch "$manifests" "$n" "$prefix"; done)
+read_layers "$manifests" "$prefix"
 busy=$(branches_checked_out_elsewhere "${branches[@]}")
 if [[ -n $busy ]]; then
   echo "stack branches checked out in other worktrees (detach them first):" >&2
@@ -91,7 +91,7 @@ start=$(git rev-parse --abbrev-ref HEAD)
 app_prefix=$(cd "$root/$app" && git rev-parse --show-prefix)
 failed=0
 parent=$base
-top=$(layer_names "$manifests" | tail -1)
+top=${names[-1]}
 echo "logs: $log_dir"
 note() { echo "$(date +%T) $*" >>"$progress"; }
 note "start base=$(git rev-parse --short "$base")"
@@ -137,8 +137,8 @@ commits_step() { # typecheck, lint and format on each commit of layer $name but 
   if ((setup)) && ! bash "$script_dir/setup_worktree.sh" "$root" >>"$log" 2>&1; then commits_verdict=FAIL; fi
 }
 
-for name in $(layer_names "$manifests"); do
-  branch=$(layer_branch "$manifests" "$name" "$prefix")
+for i in "${!names[@]}"; do
+  name=${names[i]} branch=${branches[i]}
   if [[ -n $only && $name != "$only" ]]; then parent=$branch; continue; fi
   if ! git checkout -q "$branch"; then
     echo "$name: cannot check out $branch"; note "$name checkout FAIL"; failed=1; break

@@ -13,7 +13,9 @@
 #   ~path            staged: an in-between version; the final version is in a
 #                    later layer. hooks/<name> writes it (build and fix); without
 #                    a hook fix_layers.sh 3-way merges the fix into it.
-# Other lines starting with # and blank lines are ignored.
+# Other lines starting with # and blank lines are ignored. stack_layers.py
+# reads the stack's identity (order, branches, base, PRs); the functions below
+# read a layer's contents.
 #
 # An executable MANIFEST_DIR/hooks/<name> runs in the worktree root after the
 # whole files are copied, with LAYER, SOURCE (source commit), BASE, PARENT,
@@ -21,28 +23,17 @@
 # write each staged path's full content from $SOURCE (git show "$SOURCE:path"
 # plus edits), not patch the current file, so reruns give the same result.
 
-layer_names() { # DIR; a glob skips dotfiles, and BSD find has no -printf
-  local path
-  for path in "$1"/*; do
-    if [[ -f $path ]]; then printf '%s\n' "${path##*/}"; fi
-  done | LC_ALL=C sort
+read_layers() { # DIR PREFIX: sets the arrays names and branches, bottom to top (stack_layers.py)
+  local rows name branch
+  rows=$(python3 "${BASH_SOURCE[0]%/*}/stack_layers.py" layers --manifests "$1" --prefix "$2") || exit
+  names=() branches=()
+  while IFS=$'\t' read -r name branch; do
+    names+=("$name") branches+=("$branch")
+  done <<<"$rows"
 }
 
-manifest_header() { # DIR NAME KEY
-  sed -n "s/^#[[:space:]]*$3:[[:space:]]*//p" "$1/$2" | head -1
-}
-
-layer_branch() { # DIR NAME PREFIX
-  local branch
-  branch=$(manifest_header "$1" "$2" branch)
-  printf '%s\n' "${branch:-$3$2}"
-}
-
-stack_base() { # DIR [EXPLICIT]; the --base argument wins over the header
-  local first
-  if [[ -n ${2:-} ]]; then printf '%s\n' "$2"; return; fi
-  first=$(layer_names "$1" | head -1)
-  manifest_header "$1" "$first" base
+stack_base() { # DIR [EXPLICIT]; the --base argument wins over the header; status 1 without either
+  python3 "${BASH_SOURCE[0]%/*}/stack_layers.py" base --manifests "$1" ${2:+--base "$2"}
 }
 
 whole_paths() { # MANIFEST_FILE

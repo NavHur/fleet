@@ -200,9 +200,19 @@ class CommandLineTests(unittest.TestCase):
         result = cli("layers", "--manifests", self.manifests, "--prefix", "s-")
         self.assertEqual(result.stdout, "01-contract\ts-01-contract\n02-domain\ts-02-domain\n")
 
+    def test_layers_needs_no_base(self):
+        self.repo.manifest("01-contract", "a.ts\n")
+        result = cli("layers", "--manifests", self.manifests, "--prefix", "s-")
+        self.assertEqual(result.stdout.splitlines()[0], "01-contract\ts-01-contract")
+
     def test_base_prefers_the_argument(self):
         self.assertEqual(cli("base", "--manifests", self.manifests).stdout, "main\n")
         self.assertEqual(cli("base", "--manifests", self.manifests, "--base", "dev").stdout, "dev\n")
+
+    def test_base_exits_1_quietly_without_one(self):
+        self.repo.manifest("01-contract", "a.ts\n")
+        result = cli("base", "--manifests", self.manifests)
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (1, "", ""))
 
     def test_heads_writes_one_line_per_layer_with_its_fork_point(self):
         result = cli("heads", "--manifests", self.manifests, "--prefix", "s-")

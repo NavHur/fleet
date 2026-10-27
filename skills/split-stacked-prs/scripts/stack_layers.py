@@ -11,7 +11,8 @@ header, else from the open PR whose head is the branch, over REST.
     stack_layers.py layers --manifests DIR [--prefix P]
         name<TAB>branch per layer, bottom to top; reads no Git refs.
     stack_layers.py base --manifests DIR [--base REF]
-        the stack base: --base, else the first manifest's `# base:` header.
+        the stack base: --base, else the first manifest's `# base:` header;
+        exit 1 with no output when there is neither.
     stack_layers.py heads --manifests DIR [--prefix P] [--base REF] [--repo OWNER/REPO]
     stack_layers.py heads --base REF BRANCH... [--repo OWNER/REPO]
         PR<TAB>LAYER<TAB>FORK<TAB>HEAD per layer, bottom to top: review-loop's
@@ -202,13 +203,16 @@ def optional_github(explicit: str | None) -> GitHub | None:
 
 
 def print_layers(args) -> int:
-    for layer in Stack.from_manifests(args.manifests, args.prefix, git_refs=False).layers:
-        print(f"{layer.name}\t{layer.branch}")
+    for manifest in read_manifests(args.manifests):
+        print(f"{manifest.name}\t{manifest_branch(manifest, args.prefix)}")
     return 0
 
 
 def print_base(args) -> int:
-    print(manifest_base(read_manifests(args.manifests), args.base))
+    base = args.base or read_manifests(args.manifests)[0].headers.get("base")
+    if not base:
+        return 1
+    print(base)
     return 0
 
 

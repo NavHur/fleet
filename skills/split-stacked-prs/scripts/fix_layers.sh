@@ -40,11 +40,11 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 . "$script_dir/lib.sh"
 manifests=$(cd "$manifests" && pwd)
 source_sha=$(git rev-parse "$source^{commit}")
-base=$(stack_base "$manifests" "$base")
+base=$(stack_base "$manifests" "$base" || true)
 base_sha=$([[ -n $base ]] && git rev-parse "$base^{commit}" || true)
-mapfile -t names < <(layer_names "$manifests")
+read_layers "$manifests" "$prefix"
 declare -A branch_of=()
-for name in "${names[@]}"; do branch_of[$name]=$(layer_branch "$manifests" "$name" "$prefix"); done
+for i in "${!names[@]}"; do branch_of[${names[i]}]=${branches[i]}; done
 top=${branch_of[${names[-1]}]}
 
 busy=$(branches_checked_out_elsewhere "${branch_of[@]}")
