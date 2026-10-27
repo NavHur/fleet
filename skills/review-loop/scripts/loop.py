@@ -9,7 +9,7 @@
 
 LOOP is the loop's directory (~/.cache/review-loop/<slug>) and ROUND a round
 number; round N lives in LOOP/rN with its heads.tsv
-(PR<TAB>LAYER<TAB>BASE_SHA<TAB>HEAD_SHA, bottom to top).
+(PR<TAB>LAYER<TAB>FORK<TAB>HEAD, bottom to top).
 
 brief prints the task for one reviewer (ROLE is standards, spec, delta, or
 audit), registers it in rN/reviewers.tsv, and rewrites rN/context.md: reviewer.md,
@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -34,11 +35,14 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from comment import github_repo, render
-from loop_state import (COVERAGE, ROLES, LoopError, Reviewer, all_findings, findings_path, heads, id_prefix, location,
-                        outcomes, read_findings, register, reviewers, round_dir, rounds)
-
 SKILL_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(SKILL_DIR.parent / "split-stacked-prs" / "scripts"))
+
+from comment import render  # noqa: E402
+from stack_layers import GitHub, StackError  # noqa: E402
+from loop_state import (COVERAGE, ROLES, LoopError, Reviewer, all_findings, findings_path, heads, id_prefix, location,
+                        outcomes, pr_file_key, read_findings, register, reviewers, round_dir, rounds)  # noqa: E402
+
 PRIORITIES = ("P1", "P2", "P3")
 KINDS = ("bug", "violation", "advisory", "opportunity")
 STATUSES = ("fixed", "declined", "decision", "ruled")
@@ -73,16 +77,16 @@ def new_reviewer(loop, n, role, prs, delta, model):
     if role == "audit" and len(prs) != 1:
         raise LoopError("an audit covers one PR; pass --pr")
     # Audits are per PR; the other roles are named for a subset only.
-    name = role if prs == current and role != "audit" else f"{role}-{'-'.join(prs)}"
+    name = role if prs == current and role != "audit" else f"{role}-{'+'.join(map(pr_file_key, prs))}"
     return Reviewer(name, role, "delta" if role == "delta" or delta else "whole", prs, model)
 
 
 def scope_line(loop, n, pr, reviewer):
     head = heads(loop, n)[pr]
     if reviewer.scope == "whole":
-        return f"- PR {pr} ({head.layer}): the whole change, `git diff {head.base} {head.head}`."
+        return f"- PR {pr} ({head.layer}): the whole change, `git diff {head.fork} {head.head}`."
     previous = heads(loop, n - 1).get(pr) if n > 1 else None
-    diff = round_dir(loop, n) / f"delta-{pr}.diff"
+    diff = round_dir(loop, n) / f"delta-{pr_file_key(pr)}.diff"
     if previous is None or not diff.exists():
         raise LoopError(f"PR {pr} has no delta in r{n}; review it whole or skip it")
     return f"- PR {pr} ({head.layer}): the fixes since round {n - 1}, in `{diff}` ({previous.head} to {head.head})."
@@ -273,34 +277,37 @@ def record_outcome(loop, finding_id, status, commit, note):
 # publish
 
 
-def gh(checkout, *args):
-    return subprocess.run(["gh", *args], cwd=checkout, capture_output=True, text=True, check=True).stdout.strip()
-
-
-def publish_pr(loops, checkout, repo, pr, head, dry_run):
-    remote = gh(checkout, "pr", "view", pr, "--repo", repo, "--json", "headRefOid", "--jq", ".headRefOid")
+def publish_pr(loops, github, pr, head, dry_run):
+    remote = github.pr(int(pr)).head
     if remote != head:
         return (f"PR {pr}: GitHub has {remote[:9]} but the loop reviewed {head[:9]}; not posted. "
                 "Run publish again once the reviewed head is pushed.")
-    body = render(loops, pr, repo)
+    body = render(loops, pr, github.slug)
     marker = body.splitlines()[0]
     query = f".[] | select(.body | startswith({json.dumps(marker)})) | .html_url"
-    posted = gh(checkout, "api", f"repos/{repo}/issues/{pr}/comments", "--paginate", "--jq", query)
+    posted = github.api(f"issues/{pr}/comments", "--paginate", "--jq", query)
     if posted:
         return f"PR {pr}: already posted, {posted.splitlines()[0]}"
     if dry_run:
         return f"PR {pr}: would post\n{body}"
+    return f"PR {pr}: posted {post_comment(github, pr, body)}"
+
+
+def post_comment(github, pr, body):
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
         handle.write(body)
-    return f"PR {pr}: posted {gh(checkout, 'pr', 'comment', pr, '--repo', repo, '--body-file', handle.name)}"
+    try:
+        return github.api(f"issues/{pr}/comments", "-X", "POST", "-F", f"body=@{handle.name}", "--jq", ".html_url")
+    finally:
+        os.unlink(handle.name)
 
 
 def publish(loops, checkout, dry_run):
     """Posts on the PRs of the final loop's last round; loops runs oldest pass first."""
-    repo, n = github_repo(checkout), rounds(loops[-1])[-1]
+    github, n = GitHub.from_origin(root=checkout), rounds(loops[-1])[-1]
     for pr, head in heads(loops[-1], n).items():
         if pr.isdigit():
-            print(publish_pr(loops, checkout, repo, pr, head.head, dry_run))
+            print(publish_pr(loops, github, pr, head.head, dry_run))
         else:
             print(f"{pr}: no PR number in r{n}/heads.tsv; not posted")
 
@@ -359,7 +366,7 @@ def run(args):
     elif args.command == "outcome":
         record_outcome(loop, args.id, args.status, args.commit, args.note)
     elif args.command == "render":
-        print(render(passes(args), args.pr, github_repo(args.checkout)))
+        print(render(passes(args), args.pr, GitHub.from_origin(root=args.checkout).slug))
     else:
         publish(passes(args), args.checkout, args.dry_run)
     return 0
@@ -368,7 +375,7 @@ def run(args):
 def main(argv):
     try:
         return run(parser().parse_args(argv))
-    except LoopError as error:
+    except (LoopError, StackError) as error:
         print(f"loop.py: {error}", file=sys.stderr)
         return 2
 

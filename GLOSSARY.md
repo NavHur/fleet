@@ -54,3 +54,39 @@ _Avoid_: weight, category
 The one table of job classes (`lib/host-check/jobclass.py`) that both the guard
 and host-check read.
 _Avoid_: guard list, DIRECT, validation list
+
+## Stacks
+
+**Stack**:
+An ordered chain of branches, each opening a pull request against the branch
+below it, reviewed bottom to top.
+_Avoid_: PR chain, train
+
+**Layer**:
+One branch of a stack and its pull request: one purpose a reviewer approves in
+one sitting.
+_Avoid_: level, slice, part
+
+**Stack base**:
+The branch or commit the bottom layer targets, such as `main` or
+`origin/nightly`.
+_Avoid_: root, trunk
+
+**Parent**:
+The branch a layer's pull request targets: the layer below it, or the stack
+base for the bottom layer.
+_Avoid_: base (unqualified), upstream
+
+**Fork point**:
+The merge-base of a layer's head with its parent's head; the diff from the fork
+point to the head is the layer's own change.
+_Avoid_: base SHA, base
+
+**Head**:
+The commit a layer's branch points at.
+_Avoid_: tip (in prose about one layer), HEAD
+
+**Manifest**:
+The file that names one layer's branch, pull request, and owned paths; sorting
+a directory of them gives the stack's order.
+_Avoid_: layer file, plan

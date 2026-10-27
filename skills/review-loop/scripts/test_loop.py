@@ -23,13 +23,17 @@ state = Path(os.environ["FAKE_GH_STATE"])
 calls = state / "calls"
 calls.open("a").write(json.dumps(sys.argv[1:]) + "\\n")
 args = sys.argv[1:]
-if args[:2] == ["pr", "view"]:
-    print((state / "head").read_text())
-elif args[0] == "api":
-    print((state / "posted").read_text() if (state / "posted").exists() else "")
-elif args[:2] == ["pr", "comment"]:
-    (state / "body.md").write_text(Path(args[args.index("--body-file") + 1]).read_text())
+if args[0] != "api":
+    sys.exit(f"not REST: {args}")
+if args[1] == "repos/acme/app/pulls/7":
+    print(json.dumps({"head": {"sha": (state / "head").read_text()}, "base": {"ref": "main"}}))
+elif "POST" in args:
+    (state / "body.md").write_text(Path(args[args.index("-F") + 1].removeprefix("body=@")).read_text())
     print("https://github.com/acme/app/pull/7#issuecomment-1")
+elif args[1] == "repos/acme/app/issues/7/comments":
+    print((state / "posted").read_text() if (state / "posted").exists() else "")
+else:
+    sys.exit(f"unexpected: {args}")
 """
 
 
@@ -137,6 +141,24 @@ class LoopTests(unittest.TestCase):
         code, out = self.run_loop("brief", self.loop, 2, "delta", "--model", "m")
         self.assertEqual((code, out), (2, "loop.py: PR 7 has no delta in r2; review it whole or skip it\n"))
 
+    def test_a_branch_in_the_pr_column_gets_an_encoded_reviewer_name_and_delta_file(self):
+        for n, head in ((1, self.first), (2, self.second)):
+            self.heads(n, head)
+            (self.loop / f"r{n}" / "heads.tsv").write_text(f"pedro/feature\tbranch\t{self.base}\t{head}\n")
+        (self.loop / "r2" / "delta-pedro%2Ffeature.diff").write_text("diff\n")
+        code, out = self.run_loop("brief", self.loop, 2, "audit", "--delta", "--model", "m")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"{self.loop.resolve()}/r2/audit-pedro%2Ffeature.json", out)
+        self.assertIn(f"in `{self.loop.resolve()}/r2/delta-pedro%2Ffeature.diff`", out)
+
+    def test_branches_that_differ_only_in_a_slash_get_their_own_audits(self):
+        rows = "".join(f"{b}\tbranch\t{self.base}\t{self.first}\n" for b in ("pedro/a", "pedro-a"))
+        (self.loop / "r1" / "heads.tsv").write_text(rows)
+        for branch in ("pedro/a", "pedro-a"):
+            self.run_loop("brief", self.loop, 1, "audit", "--pr", branch, "--model", "m")
+        names = [line.split("\t")[0] for line in (self.loop / "r1" / "reviewers.tsv").read_text().splitlines()]
+        self.assertEqual(names, ["audit-pedro%2Fa", "audit-pedro-a"])
+
     def test_check_passes_a_valid_file_and_lists_its_findings(self):
         self.run_loop("brief", self.loop, 1, "standards", "--model", "m")
         self.write(1, "standards", {"findings": [finding()]})
@@ -194,7 +216,7 @@ class LoopTests(unittest.TestCase):
             > [!WARNING]
             > 2 findings over 2 rounds: 1 fixed, 1 awaiting a decision. Coverage: incomplete (Standards: Core runtime, Cognitive complexity (limit 8)).
 
-            Reviewed head [`{s[:9]}`](https://github.com/acme/app/commit/{s}) on base `{self.base[:9]}` · reviewers: gpt-6.1-sol high
+            Reviewed head [`{s[:9]}`](https://github.com/acme/app/commit/{s}) from fork point `{self.base[:9]}` · reviewers: gpt-6.1-sol high
 
             ### Rounds
 
@@ -311,7 +333,7 @@ class LoopTests(unittest.TestCase):
             > [!WARNING]
             > 3 findings over 3 rounds in 2 passes: 1 fixed, 1 declined, 1 open. Coverage: incomplete (Standards: Core runtime, Cognitive complexity (limit 8)).
 
-            Reviewed head [`{s[:9]}`](https://github.com/acme/app/commit/{s}) on base `{self.base[:9]}` · reviewers: claude-opus-5-5 medium, gpt-6.1-sol high
+            Reviewed head [`{s[:9]}`](https://github.com/acme/app/commit/{s}) from fork point `{self.base[:9]}` · reviewers: claude-opus-5-5 medium, gpt-6.1-sol high
 
             ### Pass 1: gpt-6.1-sol high
 

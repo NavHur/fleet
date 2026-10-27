@@ -35,6 +35,8 @@ import subprocess
 import sys
 import time
 
+from stack_layers import Stack, StackError
+
 HERE = Path(__file__).resolve().parent
 PREFIX = "restack/"
 CONFLICT, GATES_FAILED = 3, 2
@@ -85,10 +87,14 @@ def fetch(base, branches):
 
 def layer_plan(base, branches, old_base):
     """For each layer: its old tip, the commit it forked from, and nothing yet for the new tip."""
-    tips = [sha(f"origin/{b}") for b in branches]
-    forks = [old_base or git("merge-base", base, tips[0])]
-    forks += [git("merge-base", lower, upper) for lower, upper in zip(tips, tips[1:])]
-    return [{"branch": b, "old": tip, "fork": fork, "new": None} for b, tip, fork in zip(branches, tips, forks)]
+    try:
+        layers = Stack.from_branches(base, branches, remote="origin").layers
+    except StackError as error:
+        raise Failure(str(error)) from error
+    plan = [{"branch": layer.branch, "old": layer.head, "fork": layer.fork, "new": None} for layer in layers]
+    if old_base:
+        plan[0]["fork"] = old_base
+    return plan
 
 
 def start(args):

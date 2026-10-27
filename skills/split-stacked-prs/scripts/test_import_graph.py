@@ -8,14 +8,15 @@ import sys
 import tempfile
 import unittest
 
+from stack_fixture import IDENTITY, isolate_git
 
 SCRIPT = Path(__file__).with_name("import_graph.py")
-IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
 BODY = "".join(f"export const value{index} = {index};\n" for index in range(40))
 
 
 class ImportGraphTests(unittest.TestCase):
     def setUp(self):
+        isolate_git(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

@@ -4,12 +4,13 @@ from __future__ import annotations
 import json
 import re
 from collections import namedtuple
+from urllib.parse import quote
 
 ROLES = {"standards": "STD", "spec": "SPEC", "delta": "DELTA", "audit": "PBP"}
 # Worst first: a check's merged status across rounds is the worst one reported.
 COVERAGE = ("incomplete", "findings", "clean", "inapplicable")
 
-Head = namedtuple("Head", "layer base head")
+Head = namedtuple("Head", "layer fork head")
 Reviewer = namedtuple("Reviewer", "name role scope prs model")
 
 
@@ -21,6 +22,11 @@ def round_dir(loop, n):
     return loop / f"r{n}"
 
 
+def pr_file_key(pr):
+    """A heads PR column as a file-name part, percent-encoded so distinct branches never share one."""
+    return quote(pr, safe="")
+
+
 def rounds(loop):
     found = (re.fullmatch(r"r(\d+)", d.name) for d in loop.iterdir() if (d / "heads.tsv").exists())
     return sorted(int(m.group(1)) for m in found if m)
@@ -28,14 +34,18 @@ def rounds(loop):
 
 def heads(loop, n):
     """{pr: Head}, bottom to top."""
-    path = round_dir(loop, n) / "heads.tsv"
+    return read_heads(round_dir(loop, n) / "heads.tsv")
+
+
+def read_heads(path):
+    """{pr: Head} from a heads file (stack_layers.py heads), bottom to top."""
     if not path.exists():
         raise LoopError(f"{path} does not exist")
     rows = {}
     for line in path.read_text().splitlines():
         if line.strip() and not line.startswith("#"):
-            pr, layer, base, head = line.split("\t")
-            rows[pr] = Head(layer, base, head)
+            pr, layer, fork, head = line.split("\t")
+            rows[pr] = Head(layer, fork, head)
     return rows
 
 

@@ -74,10 +74,9 @@ source_sha=$(git rev-parse "$source^{commit}")
 parent=$base_sha
 git checkout -q --detach "$parent"
 
-for name in $(layer_names "$manifests"); do
-  branch=$(layer_branch "$manifests" "$name" "$prefix")
-  [[ -n $prefix || -n $(manifest_header "$manifests" "$name" branch) ]] ||
-    { echo "$name: no '# branch:' header and no --prefix" >&2; exit 2; }
+read_layers "$manifests" "$prefix"
+for i in "${!names[@]}"; do
+  name=${names[i]} branch=${branches[i]}
   git checkout -q -B "$branch" "$parent"
   apply_whole "$source_sha" "$manifests/$name"
   run_hook "$manifests" "$name" "$source_sha" "$base_sha" "$parent"

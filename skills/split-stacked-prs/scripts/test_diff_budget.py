@@ -8,14 +8,15 @@ import sys
 import tempfile
 import unittest
 
+from stack_fixture import IDENTITY, isolate_git
 
 SCRIPT = Path(__file__).with_name("diff_budget.py")
 LINE_BYTES = 48  # 1500 lines fill the pull request's weighted ceiling
-IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
 
 
 class DiffBudgetTests(unittest.TestCase):
     def setUp(self):
+        isolate_git(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

@@ -5,8 +5,6 @@ the earlier passes first, the final pass last.
 """
 from __future__ import annotations
 
-import re
-import subprocess
 from collections import Counter, namedtuple
 from urllib.parse import quote
 
@@ -26,15 +24,6 @@ Pass = namedtuple("Pass", "loop history found settled")
 
 def cell(text):
     return str(text).replace("\n", " ").replace("|", "\\|")
-
-
-def github_repo(checkout):
-    url = subprocess.run(["git", "-C", str(checkout), "remote", "get-url", "origin"],
-                         capture_output=True, text=True, check=True).stdout.strip()
-    match = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
-    if not match:
-        raise LoopError(f"origin is not a GitHub repository: {url}")
-    return match.group(1)
 
 
 def status(finding, settled):
@@ -161,8 +150,8 @@ def headline(passes, pr, coverage, repo):
     unresolved = [f for f, s in zip((f for p in passes for f in p.found), statuses(passes)) if s in (None, "decision")]
     return [f"<!-- review-loop {final.loop.name} r{n} {head.head} -->", "## Review loop", "",
             f"> [!{alert(unresolved, incomplete)}]", f"> {summary(passes, incomplete)}", "",
-            f"Reviewed head [`{head.head[:9]}`](https://github.com/{repo}/commit/{head.head}) on base "
-            f"`{head.base[:9]}` · reviewers: {', '.join(models(passes, pr)) or 'none'}", ""]
+            f"Reviewed head [`{head.head[:9]}`](https://github.com/{repo}/commit/{head.head}) from fork point "
+            f"`{head.fork[:9]}` · reviewers: {', '.join(models(passes, pr)) or 'none'}", ""]
 
 
 def pass_section(p, pr, final, repo, heading):
