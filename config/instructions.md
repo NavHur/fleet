@@ -26,10 +26,11 @@ Run builds, tests, lint, typechecks, format checks, and benchmarks through
 - Commit subjects: a Conventional Commits type, a scope when obvious
   (`fix(vacant-land): …`), imperative, under 72 characters; reasoning in the
   body.
-- Commit in small steps within the commit ceiling below, running format, lint,
-  and typecheck on each commit's changed files. Before pushing, run the
-  `pre-commit` skill once on the top head (the branch, or the last layer's
-  tip). Review-loop rounds and stacked PRs use their light check.
+- Commit one step at a time, as soon as it typechecks: the commit ceiling
+  below is a hard limit, not a target. Run format, lint, and typecheck on
+  each commit's changed files. Before pushing, run the `pre-commit` skill once
+  on the top head (the branch, or the last layer's tip). Review-loop rounds
+  and stacked PRs use their light check.
 
 ## Tests
 

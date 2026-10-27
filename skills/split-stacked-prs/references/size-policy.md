@@ -21,9 +21,10 @@ A pull request is made of commits, and a stack of layers:
   Refactors and behavior changes go in separate commits, and each commit
   typechecks. Against its parent, a commit stays within **12 KB** weighted and
   **24 KB** raw, measured like a pull request, so a pull request holds six
-  full commits. A commit that cannot be split, such as one cohesive new
-  module or a mechanical edit across many files, carries a
-  `Size-Exception: <reason>` trailer.
+  full commits. The ceiling is a hard limit, not a target: commit each step
+  as soon as it typechecks, and most commits land well under it. A commit
+  that cannot be split, such as one cohesive new module or a mechanical edit
+  across many files, carries a `Size-Exception: <reason>` trailer.
 - A **layer** is one purpose a reviewer approves in one sitting, built from
   several commits, and a pull request of its own under the same ceilings. A
   layer under **12 KB** weighted, one full commit, needs a reason (a
