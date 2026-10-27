@@ -8,7 +8,7 @@ import sys
 import unittest
 
 from stack_fixture import StackRepo
-from stack_layers import GitHub, PullRequest, Stack, StackError
+from stack_layers import GitHub, PullRequest, Stack, StackError, read_manifest
 
 
 class FakeGitHub:
@@ -50,8 +50,8 @@ class ManifestListingTests(unittest.TestCase):
 
     def test_paths_are_whole_and_staged_paths_without_the_tilde(self):
         self.repo.manifest("01-contract", "# base: main\n# commit: first\na.ts  \n~b.ts\n\n# note\nc.ts\n")
-        stack = Stack.from_manifests(self.repo.manifests, "s-", git_refs=False)
-        self.assertEqual(stack.layers[0].paths, ("a.ts", "b.ts", "c.ts"))
+        manifest = read_manifest(self.repo.manifests / "01-contract")
+        self.assertEqual(manifest.paths, ("a.ts", "b.ts", "c.ts"))
 
     def test_a_layer_without_branch_header_or_prefix_is_refused(self):
         self.repo.manifest("01-contract", "# base: main\na.ts\n")
@@ -94,9 +94,9 @@ class GitRefTests(unittest.TestCase):
 
     def test_a_branch_list_is_a_stack_named_by_its_branches(self):
         stack = Stack.from_branches("main", ["s-01-contract", "s-02-domain"])
-        self.assertEqual([(l.name, l.parent, l.fork, l.head, l.paths) for l in stack.layers],
-                         [("s-01-contract", "main", self.main, self.lower, ()),
-                          ("s-02-domain", "s-01-contract", self.lower, self.upper, ())])
+        self.assertEqual([(l.name, l.parent, l.fork, l.head) for l in stack.layers],
+                         [("s-01-contract", "main", self.main, self.lower),
+                          ("s-02-domain", "s-01-contract", self.lower, self.upper)])
 
     def test_a_remote_reads_heads_from_its_tracking_refs(self):
         self.repo.git("update-ref", "refs/remotes/origin/s-01-contract", self.main)
@@ -106,7 +106,7 @@ class GitRefTests(unittest.TestCase):
                          [("s-01-contract", self.main), ("s-02-domain", self.lower)])
 
     def test_a_branch_that_does_not_resolve_is_refused(self):
-        with self.assertRaisesRegex(StackError, "s-03-missing"):
+        with self.assertRaisesRegex(StackError, r"rev-parse --verify s-03-missing\^{commit}: fatal: "):
             Stack.from_branches("main", ["s-01-contract", "s-03-missing"])
 
 
@@ -130,6 +130,7 @@ class PullRequestTests(unittest.TestCase):
 FAKE_GH = """#!/bin/sh
 printf '%s\\n' "$*" >>"$GH_LOG"
 case "$*" in
+  *"pulls?head=o:"*"feat/boom"*) echo "HTTP 500" >&2; exit 1 ;;
   *"pulls?head=o:"*"feat/x"*) echo 12 ;;
   *"pulls?head="*) ;;
   *pulls/12*) echo '{"head": {"sha": "abc"}, "base": {"ref": "nightly"}}' ;;
@@ -214,10 +215,15 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(cli("base", "--manifests", self.manifests).stdout, "main\n")
         self.assertEqual(cli("base", "--manifests", self.manifests, "--base", "dev").stdout, "dev\n")
 
-    def test_base_exits_1_quietly_without_one(self):
+    def test_base_prints_nothing_and_exits_0_without_one(self):
         self.repo.manifest("01-contract", "a.ts\n")
         result = cli("base", "--manifests", self.manifests)
-        self.assertEqual((result.returncode, result.stdout, result.stderr), (1, "", ""))
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+
+    def test_base_on_a_missing_manifest_directory_exits_1(self):
+        result = cli("base", "--manifests", self.manifests + "/missing")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no manifests in", result.stderr)
 
     def test_heads_writes_one_line_per_layer_with_its_fork_point(self):
         result = cli("heads", "--manifests", self.manifests, "--prefix", "s-")
@@ -233,7 +239,20 @@ class CommandLineTests(unittest.TestCase):
         fake_gh(self, self.repo)
         self.assertEqual(cli("pr-base", "--branch", "feat/x", "--repo", "o/r").stdout, "nightly\n")
         none = cli("pr-base", "--branch", "feat/none", "--repo", "o/r")
-        self.assertEqual((none.returncode, none.stdout), (1, ""))
+        self.assertEqual((none.returncode, none.stdout, none.stderr), (0, "", ""))
+
+    def test_pr_base_exits_1_with_the_reason_when_gh_fails(self):
+        fake_gh(self, self.repo)
+        result = cli("pr-base", "--branch", "feat/boom", "--repo", "o/r")
+        self.assertEqual((result.returncode, result.stdout), (1, ""))
+        self.assertIn("HTTP 500", result.stderr)
+
+    def test_a_pr_header_that_is_not_a_number_exits_1_without_a_traceback(self):
+        self.repo.manifest("01-contract", "# base: main\n# pr: #52\na.ts\n")
+        result = cli("heads", "--manifests", self.manifests, "--prefix", "s-", "--repo", "o/r")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("01-contract: '# pr:' is not a PR number: #52", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
     def test_a_bad_stack_exits_1_with_the_reason(self):
         result = cli("layers", "--manifests", self.manifests)

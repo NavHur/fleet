@@ -52,7 +52,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 . "$script_dir/lib.sh"
 manifests=$(cd "$manifests" && pwd)
 
-base=$(stack_base "$manifests" "$base" || true)
+base=$(stack_base "$manifests" "$base") || exit 1
 [[ -n $base ]] || { echo "no --base and no '# base:' header in the first manifest" >&2; exit 2; }
 typecheck_cmd=${TYPECHECK_CMD:-pnpm typecheck}
 lint_cmd=${LINT_CMD:-pnpm lint}

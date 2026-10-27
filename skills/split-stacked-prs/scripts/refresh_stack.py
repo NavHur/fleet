@@ -33,7 +33,7 @@ import subprocess
 import sys
 import tempfile
 
-from stack_layers import GitHub, Stack, StackError
+from stack_layers import Stack, StackError, optional_github
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_GENERATED = [
@@ -194,18 +194,9 @@ def apply_body_change(name, branch, pr, repo, line, gate_text):
     return patch_body(name, repo, pr, change[1], line)
 
 
-def github_or_none(explicit):
-    """The repository's GitHub; None after saying why, so the bodies are skipped with a reason."""
-    try:
-        return GitHub.from_origin(explicit)
-    except StackError as error:
-        print(f"PR bodies skipped: {error}", file=sys.stderr)
-        return None
-
-
 def main():
     args = parse_args()
-    github = github_or_none(args.repo)
+    github = optional_github(args.repo, "PR bodies skipped")
     try:
         stack = Stack.from_manifests(args.manifests, args.prefix, args.base, github=github)
     except StackError as error:

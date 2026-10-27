@@ -32,7 +32,7 @@ read_layers() { # DIR PREFIX: sets the arrays names and branches, bottom to top 
   done <<<"$rows"
 }
 
-stack_base() { # DIR [EXPLICIT]; the --base argument wins over the header; status 1 without either
+stack_base() { # DIR [EXPLICIT]; the --base argument wins over the header; empty output without either; status 1 on a bad stack
   python3 "${BASH_SOURCE[0]%/*}/stack_layers.py" base --manifests "$1" ${2:+--base "$2"}
 }
 

@@ -40,7 +40,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 . "$script_dir/lib.sh"
 manifests=$(cd "$manifests" && pwd)
 source_sha=$(git rev-parse "$source^{commit}")
-base=$(stack_base "$manifests" "$base" || true)
+base=$(stack_base "$manifests" "$base")
 base_sha=$([[ -n $base ]] && git rev-parse "$base^{commit}" || true)
 read_layers "$manifests" "$prefix"
 declare -A branch_of=()
