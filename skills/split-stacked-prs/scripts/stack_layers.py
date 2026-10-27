@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """A stack's layers: name, branch, parent, fork point, head, and pull request.
 
-The one reader of a manifest directory's stack identity (the format is in the
-header of lib.sh) and of a stack given as a branch list. The parent of a layer
+The reader of a manifest directory's stack identity (the format is in the
+header of lib.sh; check_manifests.py still lists manifests itself, see ADR
+0003) and of a stack given as a branch list. The parent of a layer
 is the branch below it, or the stack base for the bottom layer; its fork point
 is the merge-base of its head with its parent's head, so `git diff FORK HEAD`
 is the layer's own change. Pull requests come from a manifest's `# pr:`
