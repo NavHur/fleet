@@ -8,6 +8,13 @@ import tempfile
 IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
 
 
+def isolate_git(test):
+    """Unset, for the test, the variables that tie git to one repository; a hook exports them."""
+    for name in subprocess.check_output(["git", "rev-parse", "--local-env-vars"], text=True).split():
+        if name in os.environ:
+            test.addCleanup(os.environ.__setitem__, name, os.environ.pop(name))
+
+
 class StackRepo:
     """`root` is a repository on `main` with one commit; `manifests` is an empty directory.
 
@@ -18,8 +25,7 @@ class StackRepo:
         temp = tempfile.TemporaryDirectory()
         test.addCleanup(temp.cleanup)
         self.temp = Path(temp.name)
-        if "GIT_DIR" in os.environ:  # a hook's GIT_DIR would point every git, here or in a script, at the outer repository
-            test.addCleanup(os.environ.__setitem__, "GIT_DIR", os.environ.pop("GIT_DIR"))
+        isolate_git(test)
         self.environ = {**os.environ, **IDENTITY}
         self.root = self.temp / "repo"
         self.manifests = self.temp / "layers"

@@ -16,5 +16,5 @@ run skills/pedro-best-practices/tests test_complexity test_complexity_parity tes
 run skills/review-loop/scripts test_loop test_delta test_publish
 run skills/pre-commit/scripts test_ci_covers
 run hosts/workbox/claude-hooks test_merge_guard test_migration_guard test_agent_cli_guard
-run skills/split-stacked-prs/scripts test_diff_budget test_restack test_build_layers test_fix_layers test_stack_layers test_refresh_stack test_layer_gates test_import_graph
+run skills/split-stacked-prs/scripts test_diff_budget test_restack test_build_layers test_fix_layers test_stack_layers test_stack_fixture test_refresh_stack test_layer_gates test_import_graph
 exit $status
