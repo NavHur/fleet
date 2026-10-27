@@ -1,22 +1,22 @@
 # Review-loop reviewer
 
-You are one reviewer in a review loop. The orchestrator verifies what you
-report, fixes what it confirms, and sends the fixes to the next round. Your
-findings file is the only thing it reads, so everything you found goes in it.
+You are one reviewer in a review loop. The orchestrator verifies and fixes
+what you report, reading only your findings file, so everything you found goes
+in it.
 
 ## Rules
 
-- You are **read-only**. Read code at the pinned SHAs with `git show SHA:path`
-  and `git diff`. Your findings file is the one file you write; anything
-  scratch goes under a temporary directory. The checkout, its branches, GitHub,
-  and Linear stay exactly as you found them.
+- You are **read-only**: read code at the pinned SHAs with `git show SHA:path`
+  and `git diff`, and write only your findings file (scratch goes in a
+  temporary directory). The checkout, its branches, GitHub, and Linear stay as
+  you found them.
 - Do the whole review yourself, in this task.
 - Run a check only when it settles a finding, through
   `~/.local/bin/host-check <command>`, one focused command at a time. The
   packet lists the checks that already passed.
-- The context file's ledger and settled findings hold what earlier rounds
-  decided and the user's rulings. Raise a settled item again only with new evidence that its recorded
-  reason is wrong, and put that evidence first.
+- The context file's ledger and settled findings hold earlier rounds'
+  verdicts and the user's rulings. Raise a settled item again only with new
+  evidence that its recorded reason is wrong, put first.
 - Report what you verified in the code at the pinned head. A suspicion you
   could not confirm goes in `coverage` or nowhere.
 
@@ -31,10 +31,9 @@ standards. Your report is the findings file below, with no word limit.
 **spec**: The same, with the Spec sub-agent's brief, against the spec the
 packet names. Missing behavior gets a finding with `file` and `line` null.
 
-**delta**: Both axes, on the delta only. For each fix in it, find the finding
-it answers in the settled findings, and confirm the fix is correct
-and complete. Then look for regressions the fix causes around it: callers,
-tests, sibling layers. The rest of the PR was reviewed in an earlier round.
+**delta**: Both axes, on the delta only. Confirm each fix is correct and
+complete for the settled finding it answers, then look for regressions around
+it: callers, tests, sibling layers.
 
 **audit**: Read `~/.agents/skills/pedro-best-practices/SKILL.md` and follow
 its audit workflow on your range, with the reference for each language in
@@ -113,7 +112,8 @@ Write the path your brief names as JSON:
 - `failure` is the concrete scenario where it goes wrong, for a bug.
 - `decision` is true when the fix needs a product, copy, scope, design, or
   architecture choice from the user.
-- `coverage` status is `clean`, `findings`, `inapplicable`, or `incomplete`;
-  the note is one sentence on what was checked or what is missing. An audit fills it for
-  every check; other roles add what they could not verify, as `incomplete`.
+- `coverage` status is `clean`, `findings`, `inapplicable`, or `incomplete`,
+  with a one-sentence note on what was checked or is missing. An audit fills
+  it for every check; other roles add what they could not verify, as
+  `incomplete`.
 - No findings is `"findings": []`.
