@@ -23,13 +23,17 @@ state = Path(os.environ["FAKE_GH_STATE"])
 calls = state / "calls"
 calls.open("a").write(json.dumps(sys.argv[1:]) + "\\n")
 args = sys.argv[1:]
-if args[:2] == ["pr", "view"]:
-    print((state / "head").read_text())
-elif args[0] == "api":
-    print((state / "posted").read_text() if (state / "posted").exists() else "")
-elif args[:2] == ["pr", "comment"]:
-    (state / "body.md").write_text(Path(args[args.index("--body-file") + 1]).read_text())
+if args[0] != "api":
+    sys.exit(f"not REST: {args}")
+if args[1] == "repos/acme/app/pulls/7":
+    print(json.dumps({"head": {"sha": (state / "head").read_text()}, "base": {"ref": "main"}}))
+elif "POST" in args:
+    (state / "body.md").write_text(Path(args[args.index("-F") + 1].removeprefix("body=@")).read_text())
     print("https://github.com/acme/app/pull/7#issuecomment-1")
+elif args[1] == "repos/acme/app/issues/7/comments":
+    print((state / "posted").read_text() if (state / "posted").exists() else "")
+else:
+    sys.exit(f"unexpected: {args}")
 """
 
 

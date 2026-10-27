@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, replace
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -90,10 +91,11 @@ class GitHub:
         self.slug = slug
 
     @classmethod
-    def from_origin(cls, explicit: str | None = None) -> GitHub:
+    def from_origin(cls, explicit: str | None = None, root: str | os.PathLike = ".") -> GitHub:
+        """The repository named by --repo, else by ROOT's origin remote."""
         if explicit:
             return cls(explicit)
-        url = git("remote", "get-url", "origin")
+        url = git("-C", str(root), "remote", "get-url", "origin")
         match = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
         if not match:
             raise StackError(f"origin is not a GitHub repository: {url}")

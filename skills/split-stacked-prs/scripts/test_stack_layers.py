@@ -175,6 +175,11 @@ class RestAdapterTests(unittest.TestCase):
             self.repo.git("remote", "set-url", "origin", url)
             self.assertEqual(GitHub.from_origin().slug, "o/r")
 
+    def test_the_slug_comes_from_another_checkouts_origin(self):
+        self.repo.git("remote", "add", "origin", "git@github.com:o/r.git")
+        os.chdir(self.repo.root.parent)
+        self.assertEqual(GitHub.from_origin(root=self.repo.root).slug, "o/r")
+
     def test_a_non_github_origin_is_refused(self):
         self.repo.git("remote", "add", "origin", "https://gitlab.com/o/r.git")
         with self.assertRaisesRegex(StackError, "not a GitHub repository"):

@@ -34,11 +34,14 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from comment import github_repo, render
-from loop_state import (COVERAGE, ROLES, LoopError, Reviewer, all_findings, findings_path, heads, id_prefix, location,
-                        outcomes, read_findings, register, reviewers, round_dir, rounds)
-
 SKILL_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(SKILL_DIR.parent / "split-stacked-prs" / "scripts"))
+
+from comment import render  # noqa: E402
+from stack_layers import GitHub, StackError  # noqa: E402
+from loop_state import (COVERAGE, ROLES, LoopError, Reviewer, all_findings, findings_path, heads, id_prefix, location,
+                        outcomes, read_findings, register, reviewers, round_dir, rounds)  # noqa: E402
+
 PRIORITIES = ("P1", "P2", "P3")
 KINDS = ("bug", "violation", "advisory", "opportunity")
 STATUSES = ("fixed", "declined", "decision", "ruled")
@@ -273,34 +276,37 @@ def record_outcome(loop, finding_id, status, commit, note):
 # publish
 
 
-def gh(checkout, *args):
-    return subprocess.run(["gh", *args], cwd=checkout, capture_output=True, text=True, check=True).stdout.strip()
+def gh(*args):
+    return subprocess.run(["gh", *args], capture_output=True, text=True, check=True).stdout.strip()
 
 
-def publish_pr(loops, checkout, repo, pr, head, dry_run):
-    remote = gh(checkout, "pr", "view", pr, "--repo", repo, "--json", "headRefOid", "--jq", ".headRefOid")
+def publish_pr(loops, github, pr, head, dry_run):
+    remote = github.pr(int(pr)).head
     if remote != head:
         return (f"PR {pr}: GitHub has {remote[:9]} but the loop reviewed {head[:9]}; not posted. "
                 "Run publish again once the reviewed head is pushed.")
+    repo = github.slug
     body = render(loops, pr, repo)
     marker = body.splitlines()[0]
     query = f".[] | select(.body | startswith({json.dumps(marker)})) | .html_url"
-    posted = gh(checkout, "api", f"repos/{repo}/issues/{pr}/comments", "--paginate", "--jq", query)
+    posted = gh("api", f"repos/{repo}/issues/{pr}/comments", "--paginate", "--jq", query)
     if posted:
         return f"PR {pr}: already posted, {posted.splitlines()[0]}"
     if dry_run:
         return f"PR {pr}: would post\n{body}"
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
         handle.write(body)
-    return f"PR {pr}: posted {gh(checkout, 'pr', 'comment', pr, '--repo', repo, '--body-file', handle.name)}"
+    url = gh("api", "-X", "POST", f"repos/{repo}/issues/{pr}/comments", "-F", f"body=@{handle.name}",
+             "--jq", ".html_url")
+    return f"PR {pr}: posted {url}"
 
 
 def publish(loops, checkout, dry_run):
     """Posts on the PRs of the final loop's last round; loops runs oldest pass first."""
-    repo, n = github_repo(checkout), rounds(loops[-1])[-1]
+    github, n = GitHub.from_origin(root=checkout), rounds(loops[-1])[-1]
     for pr, head in heads(loops[-1], n).items():
         if pr.isdigit():
-            print(publish_pr(loops, checkout, repo, pr, head.head, dry_run))
+            print(publish_pr(loops, github, pr, head.head, dry_run))
         else:
             print(f"{pr}: no PR number in r{n}/heads.tsv; not posted")
 
@@ -359,7 +365,7 @@ def run(args):
     elif args.command == "outcome":
         record_outcome(loop, args.id, args.status, args.commit, args.note)
     elif args.command == "render":
-        print(render(passes(args), args.pr, github_repo(args.checkout)))
+        print(render(passes(args), args.pr, GitHub.from_origin(root=args.checkout).slug))
     else:
         publish(passes(args), args.checkout, args.dry_run)
     return 0
@@ -368,7 +374,7 @@ def run(args):
 def main(argv):
     try:
         return run(parser().parse_args(argv))
-    except LoopError as error:
+    except (LoopError, StackError) as error:
         print(f"loop.py: {error}", file=sys.stderr)
         return 2
 
