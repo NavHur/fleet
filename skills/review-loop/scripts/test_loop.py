@@ -216,7 +216,7 @@ class LoopTests(unittest.TestCase):
             > [!WARNING]
             > 2 findings over 2 rounds: 1 fixed, 1 awaiting a decision. Coverage: incomplete (Standards: Core runtime, Cognitive complexity (limit 8)).
 
-            Reviewed head [`{s[:9]}`](https://github.com/acme/app/commit/{s}) on base `{self.base[:9]}` · reviewers: gpt-6.1-sol high
+            Reviewed head [`{s[:9]}`](https://github.com/acme/app/commit/{s}) from fork point `{self.base[:9]}` · reviewers: gpt-6.1-sol high
 
             ### Rounds
 
@@ -333,7 +333,7 @@ class LoopTests(unittest.TestCase):
             > [!WARNING]
             > 3 findings over 3 rounds in 2 passes: 1 fixed, 1 declined, 1 open. Coverage: incomplete (Standards: Core runtime, Cognitive complexity (limit 8)).
 
-            Reviewed head [`{s[:9]}`](https://github.com/acme/app/commit/{s}) on base `{self.base[:9]}` · reviewers: claude-opus-5-5 medium, gpt-6.1-sol high
+            Reviewed head [`{s[:9]}`](https://github.com/acme/app/commit/{s}) from fork point `{self.base[:9]}` · reviewers: claude-opus-5-5 medium, gpt-6.1-sol high
 
             ### Pass 1: gpt-6.1-sol high
 

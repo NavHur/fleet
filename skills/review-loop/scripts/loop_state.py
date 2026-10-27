@@ -10,7 +10,7 @@ ROLES = {"standards": "STD", "spec": "SPEC", "delta": "DELTA", "audit": "PBP"}
 # Worst first: a check's merged status across rounds is the worst one reported.
 COVERAGE = ("incomplete", "findings", "clean", "inapplicable")
 
-Head = namedtuple("Head", "layer base head")
+Head = namedtuple("Head", "layer fork head")
 Reviewer = namedtuple("Reviewer", "name role scope prs model")
 
 
@@ -44,8 +44,8 @@ def read_heads(path):
     rows = {}
     for line in path.read_text().splitlines():
         if line.strip() and not line.startswith("#"):
-            pr, layer, base, head = line.split("\t")
-            rows[pr] = Head(layer, base, head)
+            pr, layer, fork, head = line.split("\t")
+            rows[pr] = Head(layer, fork, head)
     return rows
 
 

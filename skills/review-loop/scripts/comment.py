@@ -150,8 +150,8 @@ def headline(passes, pr, coverage, repo):
     unresolved = [f for f, s in zip((f for p in passes for f in p.found), statuses(passes)) if s in (None, "decision")]
     return [f"<!-- review-loop {final.loop.name} r{n} {head.head} -->", "## Review loop", "",
             f"> [!{alert(unresolved, incomplete)}]", f"> {summary(passes, incomplete)}", "",
-            f"Reviewed head [`{head.head[:9]}`](https://github.com/{repo}/commit/{head.head}) on base "
-            f"`{head.base[:9]}` · reviewers: {', '.join(models(passes, pr)) or 'none'}", ""]
+            f"Reviewed head [`{head.head[:9]}`](https://github.com/{repo}/commit/{head.head}) from fork point "
+            f"`{head.fork[:9]}` · reviewers: {', '.join(models(passes, pr)) or 'none'}", ""]
 
 
 def pass_section(p, pr, final, repo, heading):

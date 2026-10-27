@@ -9,7 +9,7 @@
 
 LOOP is the loop's directory (~/.cache/review-loop/<slug>) and ROUND a round
 number; round N lives in LOOP/rN with its heads.tsv
-(PR<TAB>LAYER<TAB>BASE_SHA<TAB>HEAD_SHA, bottom to top).
+(PR<TAB>LAYER<TAB>FORK<TAB>HEAD, bottom to top).
 
 brief prints the task for one reviewer (ROLE is standards, spec, delta, or
 audit), registers it in rN/reviewers.tsv, and rewrites rN/context.md: reviewer.md,
@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -83,7 +84,7 @@ def new_reviewer(loop, n, role, prs, delta, model):
 def scope_line(loop, n, pr, reviewer):
     head = heads(loop, n)[pr]
     if reviewer.scope == "whole":
-        return f"- PR {pr} ({head.layer}): the whole change, `git diff {head.base} {head.head}`."
+        return f"- PR {pr} ({head.layer}): the whole change, `git diff {head.fork} {head.head}`."
     previous = heads(loop, n - 1).get(pr) if n > 1 else None
     diff = round_dir(loop, n) / f"delta-{pr_file_key(pr)}.diff"
     if previous is None or not diff.exists():
@@ -276,29 +277,29 @@ def record_outcome(loop, finding_id, status, commit, note):
 # publish
 
 
-def gh(*args):
-    return subprocess.run(["gh", *args], capture_output=True, text=True, check=True).stdout.strip()
-
-
 def publish_pr(loops, github, pr, head, dry_run):
     remote = github.pr(int(pr)).head
     if remote != head:
         return (f"PR {pr}: GitHub has {remote[:9]} but the loop reviewed {head[:9]}; not posted. "
                 "Run publish again once the reviewed head is pushed.")
-    repo = github.slug
-    body = render(loops, pr, repo)
+    body = render(loops, pr, github.slug)
     marker = body.splitlines()[0]
     query = f".[] | select(.body | startswith({json.dumps(marker)})) | .html_url"
-    posted = gh("api", f"repos/{repo}/issues/{pr}/comments", "--paginate", "--jq", query)
+    posted = github.api(f"issues/{pr}/comments", "--paginate", "--jq", query)
     if posted:
         return f"PR {pr}: already posted, {posted.splitlines()[0]}"
     if dry_run:
         return f"PR {pr}: would post\n{body}"
+    return f"PR {pr}: posted {post_comment(github, pr, body)}"
+
+
+def post_comment(github, pr, body):
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
         handle.write(body)
-    url = gh("api", "-X", "POST", f"repos/{repo}/issues/{pr}/comments", "-F", f"body=@{handle.name}",
-             "--jq", ".html_url")
-    return f"PR {pr}: posted {url}"
+    try:
+        return github.api(f"issues/{pr}/comments", "-X", "POST", "-F", f"body=@{handle.name}", "--jq", ".html_url")
+    finally:
+        os.unlink(handle.name)
 
 
 def publish(loops, checkout, dry_run):

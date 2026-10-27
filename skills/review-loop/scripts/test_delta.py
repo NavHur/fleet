@@ -57,6 +57,15 @@ class DeltaTests(unittest.TestCase):
         self.assertEqual(out, f"pedro/feature 01-a: 5.0 KB, audit=yes -> {self.out}/delta-pedro%2Ffeature.diff\n")
         self.assertIn("+line 99", (self.out / "delta-pedro%2Ffeature.diff").read_text())
 
+    def test_an_unknown_previous_head_exits_2_with_gits_message(self):
+        prev = self.heads("prev.tsv", [("7", "01-a", self.main, "f" * 40)])
+        result = subprocess.run([sys.executable, str(DELTA), "--prev", prev, "--heads",
+                                 self.heads("heads.tsv", [("7", "01-a", self.main, self.r1)]), "--out", str(self.out),
+                                 "--repo", str(self.repo.root)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("fatal:", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_a_pr_new_this_round_is_reviewed_whole(self):
         prev = self.heads("prev.tsv", [])
         out = self.delta(prev, self.heads("heads.tsv", [("7", "01-a", self.main, self.r1)]))
