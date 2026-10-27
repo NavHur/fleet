@@ -40,7 +40,7 @@ sys.path.insert(0, str(SKILL_DIR.parent / "split-stacked-prs" / "scripts"))
 from comment import render  # noqa: E402
 from stack_layers import GitHub, StackError  # noqa: E402
 from loop_state import (COVERAGE, ROLES, LoopError, Reviewer, all_findings, findings_path, heads, id_prefix, location,
-                        outcomes, read_findings, register, reviewers, round_dir, rounds)  # noqa: E402
+                        outcomes, pr_file_key, read_findings, register, reviewers, round_dir, rounds)  # noqa: E402
 
 PRIORITIES = ("P1", "P2", "P3")
 KINDS = ("bug", "violation", "advisory", "opportunity")
@@ -76,7 +76,7 @@ def new_reviewer(loop, n, role, prs, delta, model):
     if role == "audit" and len(prs) != 1:
         raise LoopError("an audit covers one PR; pass --pr")
     # Audits are per PR; the other roles are named for a subset only.
-    name = role if prs == current and role != "audit" else f"{role}-{'-'.join(prs)}"
+    name = role if prs == current and role != "audit" else f"{role}-{'-'.join(map(pr_file_key, prs))}"
     return Reviewer(name, role, "delta" if role == "delta" or delta else "whole", prs, model)
 
 
@@ -85,7 +85,7 @@ def scope_line(loop, n, pr, reviewer):
     if reviewer.scope == "whole":
         return f"- PR {pr} ({head.layer}): the whole change, `git diff {head.base} {head.head}`."
     previous = heads(loop, n - 1).get(pr) if n > 1 else None
-    diff = round_dir(loop, n) / f"delta-{pr}.diff"
+    diff = round_dir(loop, n) / f"delta-{pr_file_key(pr)}.diff"
     if previous is None or not diff.exists():
         raise LoopError(f"PR {pr} has no delta in r{n}; review it whole or skip it")
     return f"- PR {pr} ({head.layer}): the fixes since round {n - 1}, in `{diff}` ({previous.head} to {head.head})."

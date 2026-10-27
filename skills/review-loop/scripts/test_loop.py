@@ -141,6 +141,16 @@ class LoopTests(unittest.TestCase):
         code, out = self.run_loop("brief", self.loop, 2, "delta", "--model", "m")
         self.assertEqual((code, out), (2, "loop.py: PR 7 has no delta in r2; review it whole or skip it\n"))
 
+    def test_a_branch_in_the_pr_column_gets_a_slashless_reviewer_name_and_delta_file(self):
+        for n, head in ((1, self.first), (2, self.second)):
+            self.heads(n, head)
+            (self.loop / f"r{n}" / "heads.tsv").write_text(f"pedro/feature\tbranch\t{self.base}\t{head}\n")
+        (self.loop / "r2" / "delta-pedro-feature.diff").write_text("diff\n")
+        code, out = self.run_loop("brief", self.loop, 2, "audit", "--delta", "--model", "m")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"{self.loop.resolve()}/r2/audit-pedro-feature.json", out)
+        self.assertIn(f"in `{self.loop.resolve()}/r2/delta-pedro-feature.diff`", out)
+
     def test_check_passes_a_valid_file_and_lists_its_findings(self):
         self.run_loop("brief", self.loop, 1, "standards", "--model", "m")
         self.write(1, "standards", {"findings": [finding()]})

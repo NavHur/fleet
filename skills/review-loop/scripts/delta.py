@@ -25,7 +25,7 @@ SKILLS = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(SKILLS / "split-stacked-prs" / "scripts"), str(SKILLS / "pedro-best-practices" / "scripts")]
 
 from diff_budget import changed_files  # noqa: E402
-from loop_state import LoopError, read_heads  # noqa: E402
+from loop_state import LoopError, pr_file_key, read_heads  # noqa: E402
 from revision import language_of  # noqa: E402
 from stack_layers import StackError, read_manifest  # noqa: E402
 
@@ -45,7 +45,7 @@ def layer_delta(pr: str, layer: str, old: str, head: str, paths: tuple[str, ...]
     diff = subprocess.run(["git", "diff", old, head, "--", *paths], capture_output=True, check=True).stdout
     if not diff:
         return f"{pr} {layer}: no delta"
-    file = out / f"delta-{pr}.diff"
+    file = out / f"delta-{pr_file_key(pr)}.diff"
     file.write_bytes(diff)
     changed = changed_files(old, head, paths)
     size = sum((added or 0) + (deleted or 0) for _, _, added, deleted in changed)
@@ -54,13 +54,13 @@ def layer_delta(pr: str, layer: str, old: str, head: str, paths: tuple[str, ...]
 
 
 def report(args) -> list[str]:
-    previous = read_heads(args.prev)
+    previous, current_heads = read_heads(args.prev), read_heads(args.heads)
     out = Path(os.path.abspath(args.out))
     out.mkdir(parents=True, exist_ok=True)
     manifests = Path(os.path.abspath(args.manifests)) if args.manifests else None
     os.chdir(args.repo)
     lines = []
-    for pr, current in read_heads(args.heads).items():
+    for pr, current in current_heads.items():
         if pr not in previous:
             lines.append(f"{pr} {current.layer}: new in this round, review it whole")
             continue

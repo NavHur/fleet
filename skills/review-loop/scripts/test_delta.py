@@ -30,9 +30,9 @@ class DeltaTests(unittest.TestCase):
         path.write_text("".join("\t".join(row) + "\n" for row in rows))
         return str(path)
 
-    def delta(self, prev, heads, *args):
+    def delta(self, prev, heads, *args, cwd=None):
         result = subprocess.run([sys.executable, str(DELTA), "--prev", prev, "--heads", heads, "--out", str(self.out),
-                                 "--repo", str(self.repo.root), *args], capture_output=True, text=True)
+                                 "--repo", str(self.repo.root), *args], capture_output=True, text=True, cwd=cwd)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
@@ -42,6 +42,20 @@ class DeltaTests(unittest.TestCase):
         out = self.delta(prev, self.heads("heads.tsv", [("7", "01-a", self.main, r2)]))
         self.assertEqual(out, f"7 01-a: 5.0 KB, audit=yes -> {self.out}/delta-7.diff\n")
         self.assertIn("+line 99", (self.out / "delta-7.diff").read_text())
+
+    def test_relative_heads_paths_resolve_from_the_working_directory_not_the_repo(self):
+        r2 = self.repo.branch("r2", "s-01-a", {"a.ts": "a\n" + lines(100)})
+        self.heads("prev.tsv", [("7", "01-a", self.main, self.r1)])
+        self.heads("heads.tsv", [("7", "01-a", self.main, r2)])
+        out = self.delta("prev.tsv", "heads.tsv", cwd=self.repo.root.parent)
+        self.assertEqual(out, f"7 01-a: 5.0 KB, audit=yes -> {self.out}/delta-7.diff\n")
+
+    def test_a_branch_in_the_pr_column_names_a_delta_file_without_a_slash(self):
+        r2 = self.repo.branch("r2", "s-01-a", {"a.ts": "a\n" + lines(100)})
+        prev = self.heads("prev.tsv", [("pedro/feature", "01-a", self.main, self.r1)])
+        out = self.delta(prev, self.heads("heads.tsv", [("pedro/feature", "01-a", self.main, r2)]))
+        self.assertEqual(out, f"pedro/feature 01-a: 5.0 KB, audit=yes -> {self.out}/delta-pedro-feature.diff\n")
+        self.assertIn("+line 99", (self.out / "delta-pedro-feature.diff").read_text())
 
     def test_a_pr_new_this_round_is_reviewed_whole(self):
         prev = self.heads("prev.tsv", [])

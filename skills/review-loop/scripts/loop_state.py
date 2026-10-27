@@ -21,6 +21,11 @@ def round_dir(loop, n):
     return loop / f"r{n}"
 
 
+def pr_file_key(pr):
+    """A heads PR column as a file-name part: a PR-less branch name holds slashes."""
+    return pr.replace("/", "-")
+
+
 def rounds(loop):
     found = (re.fullmatch(r"r(\d+)", d.name) for d in loop.iterdir() if (d / "heads.tsv").exists())
     return sorted(int(m.group(1)) for m in found if m)
