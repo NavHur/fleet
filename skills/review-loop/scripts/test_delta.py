@@ -50,12 +50,12 @@ class DeltaTests(unittest.TestCase):
         out = self.delta("prev.tsv", "heads.tsv", cwd=self.repo.root.parent)
         self.assertEqual(out, f"7 01-a: 5.0 KB, audit=yes -> {self.out}/delta-7.diff\n")
 
-    def test_a_branch_in_the_pr_column_names_a_delta_file_without_a_slash(self):
+    def test_a_branch_in_the_pr_column_names_an_encoded_delta_file(self):
         r2 = self.repo.branch("r2", "s-01-a", {"a.ts": "a\n" + lines(100)})
         prev = self.heads("prev.tsv", [("pedro/feature", "01-a", self.main, self.r1)])
         out = self.delta(prev, self.heads("heads.tsv", [("pedro/feature", "01-a", self.main, r2)]))
-        self.assertEqual(out, f"pedro/feature 01-a: 5.0 KB, audit=yes -> {self.out}/delta-pedro-feature.diff\n")
-        self.assertIn("+line 99", (self.out / "delta-pedro-feature.diff").read_text())
+        self.assertEqual(out, f"pedro/feature 01-a: 5.0 KB, audit=yes -> {self.out}/delta-pedro%2Ffeature.diff\n")
+        self.assertIn("+line 99", (self.out / "delta-pedro%2Ffeature.diff").read_text())
 
     def test_a_pr_new_this_round_is_reviewed_whole(self):
         prev = self.heads("prev.tsv", [])

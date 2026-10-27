@@ -76,7 +76,7 @@ def new_reviewer(loop, n, role, prs, delta, model):
     if role == "audit" and len(prs) != 1:
         raise LoopError("an audit covers one PR; pass --pr")
     # Audits are per PR; the other roles are named for a subset only.
-    name = role if prs == current and role != "audit" else f"{role}-{'-'.join(map(pr_file_key, prs))}"
+    name = role if prs == current and role != "audit" else f"{role}-{'+'.join(map(pr_file_key, prs))}"
     return Reviewer(name, role, "delta" if role == "delta" or delta else "whole", prs, model)
 
 

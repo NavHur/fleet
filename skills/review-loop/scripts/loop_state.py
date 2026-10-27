@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 from collections import namedtuple
+from urllib.parse import quote
 
 ROLES = {"standards": "STD", "spec": "SPEC", "delta": "DELTA", "audit": "PBP"}
 # Worst first: a check's merged status across rounds is the worst one reported.
@@ -22,8 +23,8 @@ def round_dir(loop, n):
 
 
 def pr_file_key(pr):
-    """A heads PR column as a file-name part: a PR-less branch name holds slashes."""
-    return pr.replace("/", "-")
+    """A heads PR column as a file-name part, percent-encoded so distinct branches never share one."""
+    return quote(pr, safe="")
 
 
 def rounds(loop):

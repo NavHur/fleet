@@ -141,15 +141,23 @@ class LoopTests(unittest.TestCase):
         code, out = self.run_loop("brief", self.loop, 2, "delta", "--model", "m")
         self.assertEqual((code, out), (2, "loop.py: PR 7 has no delta in r2; review it whole or skip it\n"))
 
-    def test_a_branch_in_the_pr_column_gets_a_slashless_reviewer_name_and_delta_file(self):
+    def test_a_branch_in_the_pr_column_gets_an_encoded_reviewer_name_and_delta_file(self):
         for n, head in ((1, self.first), (2, self.second)):
             self.heads(n, head)
             (self.loop / f"r{n}" / "heads.tsv").write_text(f"pedro/feature\tbranch\t{self.base}\t{head}\n")
-        (self.loop / "r2" / "delta-pedro-feature.diff").write_text("diff\n")
+        (self.loop / "r2" / "delta-pedro%2Ffeature.diff").write_text("diff\n")
         code, out = self.run_loop("brief", self.loop, 2, "audit", "--delta", "--model", "m")
         self.assertEqual(code, 0, out)
-        self.assertIn(f"{self.loop.resolve()}/r2/audit-pedro-feature.json", out)
-        self.assertIn(f"in `{self.loop.resolve()}/r2/delta-pedro-feature.diff`", out)
+        self.assertIn(f"{self.loop.resolve()}/r2/audit-pedro%2Ffeature.json", out)
+        self.assertIn(f"in `{self.loop.resolve()}/r2/delta-pedro%2Ffeature.diff`", out)
+
+    def test_branches_that_differ_only_in_a_slash_get_their_own_audits(self):
+        rows = "".join(f"{b}\tbranch\t{self.base}\t{self.first}\n" for b in ("pedro/a", "pedro-a"))
+        (self.loop / "r1" / "heads.tsv").write_text(rows)
+        for branch in ("pedro/a", "pedro-a"):
+            self.run_loop("brief", self.loop, 1, "audit", "--pr", branch, "--model", "m")
+        names = [line.split("\t")[0] for line in (self.loop / "r1" / "reviewers.tsv").read_text().splitlines()]
+        self.assertEqual(names, ["audit-pedro%2Fa", "audit-pedro-a"])
 
     def test_check_passes_a_valid_file_and_lists_its_findings(self):
         self.run_loop("brief", self.loop, 1, "standards", "--model", "m")
