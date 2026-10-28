@@ -4,14 +4,17 @@ Your brief from `review-loop`'s launcher holds the target, the checkout, and
 the settings. Run two **passes**, each a loop with its own ledger: review in
 rounds, fix what is confirmed, and re-review only the **delta** until a round
 is **clean** (nothing to fix). A pass **converges** on a clean round, or is
-**capped** at the round cap. Pass 2's reviewers read the code without pass
-1's verdicts. Code stays local until the finish; ask the user only for the
-decisions that are theirs.
+**capped** at the round cap. Each pass runs in its own task, the one your
+brief's `Pass` line names (both, when it names none), so pass 2 starts
+without pass 1's history; its reviewers read the code without pass 1's
+verdicts, and only the user's rulings carry over. When this session is the
+launcher, run both passes here. Code stays local until the finish; ask the
+user only for the decisions that are theirs.
 
-`SKILL_DIR` is this file's directory, `loop.py` is
-`python3 "$SKILL_DIR/scripts/loop.py"` (briefs, findings checks, outcomes, the
-PR comment; `--help` gives the ledger's file formats), and reviewers follow
-`reviewer.md`. Read first: `~/.config/t3-orchestration.md`,
+`SKILL_DIR` is this file's directory, `loop.py` is the executable
+`"$SKILL_DIR/scripts/loop.py"` (briefs, findings checks, outcomes, the PR
+comment; `--help` gives the ledger's file formats), called by that path, and
+reviewers follow `reviewer.md`. Read first: `~/.config/t3-orchestration.md`,
 `~/.config/host-validation.md`, and for a stack `split-stacked-prs` section 7,
 which owns carrying fixes and pushing.
 
@@ -44,9 +47,11 @@ pass 2.
 
 ### 1. Pin the round
 
-Write `rN/heads.tsv` from the local branches: for a stack, from its
-manifests (`$plan/layers`, `split-stacked-prs` section 7 step 1); otherwise
-from the branch list (one branch for a single PR):
+Fetch first (`git -C "$checkout" fetch origin`) and pin a base as
+`origin/<base>`: a local base branch can be stale. Write `rN/heads.tsv` from
+the local branches: for a stack, from its manifests (`$plan/layers`,
+`split-stacked-prs` section 7 step 1); otherwise from the branch list (one
+branch for a single PR):
 
 ```bash
 stack_layers="$SKILL_DIR/../split-stacked-prs/scripts/stack_layers.py"
@@ -154,9 +159,12 @@ record each answer with `loop.py outcome "$LOOP" ID ruled --note RULING`. A
 ruling that changes code reopens step 4 for one more delta round, outside the
 cap. Done when every decision is ruled.
 
-After pass 1, write pass 2's ledger with only pass 1's target, settings, spec,
-and standing decisions, and an empty `outcomes.jsonl`; pass 2's
-round 1 reviews pass 1's final heads whole.
+After pass 1, write pass 2's ledger with only pass 1's target, settings,
+spec, and standing decisions, and an empty `outcomes.jsonl`; pass 2's round 1
+reviews pass 1's final heads whole. Then end the task with pass 1's report:
+converged or capped, what is still open, and the final heads. The launcher
+starts pass 2 in a fresh task. When this session is the launcher, go on to
+pass 2 here.
 
 ### 6. Finish
 
