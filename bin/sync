@@ -10,9 +10,10 @@
 # `npx skills`. The files listed in `links` are symlinked into place,
 # ~/.config/host-validation.md is generated, the release binaries in
 # binaries.json are installed into ~/.local/bin, the host-check guard is
-# registered as a hook for each agent, and OpenCode servers older than their
-# plugins are restarted when idle. NAME picks hosts/NAME; it is needed
-# only when this machine's hostname is not listed in a hosts/*/host.json.
+# registered as a hook for each agent, ~/.zshenv sources the agent shell
+# options, PyYAML is installed when python3 lacks it, and OpenCode servers
+# older than their plugins are restarted when idle. NAME picks hosts/NAME; it is
+# needed only when this machine's hostname is not listed in a hosts/*/host.json.
 # Anything replaced is moved to ~/.skills-backups/fleet-<timestamp>/.
 # Written for bash 3.2 so it runs on stock macOS.
 set -euo pipefail
@@ -28,7 +29,7 @@ while [ $# -gt 0 ]; do
     --apply) APPLY=1 ;;
     --host) HOST=${2:-}; shift ;;
     --host=*) HOST=${1#--host=} ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -164,6 +165,19 @@ while read -r home_path repo_path condition; do
   esac
 done < "$FLEET/links"
 
+# Agents run tool calls through `zsh -c` where zsh is the login shell, and every
+# zsh reads ~/.zshenv: source the agent shell options linked above from there.
+ZSHENV="$HOME/.zshenv"
+ZSHENV_LINE='[[ -r ~/.config/fleet/agent-shell.zsh ]] && source ~/.config/fleet/agent-shell.zsh  # fleet bin/sync'
+case "${SHELL:-}" in
+  */zsh)
+    if ! grep -qxF "$ZSHENV_LINE" "$ZSHENV" 2>/dev/null && step source "~/.zshenv: config/agent-shell.zsh"; then
+      if [ -s "$ZSHENV" ] && [ -n "$(tail -c 1 "$ZSHENV")" ]; then echo >>"$ZSHENV"; fi
+      printf '%s\n' "$ZSHENV_LINE" >>"$ZSHENV"
+    fi
+    ;;
+esac
+
 # Shared policy plus this machine's section, as one file agents can read.
 validation="$HOME/.config/host-validation.md"
 generated=$(mktemp)
@@ -252,6 +266,13 @@ binary_plan=$(python3 "$FLEET/lib/fleet/binaries.py" "${binary_args[@]}")
 if [ -n "$binary_plan" ]; then
   echo "$binary_plan"
   PLANNED=$((PLANNED + $(echo "$binary_plan" | grep -cE '^  (binary|replace) ' || true)))
+fi
+
+# pre-commit's ci_covers.py parses CI workflows with PyYAML, which the Mac's
+# stock python3 lacks; Linux hosts get it from their distribution.
+echo "== Python modules"
+if ! python3 -c 'import yaml' 2>/dev/null && step pip "pyyaml for $(command -v python3)"; then
+  python3 -m pip install --user --quiet --disable-pip-version-check pyyaml
 fi
 
 echo "== Node dependencies"
