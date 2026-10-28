@@ -51,6 +51,13 @@ def place(cwd):
     return "/".join(Path(cwd).parts[-2:]) if cwd else "?"
 
 
+def home_relative(cwd):
+    if not cwd:
+        return "?"
+    path = Path(cwd)
+    return f"~/{path.relative_to(Path.home())}" if path.is_relative_to(Path.home()) else cwd
+
+
 def headline(summary):
     text = (summary.title or summary.prompt).strip()
     return text.splitlines()[0][:90] if text else ""
@@ -159,7 +166,7 @@ def week(summary):
 GROUPS = {
     "model": lambda session, summary, model: model,
     "agent": lambda session, summary, model: session.agent,
-    "cwd": lambda session, summary, model: place(summary.cwd),
+    "cwd": lambda session, summary, model: home_relative(summary.cwd),
     "day": lambda session, summary, model: day(summary),
     "week": lambda session, summary, model: week(summary),
 }
@@ -205,8 +212,13 @@ def group_cost(group):
     return priced + "+" if group.usd else "?"
 
 
+def keep_end(text, width):
+    """A long cwd differs at its end, so cut its start."""
+    return text if len(text) <= width else "…" + text[1 - width:]
+
+
 def group_line(name, group):
-    return (f"{str(name)[:40]:<40} {len(group.sessions):>8} {group.tokens.total / 1e6:>8.1f}M "
+    return (f"{keep_end(str(name), 40):<40} {len(group.sessions):>8} {group.tokens.total / 1e6:>8.1f}M "
             f"{group.tokens.out / 1e3:>7.0f}k {group_cost(group):>10}")
 
 
