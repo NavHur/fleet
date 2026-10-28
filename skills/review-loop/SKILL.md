@@ -1,16 +1,16 @@
 ---
 name: review-loop
-description: Review a PR or stack in two passes, Terra then Opus, from a fresh orchestrator thread, fixing between rounds until each pass converges, then merge it or mark it ready.
+description: Review a PR or stack in rounds, Terra then Opus, fixing until each pass is clean; then merge it or mark it ready.
 disable-model-invocation: true
 ---
 
 # Review loop
 
 A review loop reviews a PR or stack in rounds, fixes what reviewers confirm,
-and re-reviews the **delta** until a round is clean. It runs two **passes**,
-each with its own ledger: Terra reviewers catch most bugs cheaply, then Opus
-reviewers read the converged code fresh. One comment per PR reports both;
-then the loop merges the PRs or marks them ready for review.
+and re-reviews the delta until a round is clean: one pass with Terra
+reviewers, which catch most bugs cheaply, then one with Opus reviewers reading
+the result fresh. Then it pushes, posts one comment per PR, and merges the PRs
+or marks them ready.
 
 This session is the **launcher**: it settles the settings and starts the
 **orchestrator**, a new T3 thread that follows `orchestrate.md` in this
@@ -31,17 +31,17 @@ target, else:
 | Workers | `claudeAgent` `claude-sonnet-5-5`, `effort` medium |
 | Round cap | 5 per pass, the first round included |
 | Push | Yes, after pass 2 |
-| Finish | `merge` when the `origin` owner is `PedroNavHur`, else `ready` (mark ready for review); `none` when Push is no |
+| Finish | `merge` when the `origin` owner is `PedroNavHur`; `ready` (mark ready for review) for any other owner; `none` when Push stops locally |
 
 Call `orchestrator_capabilities` once; launch only with offered settings and
 report any that is not.
 
 ## Launch
 
-1. **Pin the target**: its PRs bottom to top, branches, base, and the
-   **checkout**, the worktree holding the branch (a stack's top branch). Done
-   when every change there is committed, since reviewers read commits;
-   uncommitted work goes back to the user. Pick a slug.
+1. **Pin the target**: its PRs bottom to top, branches, base, `origin`
+   owner, and the **checkout**, the worktree holding the branch (a stack's top
+   branch). Done when every change there is committed, since reviewers read
+   commits; uncommitted work goes back to the user. Pick a slug.
 2. **Launch** with `t3_thread_launch`:
    - `title`: `Review loop: <repo> #<PR>`
    - `modelSelection`, the orchestrator setting: `{"provider": "claudeAgent", "model": "claude-opus-5-5", "options": [{"id": "effort", "value": "medium"}]}`
@@ -50,7 +50,8 @@ report any that is not.
 
    Done when it returns the thread's link. After an error or a lost reply,
    check `t3_thread_list` before launching again.
-3. **Hand off**: give the user the link and the settings. Decisions are asked
+3. **Hand off**: give the user the link and the settings, Finish first,
+   since it merges or marks ready without another prompt. Decisions are asked
    in that thread, and the checkout is the orchestrator's until it reports.
 
 ### Brief
