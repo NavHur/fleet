@@ -153,17 +153,14 @@ round 1 reviews pass 1's final heads whole.
   approval from the launching session. Act when both passes converged, the PRs
   are pushed, and every PR's comment is posted at its reviewed head, and only
   on PRs Pedro opened (author `PedroNavHur` or `PedroNavHurDCA`):
-  - `merge`: read each PR head's checks over REST
-    (`repos/<owner>/<repo>/commits/<head>/check-runs`). While any is running,
-    call `watch_pull_request` on the top PR and end the turn; its wake resumes
-    here. Once all pass, merge a PR with
-    `gh pr merge N --merge --match-head-commit <head>`, a stack with
-    `gh stack merge --yes --merge` on its top PR, then unwatch any PR you
-    watched. A failed check or a refused merge goes in the report, unmerged.
+  - `merge`: the launcher merges, since it can wait on checks. List each
+    PR bottom to top with its pushed head in the report, under "Merge: hand
+    back". When this session is the launcher, continue with `SKILL.md`'s
+    Finish step after the report.
   - `ready`: `gh pr ready N` for each draft PR, bottom to top.
   - `none`: leave the PRs as they are.
 - **Report**: per pass, converged or capped; what is still open; each PR's
   comment URL or why it was skipped; local versus pushed heads; the gate
-  results; each PR merged, marked ready, or why it was left.
+  results; each PR handed back for merge, marked ready, or why it was left.
   `loop.py render "$PASS2" PR --earlier "$PASS1" --checkout "$checkout"`
   prints one PR's comment.

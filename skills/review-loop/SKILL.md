@@ -12,10 +12,11 @@ reviewers, which catch most bugs cheaply, then one with Opus reviewers reading
 the result fresh. Then it pushes, posts one comment per PR, and merges the PRs
 or marks them ready.
 
-This session is the **launcher**: it settles the settings and starts the
-**orchestrator**, a new T3 thread that follows `orchestrate.md` in this
-directory, so each reviewer wake reloads only the loop's context. Without T3
-thread tools, follow `orchestrate.md` here instead.
+This session is the **launcher**: it settles the settings, starts the
+**orchestrator**, a T3 child task that follows `orchestrate.md` in this
+directory so each reviewer wake reloads only the loop's context, relays its
+questions, and merges. Without `delegate_task`, follow `orchestrate.md` here
+instead.
 
 ## Settings
 
@@ -42,25 +43,41 @@ report any that is not.
    owner, and the **checkout**, the worktree holding the branch (a stack's top
    branch). Done when every change there is committed, since reviewers read
    commits; uncommitted work goes back to the user. Pick a slug.
-2. **Launch** with `t3_thread_launch`:
+2. **Launch** with `delegate_task`:
    - `title`: `Review loop: <repo> #<PR>`
-   - `modelSelection`, the orchestrator setting: `{"provider": "claudeAgent", "model": "claude-opus-5-5", "options": [{"id": "effort", "value": "medium"}]}`
-   - `workspaceStrategy`: `{"type": "existing_worktree", "worktreePath": "<checkout>"}`
-   - `message`: the brief below
+   - `mode`: `async`, `role`: `review`, `clientRequestId`: `review-loop-<slug>`,
+     reused by any retry of this launch
+   - `target`, the orchestrator setting: `{"providerInstanceId": "claudeAgent", "model": "claude-opus-5-5", "options": {"effort": "medium"}}`
+   - `task`: the brief below
 
-   Done when it returns the thread's link. After an error or a lost reply,
-   check `t3_thread_list` before launching again.
+   The child shares this session's workspace; the brief's `Checkout` line
+   points it at the target. Done when it returns the task's link.
 3. **Hand off**: give the user the link and the settings, Finish first,
-   since it merges or marks ready without another prompt. Decisions are asked
-   in that thread, and the checkout is the orchestrator's until it reports.
+   since it merges or marks ready without another prompt. The checkout is the
+   orchestrator's until it reports. End the turn: its questions and its report
+   wake this session.
+4. **Relay questions**: on a wake saying the task is blocked on a question,
+   read it with `t3_pending_request` `read`, put it to the user unchanged in
+   one `AskUserQuestion`, options in their order, and pass the answer back with
+   `respond`. Every question goes to the user, however settled it looks here.
+   "Already answered" means the user answered in the child thread.
+5. **Finish** on the report: relay it to the user. When it hands the merge
+   back (Finish `merge`), **merge**: read each listed PR head's checks over
+   REST (`repos/<owner>/<repo>/commits/<head>/check-runs`). While any is running,
+   call `watch_pull_request` on the top PR and end the turn; its wake resumes
+   here. Once all pass, merge a PR with
+   `gh pr merge N --merge --match-head-commit <head>`, a stack with
+   `gh stack merge --yes --merge` on its top PR, then unwatch the PR. Done
+   when each PR is merged, or its failed check or refused merge is reported
+   to the user.
 
 ### Brief
 
-The thread knows only this message, so carry over the spec and what this
+The task knows only this message, so carry over the spec and what this
 session settled.
 
 ```text
-You are the orchestrator of a review loop. Read <SKILL_DIR>/orchestrate.md in full, then follow it from the top.
+You are the orchestrator of a review loop. Read <SKILL_DIR>/orchestrate.md in full, then follow it from the top. This task authorizes you to start reviewer and worker tasks with delegate_task.
 
 Target: <repo>, <PR, or stack PRs bottom to top>, branches <...>, base <...>
 Checkout: <path>
