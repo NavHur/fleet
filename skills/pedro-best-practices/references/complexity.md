@@ -1,6 +1,6 @@
 # Complexity limits
 
-How the audit measures complexity and classifies an excess; the audit's step 5 runs it.
+How the audit measures complexity and classifies an excess; [rules.md](rules.md) step 5 runs it.
 
 Cognitive complexity above **8** and cyclomatic complexity above **16** are violations; eight and sixteen pass. Where the repository sets a stricter limit, the stricter limit wins: NJ Homes Next and Receipt Hub fail lint on `dca/cognitive-complexity` max 8 and classic `complexity` max 16; Godot repositories set theirs in `.godot-guard.yml` (hexstead and wingmen: cognitive 6, cyclomatic 12). Never call an excess advisory or optional. Cognitive complexity follows the SonarSource whitepaper (v1.7) in every language; cyclomatic follows ESLint's classic `complexity`. Each reference lists its language's mappings. Measure with the bundled script instead of scoring by hand:
 

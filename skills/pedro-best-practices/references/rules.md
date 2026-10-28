@@ -1,6 +1,32 @@
 # Pedro's rules
 
-The rules a `pedro-best-practices` audit applies across languages; script paths are relative to the skill's directory, one level up.
+The audit's steps and every rule it applies. A `pedro-best-practices` audit and a review-loop audit reviewer both work from this file; script paths are relative to the skill's directory, one level up.
+
+## Languages
+
+Read the reference for every language in scope before auditing it. Each one holds that language's interface cap, ownership patterns, mappings for the shared rules, and performance categories:
+
+| Files in scope | Reference |
+| --- | --- |
+| React (`.tsx`, `.jsx`, React hooks and utilities) | [react.md](react.md) |
+| Svelte (`.svelte`, runes in `.svelte.ts`) | [svelte.md](svelte.md) |
+| Godot (`.gd`, scenes) | [godot.md](godot.md) |
+| Python (`.py`) | [python.md](python.md) |
+| PHP (`.php`) | [php.md](php.md) |
+
+TypeScript and JavaScript outside React and Svelte get the shared rules below with no interface cap and no performance reference. A language with no reference gets the shared rules and is listed as a coverage gap for its interface and performance checks.
+
+## Audit steps
+
+1. Inspect repository instructions, framework and engine versions, lint and analyzer configuration, documented limits, and existing patterns (data fetching, caching, scene structure). Inventory the units in scope per language: components, routes, hooks, scenes and scripts, modules, classes. Track inspected units and unresolved contracts; a name-based search alone is not a complete inventory.
+2. Check every scoped unit's public interface against its language's cap, using that reference's counting rules. More than eight is a violation; seven and eight are allowed, with no warning tier. Trace declarations and callers before reporting a count. Assess interface ownership with the criteria below, including units already within the cap; a compliant count does not establish a good design.
+3. Inspect every scoped conditional expression for nesting using the rule below. Record each outer expression once. Run `scripts/long_comments.py` with the audit's range for the comment cap.
+4. Read [construction-rules.md](construction-rules.md), then apply its three construction rules: every catch, except, and failure-returning call in scope, every function parameter that selects a mode, and every comment beside a changed line.
+5. Measure complexity once with `scripts/measure_complexity.py` (details in [complexity.md](complexity.md)), passing any stricter limit the repository documents, and check the diff for ways around the limits. For Godot scope, also run `scripts/godot_interface.py` with the same range.
+6. Work through each in-scope reference's performance categories in order. Mark categories inapplicable where the code lacks those features. Read the detailed rule before validating a candidate, and trace the affected execution paths.
+7. Validate candidates against actual code and configuration. Pedro's explicit preferences govern the audit; performance guidance informs applicable recommendations. A category's impact label is an investigation priority, not automatic finding severity. Account for compiler and engine optimizations, bundler and export configuration, and framework support. Distinguish measured costs from inferred costs. Performance and ownership findings need a concrete consequence or justified opportunity. A syntactically confirmed nested conditional is sufficient for its readability finding, and a measured complexity excess is sufficient for a complexity violation.
+
+Use a language's own compiler or parser when it resolves a hard contract, loading each project once per audit rather than once per file. Keep unresolved contracts visible instead of guessing counts. Use focused checks when they resolve a candidate; turn a static audit into a full build, benchmark, game run, or browser run only for a concrete need.
 
 ## Nested conditional expressions
 
@@ -51,3 +77,29 @@ Trace values from where callers create them to where the unit consumes them. For
 - Move behavior with its lifecycle. If a unit takes ownership of timers, subscriptions, focus, signal connections, or interaction state, explain how cancellation, cleanup, navigation, freeing, and accessibility remain correct. Introduce shared state (context, stores, autoloads) only when it reduces actual coordination; moving the same bag into shared state is not sufficient.
 
 Before recommending an interface change, answer: **Would we choose this interface without the eight-input limit?** Name the responsibility that moves, the caller work that disappears, or the meaningful concept the grouped value models. If none applies, report the excessive contract as an unresolved design issue rather than proposing a cosmetic fix. Keep the cap and no-warning policy; do not flatten nested fields into a second numerical limit. Each reference shows its language's ownership patterns and examples.
+
+## Findings
+
+Lead with the most consequential confirmed findings. For each, include:
+
+- Category and rule ID: `pedro/eight-prop-cap` for React and Svelte component count violations, `pedro/godot-interface-cap` for Godot script count violations, `pedro/component-ownership` for evidenced interface design findings, `pedro/cognitive-complexity` and `pedro/cyclomatic-complexity` for complexity violations (naming the repository rule, such as `dca/cognitive-complexity`, when lint fails), `pedro/complexity-evasion` for suppressions, loosened config, or splits made only to pass, `pedro/no-nested-ternary` for the advisory readability preference, `pedro/long-comment` for comments over two lines of prose, `pedro/swallowed-error`, `pedro/flag-argument`, and `pedro/stale-comment` for the construction rules, and the reference's rule ID for performance findings.
+- Clickable file and line, unit (component, scene script, function), and concrete evidence.
+- Impact and a focused recommendation; distinguish policy violations from performance defects or optimization opportunities.
+
+For cap violations, include the exact count and the counted input names, or a proven lower bound when the complete contract is unknown. Order cap violations by count within each rule. For interface recommendations, show a concise proposed caller or before/after contract and explain what responsibility or coordination it removes. Distinguish a count violation from an ownership finding even when they concern the same unit; combine their explanation when the root cause is shared.
+
+## Coverage
+
+Give every check below a status: clean (reviewed with no findings), findings, inapplicable, or incomplete. Finish with inspected unit counts per language, the checks actually performed, and unresolved contracts or coverage gaps. Claim a clean audit only for fully inspected scope with no confirmed findings and no unresolved relevant contracts. An agent audit is not a deterministic enforcement guarantee.
+
+- Interface cap (per language)
+- Interface ownership
+- Nested conditionals
+- Comment length (2 lines of prose): say whether lint enforces it or the audit scanned it
+- Swallowed errors: sites inspected per language, and which lint rules the repository enables
+- Flag arguments
+- Stale comments: the comments beside changed lines checked
+- Cognitive complexity (limit 8, or the repository's stricter limit): say whether lint enforces it or the audit measured it
+- Cyclomatic complexity (limit 16, or the repository's stricter limit): the same
+- Complexity evasion: the suppressions, config changes, and split-only refactors checked
+- Each performance category of each in-scope reference
