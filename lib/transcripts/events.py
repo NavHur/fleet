@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import astuple, dataclass, field
 
 # Hook and harness context wrapped around a user's words.
 REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
@@ -20,16 +20,17 @@ class Event:
 @dataclass(frozen=True)
 class Tokens:
     fresh: int = 0  # input read without the cache
-    write: int = 0  # input written to the cache
+    write: int = 0  # input written to the cache for 5 minutes
     read: int = 0  # input read from the cache
     out: int = 0
+    write_1h: int = 0  # input written to the cache for an hour, which costs more
 
     def __add__(self, other):
-        return Tokens(self.fresh + other.fresh, self.write + other.write, self.read + other.read, self.out + other.out)
+        return Tokens(*(mine + theirs for mine, theirs in zip(astuple(self), astuple(other))))
 
     @property
     def total(self):
-        return self.fresh + self.write + self.read + self.out
+        return sum(astuple(self))
 
 
 @dataclass
@@ -53,6 +54,14 @@ def records(lines):
             continue
         if isinstance(record, dict):
             yield record
+
+
+def summary_records(lines, late, found):
+    """Records for a summary: once `found()` says the prompt is read, only lines holding a `late` marker."""
+    for line in lines:
+        if found() and not any(marker in line for marker in late):
+            continue  # parsing every line of a long session costs more than the rest of the scan
+        yield from records([line])
 
 
 def as_text(value):

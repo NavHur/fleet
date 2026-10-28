@@ -1,10 +1,9 @@
 """Claude Code transcripts: ~/.claude/projects/<project>/<session>.jsonl, and subagents/ beside them."""
 from __future__ import annotations
 
-from events import Event, Summary, Tokens, as_text, prompt_text, records
+from events import Event, Summary, Tokens, as_text, prompt_text, records, summary_records
 
 SYNTHETIC = "<synthetic>"  # a message the harness wrote, with no model call behind it
-USAGE = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
 # The input field that best says what a tool call did, in order of preference.
 TOOL_INPUT = ("command", "file_path", "pattern", "prompt", "task", "query", "url", "skill")
 LATE = ('"usage"', '"ai-title"')  # what summary still needs once it has the session's start
@@ -12,11 +11,8 @@ LATE = ('"usage"', '"ai-title"')  # what summary still needs once it has the ses
 
 def summary(lines):
     result, seen = Summary(), set()
-    for line in lines:
-        if result.prompt and not any(marker in line for marker in LATE):
-            continue  # parsing every line of a long session costs more than the rest of the scan
-        for record in records([line]):
-            read(result, record, seen)
+    for record in summary_records(lines, LATE, lambda: result.prompt):
+        read(result, record, seen)
     return result
 
 
@@ -44,7 +40,15 @@ def add_usage(result, message, seen):
     if not usage or model == SYNTHETIC or message.get("id") in seen:
         return
     seen.add(message.get("id"))
-    result.add(model, Tokens(*(usage.get(key) or 0 for key in USAGE)))
+    result.add(model, tokens(usage))
+
+
+def tokens(usage):
+    """The call's tokens; `cache_creation` splits the writes by lifetime, and without it they are all 5-minute."""
+    written = usage.get("cache_creation_input_tokens") or 0
+    hour = (usage.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0
+    return Tokens(fresh=usage.get("input_tokens") or 0, write=written - hour,
+                  read=usage.get("cache_read_input_tokens") or 0, out=usage.get("output_tokens") or 0, write_1h=hour)
 
 
 def events(lines):

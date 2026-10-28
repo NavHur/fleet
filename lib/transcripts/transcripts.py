@@ -80,15 +80,20 @@ def keeps_summary(summary, cwd, prompt):
     return prompt is None or bool(prompt.search(summary.prompt) or prompt.search(summary.title))
 
 
+def pattern(value):
+    try:
+        return re.compile(value)
+    except re.error as error:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a regex: {error}") from error
+
+
 def matching(args):
     """(session, summary) for each session the filters keep, oldest first."""
-    prompt = re.compile(args.prompt) if args.prompt else None
-    grep = re.compile(args.grep) if args.grep else None
     for session in sessions.find(args.since, (args.agent,) if args.agent else tuple(sessions.ROOTS)):
-        if not keeps_lines(session, grep):
+        if not keeps_lines(session, args.grep):
             continue
         summary = session.summary()
-        if keeps_summary(summary, args.cwd, prompt):
+        if keeps_summary(summary, args.cwd, args.prompt):
             yield session, summary
 
 
@@ -222,8 +227,8 @@ def filters(parser):
     parser.add_argument("--since", type=since, default="7d", help="7d, 36h, or a date (default 7d)")
     parser.add_argument("--agent", choices=tuple(sessions.ROOTS))
     parser.add_argument("--cwd", help="text in the session's working directory")
-    parser.add_argument("--prompt", help="regex for the session's first prompt or title")
-    parser.add_argument("--grep", help="regex for any line of the transcript file")
+    parser.add_argument("--prompt", type=pattern, help="regex for the session's first prompt or title")
+    parser.add_argument("--grep", type=pattern, help="regex for any line of the transcript file")
 
 
 def parser():

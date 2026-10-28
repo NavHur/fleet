@@ -3,7 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -17,6 +17,7 @@ CLAUDE_ID = "11111111-2222-3333-4444-555555555555"
 CODEX_ID = "01a17da8-763d-7c23-a37f-4ab04c4ebfc8"
 RATES = {
     "anthropic.claude-opus-5-5": {"input_cost_per_token": 1e-6, "cache_creation_input_token_cost": 2e-6,
+                                  "cache_creation_input_token_cost_above_1hr": 4e-6,
                                   "cache_read_input_token_cost": 1e-7, "output_cost_per_token": 1e-5},
     "openai/gpt-6.1-terra": {"input_cost_per_token": 1e-6, "cache_read_input_token_cost": 1e-7,
                              "output_cost_per_token": 1e-5},
@@ -79,7 +80,9 @@ def write_jsonl(path, records):
 
 class Transcripts(unittest.TestCase):
     def setUp(self):
-        home = Path(tempfile.mkdtemp())
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        home = Path(temp.name)
         roots = {"claude": home / "claude", "codex": home / "codex"}
         write_jsonl(roots["claude"] / "-w-fleet" / f"{CLAUDE_ID}.jsonl", claude_records())
         write_jsonl(roots["codex"] / "2026/10/26" / f"rollout-2026-10-26T09-00-00-{CODEX_ID}.jsonl", codex_records())
@@ -141,6 +144,28 @@ class Transcripts(unittest.TestCase):
         usd = {record["agent"]: round(record["usd"], 6) for record in found}
         # claude: 100 fresh, 1000 written, 10000 read, 50 out; codex: 2000 fresh, 3000 read, 200 out.
         self.assertEqual(usd, {"claude": 0.0036, "codex": 0.0043})
+
+    def test_claude_one_hour_cache_writes_cost_the_one_hour_rate(self):
+        records = claude_records()
+        for record in records[3:5]:
+            record["message"]["usage"]["cache_creation"] = {"ephemeral_5m_input_tokens": 400,
+                                                            "ephemeral_1h_input_tokens": 600}
+        path = sessions.ROOTS["claude"] / "-v" / "99999999-2222-3333-4444-555555555555.jsonl"
+        write_jsonl(path, records)
+        found = json.loads(self.run_cli("list", "--since", "2000-01-01", "--json", "--agent", "claude"))
+        usd = {record["id"][:8]: round(record["usd"], 6) for record in found}
+        # 100 fresh, 400 written for 5 minutes, 600 for an hour, 10000 read, 50 out.
+        self.assertEqual(usd, {CLAUDE_ID[:8]: 0.0036, "99999999": 0.0048})
+
+    def test_one_hour_writes_without_a_rate_cost_twice_the_input(self):
+        rates = {"m": {"input_cost_per_token": 1e-6, "output_cost_per_token": 1e-5}}
+        self.assertAlmostEqual(pricing.cost(rates, "m", Tokens(write_1h=1000)), 2e-3)
+
+    def test_a_bad_regex_is_a_usage_error(self):
+        for flag in ("--prompt", "--grep"):
+            with self.subTest(flag=flag), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                transcripts.main(["list", flag, "("])
+            self.assertEqual(raised.exception.code, 2)
 
     def test_usage_groups_and_totals(self):
         lines = self.run_cli("usage", "--since", "2000-01-01", "--by", "agent").splitlines()

@@ -1,7 +1,7 @@
 """Codex transcripts: ~/.codex/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl."""
 from __future__ import annotations
 
-from events import Event, Summary, Tokens, as_text, prompt_text, records
+from events import Event, Summary, Tokens, as_text, prompt_text, records, summary_records
 
 # Context Codex sends as user messages ahead of the user's own words.
 CONTEXT = ("# AGENTS.md instructions", "<environment_context>", "<user_instructions>", "<INSTRUCTIONS>")
@@ -43,11 +43,8 @@ def tokens(total):
 
 def summary(lines):
     reading = Reading()
-    for line in lines:
-        if reading.summary.prompt and not any(marker in line for marker in LATE):
-            continue
-        for record in records([line]):
-            reading.read(record)
+    for record in summary_records(lines, LATE, lambda: reading.summary.prompt):
+        reading.read(record)
     return reading.result()
 
 

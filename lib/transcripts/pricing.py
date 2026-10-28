@@ -36,5 +36,6 @@ def cost(rates, model, tokens):
     per_input = entry["input_cost_per_token"]
     return (tokens.fresh * per_input
             + tokens.write * entry.get("cache_creation_input_token_cost", per_input * 1.25)
+            + tokens.write_1h * entry.get("cache_creation_input_token_cost_above_1hr", per_input * 2)
             + tokens.read * entry.get("cache_read_input_token_cost", per_input * 0.1)
             + tokens.out * entry["output_cost_per_token"])
