@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import astuple, dataclass, field
+from dataclasses import dataclass, field
 
 # Hook and harness context wrapped around a user's words.
 REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
@@ -26,11 +26,12 @@ class Tokens:
     write_1h: int = 0  # input written to the cache for an hour, which costs more
 
     def __add__(self, other):
-        return Tokens(*(mine + theirs for mine, theirs in zip(astuple(self), astuple(other))))
+        return Tokens(self.fresh + other.fresh, self.write + other.write, self.read + other.read,
+                      self.out + other.out, self.write_1h + other.write_1h)
 
     @property
     def total(self):
-        return sum(astuple(self))
+        return self.fresh + self.write + self.read + self.out + self.write_1h
 
 
 @dataclass
