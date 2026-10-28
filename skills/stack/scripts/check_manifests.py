@@ -20,19 +20,62 @@ import subprocess
 import sys
 from collections import defaultdict
 
+from stack_layers import StackError, read_manifests
 
-def read_manifest(path):
-    whole, staged = [], []
-    with open(path) as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("~"):
-                staged.append(line[1:].strip())
-            else:
-                whole.append(line)
-    return whole, staged
+
+def changed_paths(base, source):
+    diff = subprocess.run(
+        ["git", "diff", "--name-only", "--no-renames", base, source],
+        capture_output=True, text=True, check=True,
+    )
+    return set(diff.stdout.splitlines())
+
+
+def layer_indexes(manifests):
+    """{path: indexes of the layers taking it whole}, {path: indexes of the layers staging it}."""
+    final, staged = defaultdict(list), defaultdict(list)
+    for index, manifest in enumerate(manifests):
+        for path in manifest.whole:
+            final[path].append(index)
+        for path in manifest.staged:
+            staged[path].append(index)
+    return final, staged
+
+
+def final_errors(final, staged, changed, layers):
+    errors = [
+        f"duplicated: {path} in {', '.join(layers[i] for i in idx)} (stage the earlier ones as ~{path})"
+        for path, idx in sorted(final.items()) if len(idx) > 1
+    ]
+    for path in sorted(changed - set(final)):
+        errors.append(f"missing: {path}" + (" (staged, but no final layer)" if path in staged else ""))
+    # a staged file may end where it started
+    errors += [f"not changed: {path}" for path in sorted(set(final) - changed - set(staged))]
+    return errors
+
+
+def staged_errors(final, staged, changed, layers):
+    errors = []
+    for path, idx in sorted(staged.items()):
+        if path in final and max(idx) >= min(final[path]):
+            errors.append(f"staged at or after its final layer: {path} in {layers[max(idx)]}")
+        if path not in final and path not in changed:
+            errors.append(f"staged but no final layer: {path}")
+    return errors
+
+
+def hook_errors(directory, staged_layers, require_hooks):
+    """Errors for staged layers without an executable hook; warnings instead unless hooks are required."""
+    errors = []
+    for layer in staged_layers:
+        if os.access(os.path.join(directory, "hooks", layer), os.X_OK):
+            continue
+        message = f"no executable hooks/{layer} for its ~paths"
+        if require_hooks:
+            errors.append(message)
+        else:
+            print(f"warning: {message}; fix_layers.sh will 3-way merge them")
+    return errors
 
 
 def main():
@@ -42,51 +85,17 @@ def main():
         print(__doc__, file=sys.stderr)
         return 2
     base, source, directory = args
-    changed = set(
-        subprocess.run(
-            ["git", "diff", "--name-only", "--no-renames", base, source],
-            capture_output=True, text=True, check=True,
-        ).stdout.splitlines()
-    )
-    layers = sorted(
-        f for f in os.listdir(directory)
-        if not f.startswith(".") and os.path.isfile(os.path.join(directory, f))
-    )
-    final = defaultdict(list)  # path -> layers taking it whole
-    staged = defaultdict(list)  # path -> layers staging it
-    staged_layers = []
-    for index, layer in enumerate(layers):
-        whole_paths, staged_paths = read_manifest(os.path.join(directory, layer))
-        for path in whole_paths:
-            final[path].append(index)
-        for path in staged_paths:
-            staged[path].append(index)
-        if staged_paths:
-            staged_layers.append(layer)
+    changed = changed_paths(base, source)
+    try:
+        manifests = read_manifests(directory)
+    except StackError as error:
+        sys.exit(str(error))
+    layers = [manifest.name for manifest in manifests]
+    staged_layers = [manifest.name for manifest in manifests if manifest.staged]
+    final, staged = layer_indexes(manifests)
 
-    errors = []
-    for path, idx in sorted(final.items()):
-        if len(idx) > 1:
-            errors.append(f"duplicated: {path} in {', '.join(layers[i] for i in idx)} (stage the earlier ones as ~{path})")
-    for path in sorted(changed - set(final)):
-        errors.append(f"missing: {path}" + (" (staged, but no final layer)" if path in staged else ""))
-    for path in sorted(set(final) - changed):
-        if path not in staged:  # a staged file may end where it started
-            errors.append(f"not changed: {path}")
-    for path, idx in sorted(staged.items()):
-        if path in final and max(idx) >= min(final[path]):
-            errors.append(f"staged at or after its final layer: {path} in {layers[max(idx)]}")
-        if path not in final and path not in changed:
-            errors.append(f"staged but no final layer: {path}")
-    for layer in staged_layers:
-        hook = os.path.join(directory, "hooks", layer)
-        if not os.access(hook, os.X_OK):
-            message = f"no executable hooks/{layer} for its ~paths"
-            if require_hooks:
-                errors.append(message)
-            else:
-                print(f"warning: {message}; fix_layers.sh will 3-way merge them")
-
+    errors = final_errors(final, staged, changed, layers) + staged_errors(final, staged, changed, layers)
+    errors += hook_errors(directory, staged_layers, require_hooks)
     for error in errors:
         print(error)
     print(
