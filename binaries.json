@@ -3,10 +3,10 @@
   "binaries": {
     "godot-guard": {
       "repo": "PedroNavHur/godot-guard",
-      "tag": "v0.6.0",
+      "tag": "v0.7.0",
       "sha256": {
-        "aarch64-apple-darwin": "654bbf19865b89f8bd92a0342d39ccaba01050f54f2e54e93145d3202061d3e6",
-        "x86_64-unknown-linux-gnu": "6a30a9f2bcbcda2bea3aa72763ebb8d36da5274b70484c4fde2b9543dabf27fe"
+        "aarch64-apple-darwin": "b716c5414b983ad6cb31a55bfea77df18abf62696c8ba94bcfd108ba773509ad",
+        "x86_64-unknown-linux-gnu": "f6f633f00c23ae19979af1ec23eaca9b4866f38b7f8249b89cb7e06da98be1b1"
       }
     },
     "pbp-complexity": {

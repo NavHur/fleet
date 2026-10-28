@@ -13,6 +13,7 @@
 .config/fleet/runners.json              hosts/{host}/runners.json
 .config/t3-orchestration.md             config/t3-orchestration.md
 .config/fleet/agent-shell.zsh           config/agent-shell.zsh
+.config/fleet/login-path.sh             config/login-path.sh
 .claude/hooks/merge-guard.py            hosts/{host}/claude-hooks/merge-guard.py
 .claude/hooks/agent-cli-guard.py        hosts/{host}/claude-hooks/agent-cli-guard.py
 .claude/hooks/migration-guard.py        hosts/{host}/claude-hooks/migration-guard.py

@@ -20,9 +20,9 @@ Run builds, tests, lint, typechecks, format checks, and benchmarks through
   commits beyond its base) only when Pedro says so in that conversation. When
   it is unclear whose branch it is, ask.
 - Merge PRs with a merge commit so every commit is kept: `gh pr merge N
-  --merge`, `gh stack merge --yes --merge`, REST `merge_method=merge`. Never
-  squash or rebase-merge; rebase a branch onto its base instead when it needs
-  it.
+  --merge --match-head-commit <head>`, or `gh stack merge --yes --merge` on a
+  stack's top PR. Never squash or rebase-merge; rebase a branch onto its base
+  instead when it needs it.
 - Commit subjects: a Conventional Commits type, a scope when obvious
   (`fix(vacant-land): …`), imperative, under 72 characters; reasoning in the
   body.
@@ -57,9 +57,9 @@ confidence.
 ## GitHub API
 
 Use `gh api` REST endpoints whenever one exists; `gh` porcelain and `--json`
-may use GraphQL. Spend GraphQL only on draft/ready switches, resolving review
-threads, auto-merge, the merge queue, and marking files viewed; `gh stack` is
-exempt. On a rate-limit error, check `gh api rate_limit` once, keep the PR, and
+may use GraphQL. Spend GraphQL only on merges (`gh pr merge`), draft/ready
+switches, resolving review threads, auto-merge, the merge queue, and marking
+files viewed; `gh stack` is exempt. On a rate-limit error, check `gh api rate_limit` once, keep the PR, and
 wait for the reset.
 
 ## File size
