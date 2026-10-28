@@ -14,7 +14,7 @@ The `principle-*` skills come from [pstack](https://github.com/backnotprop/pstac
 
 - gives each such skill an `agents/openai.yaml` with `allow_implicit_invocation: false`, because Codex ignores the frontmatter key;
 - writes `~/.config/principles.md`, one line per principle with when it applies and its path;
-- writes a marked block into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, and `~/.config/opencode/AGENTS.md`: the shared instructions in `config/instructions.md`, then the agent's own in `config/instructions.<agent>.md` when there is one, plus a pointer to that index. Edit the shared rules there, never inside the block; a host's own instructions go outside it.
+- writes a marked block into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, and `~/.config/opencode/AGENTS.md`: the shared instructions in `config/instructions.md`, then the agent's own in `config/instructions.<agent>.md` when there is one, then the same principle lines without their paths. Edit the shared rules there, never inside the block; a host's own instructions go outside it.
 
 Fleet's own principles are written in the same format:
 
