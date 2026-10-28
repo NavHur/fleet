@@ -18,10 +18,10 @@ import binaries
 TARGET = binaries.TARGETS.get((platform.system(), platform.machine()), "x86_64-unknown-linux-gnu")
 
 
-def archive(directory: Path, name: str, payload: bytes) -> Path:
+def archive(directory: Path, name: str, payload: bytes, member: str | None = None) -> Path:
     path = directory / f"{name}-{TARGET}.tar.gz"
     with tarfile.open(path, "w:gz") as tar:
-        info = tarfile.TarInfo(name)
+        info = tarfile.TarInfo(member or name)
         info.size = len(payload)
         tar.addfile(info, io.BytesIO(payload))
     return path
@@ -43,13 +43,14 @@ class Binaries(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def release(self, tag: str, payload: bytes, sha256: str | None = None) -> Path:
+    def release(self, tag: str, payload: bytes, sha256: str | None = None, member: str | None = None) -> Path:
         directory = self.releases / tag
         directory.mkdir(parents=True, exist_ok=True)
-        path = archive(directory, "tool", payload)
+        path = archive(directory, "tool", payload, member and member.replace("{target}", TARGET))
         manifest = self.home / "binaries.json"
         digest = sha256 or hashlib.sha256(path.read_bytes()).hexdigest()
-        manifest.write_text(json.dumps({"binaries": {"tool": {"repo": "o/r", "tag": tag, "sha256": {TARGET: digest}}}}))
+        entry = {"repo": "o/r", "tag": tag, "sha256": {TARGET: digest}, **({"member": member} if member else {})}
+        manifest.write_text(json.dumps({"binaries": {"tool": entry}}))
         return manifest
 
     def sync(self, manifest: Path, apply: bool = True) -> str:
@@ -72,6 +73,10 @@ class Binaries(unittest.TestCase):
         self.sync(self.release("v1", b"one"))
         self.assertIn("binary     tool v2", self.sync(self.release("v2", b"two")))
         self.assertEqual(self.installed(), b"two")
+
+    def test_a_member_path_finds_a_binary_inside_a_folder(self):
+        self.sync(self.release("v1", b"nested", member="tool-{target}/tool"))
+        self.assertEqual(self.installed(), b"nested")
 
     def test_a_dry_run_changes_nothing(self):
         self.assertIn("binary     tool v1", self.sync(self.release("v1", b"one"), apply=False))

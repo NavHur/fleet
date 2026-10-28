@@ -1,5 +1,5 @@
 {
-  "$comment": "Release binaries bin/sync installs into ~/.local/bin (lib/fleet/binaries.py). Each asset is <name>-<target>.tar.gz on the repository's release <tag>; sha256 pins it per target.",
+  "$comment": "Release binaries bin/sync installs into ~/.local/bin (lib/fleet/binaries.py). Each asset is <name>-<target>.tar.gz on the repository's release <tag>; sha256 pins it per target, and member, when set, is the binary's path inside the archive.",
   "binaries": {
     "godot-guard": {
       "repo": "PedroNavHur/godot-guard",
@@ -15,6 +15,15 @@
       "sha256": {
         "aarch64-apple-darwin": "c0e805ef958e7c6fde72256c54accd7b7ea6bee3ca1e7f0b2add12d9121cb593",
         "x86_64-unknown-linux-gnu": "f2bd7916d8a6c6af103ae581994e6b141391d90b67f12bba871da3df6f85c87c"
+      }
+    },
+    "ruff": {
+      "repo": "astral-sh/ruff",
+      "tag": "0.17.3",
+      "member": "ruff-{target}/ruff",
+      "sha256": {
+        "aarch64-apple-darwin": "118f7121aa838785672bf612487f755a89108bb5f44e0f3df96c5967a72614f9",
+        "x86_64-unknown-linux-gnu": "2b0890f5a55900af741f133918c2656919bbf18c2ab7741b4ca8403a90e647a9"
       }
     }
   }
