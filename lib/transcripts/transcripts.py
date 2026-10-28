@@ -195,11 +195,12 @@ def usage(args):
             usd = pricing.cost(rates, model, tokens)
             groups.setdefault(key(session, summary, model), Group()).add(session, model, tokens, usd)
             total.add(session, model, tokens, usd)
-    print(f"{args.by:<40} {'sessions':>8} {'tokens':>9} {'output':>8} {'cost':>10}")
+    width = max([40, *(len(str(name)) for name in groups)])  # names stay whole, so no two rows read alike
+    print(f"{args.by:<{width}} {'sessions':>8} {'tokens':>9} {'output':>8} {'cost':>10}")
     order = (lambda item: str(item[0])) if args.by in CHRONOLOGICAL else (lambda item: -item[1].usd)
     for name, group in sorted(groups.items(), key=order):
-        print(group_line(name, group))
-    print(group_line("total", total))
+        print(group_line(name, group, width))
+    print(group_line("total", total, width))
     if total.unpriced:
         print(f"unpriced (no rate in {pricing.RATES}; ? has no price, + leaves some out): "
               f"{', '.join(sorted(total.unpriced))}")
@@ -212,13 +213,8 @@ def group_cost(group):
     return priced + "+" if group.usd else "?"
 
 
-def keep_end(text, width):
-    """A long cwd differs at its end, so cut its start."""
-    return text if len(text) <= width else "…" + text[1 - width:]
-
-
-def group_line(name, group):
-    return (f"{keep_end(str(name), 40):<40} {len(group.sessions):>8} {group.tokens.total / 1e6:>8.1f}M "
+def group_line(name, group, width):
+    return (f"{str(name):<{width}} {len(group.sessions):>8} {group.tokens.total / 1e6:>8.1f}M "
             f"{group.tokens.out / 1e3:>7.0f}k {group_cost(group):>10}")
 
 

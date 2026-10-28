@@ -159,12 +159,15 @@ class Transcripts(unittest.TestCase):
         self.assertEqual((rows["claude-opus-5-5"], rows["gpt-6.1-terra"], rows["total"]), ("$0.00", "?", "$0.00+"))
 
     def test_usage_by_cwd_keeps_directories_with_the_same_ending_apart(self):
+        long_tail = "/a-directory-name-long-enough-to-pass-forty-characters/fleet/t3-1"
         records = claude_records()
-        records[0] = {**records[0], "cwd": "/v/fleet/t3-1"}
-        write_jsonl(sessions.ROOTS["claude"] / "-v-fleet" / "99999999-2222-3333-4444-555555555555.jsonl", records)
+        records[0] = {**records[0], "cwd": "/v" + long_tail}
+        write_jsonl(sessions.ROOTS["claude"] / "-v" / "99999999-2222-3333-4444-555555555555.jsonl", records)
+        records[0] = {**records[0], "cwd": "/w" + long_tail}
+        write_jsonl(sessions.ROOTS["claude"] / "-w" / "88888888-2222-3333-4444-555555555555.jsonl", records)
         lines = self.run_cli("usage", "--since", "2000-01-01", "--by", "cwd").splitlines()
         self.assertEqual(sorted(line.split()[0] for line in lines[1:-1]),
-                         ["/v/fleet/t3-1", "/w/fleet/pedro-x", "/w/fleet/t3-1"])
+                         ["/v" + long_tail, "/w" + long_tail, "/w/fleet/pedro-x", "/w/fleet/t3-1"])
 
     def test_an_unknown_id_exits_with_a_message(self):
         with self.assertRaises(SystemExit) as raised:
