@@ -106,25 +106,31 @@ class LoopTests(LoopCase):
             ## Review loop
 
             > [!WARNING]
-            > 2 findings over 2 rounds: 1 fixed, 1 awaiting a decision. Coverage: incomplete (Standards: Core runtime, Cognitive complexity (limit 8)).
+            > 2 findings over 2 rounds: 1 fixed, 1 awaiting a decision. Coverage: 2 gaps.
 
             Reviewed head [`{s[:9]}`](https://github.com/acme/app/commit/{s}) from fork point `{self.base[:9]}` · reviewers: gpt-6.1-sol high
 
-            ### Rounds
+            ### Needs attention
+
+            - P3 advisory: **A | in the title.** Awaiting a decision: Keep it?\\
+              `R2-DELTA-1` · pedro/no-nested-ternary · [`app.py:1`](https://github.com/acme/app/blob/{s}/app.py#L1)
+
+            ### Coverage gaps
+
+            - **Standards: Core runtime**: not vendored
+            - **Cognitive complexity (limit 8)**: php missing
+
+            <details><summary>Rounds and findings: 2 rounds, 2 findings, 1 fixed</summary>
 
             | Round | Review | Head | Findings | Fixed |
             | --- | --- | --- | ---: | ---: |
             | r1 | whole: standards, audit | `{f[:9]}` | 1 | 1 |
             | r2 | delta: delta | `{s[:9]}` | 1 | 0 |
 
-            ### Findings
-
-            | ID | Priority | Rule | Location | Finding | Outcome |
-            | --- | --- | --- | --- | --- | --- |
-            | R1-STD-1 | P2 bug | README.md "Errors" | `app.py:2` | Errors are swallowed. | Fixed in `{s[:9]}` |
-            | R2-DELTA-1 | P3 advisory | pedro/no-nested-ternary | [`app.py:1`](https://github.com/acme/app/blob/{s}/app.py#L1) | A \\| in the title. | Awaiting a decision: Keep it? |
-
-            <details><summary>Evidence and recommendations</summary>
+            - P2 bug: **Errors are swallowed.** Fixed in `{s[:9]}`\\
+              `R1-STD-1` · README.md "Errors" · `app.py:2`
+            - P3 advisory: **A | in the title.** Awaiting a decision: Keep it?\\
+              `R2-DELTA-1` · pedro/no-nested-ternary · [`app.py:1`](https://github.com/acme/app/blob/{s}/app.py#L1)
 
             #### R1-STD-1: Errors are swallowed.
 
@@ -150,20 +156,6 @@ class LoopTests(LoopCase):
 
             </details>
 
-            ### Coverage
-
-            | Check | Result |
-            | --- | --- |
-            | Standards: Core runtime | Incomplete: not vendored |
-            | Cognitive complexity (limit 8) | Incomplete: php missing |
-
-            <details><summary>Coverage notes</summary>
-
-            - **Standards: Core runtime**: not vendored
-            - **Cognitive complexity (limit 8)**: php missing
-
-            </details>
-
             """))
 
     def test_render_marks_a_settled_clean_loop_as_a_note(self):
@@ -174,7 +166,10 @@ class LoopTests(LoopCase):
         out = self.run_loop("render", self.loop, "7", "--checkout", self.repo)[1]
         self.assertIn("> [!NOTE]\n> 2 findings over 2 rounds: 1 fixed, 1 settled by a ruling. Coverage: complete.",
                       out)
-        self.assertIn("| Ruled: Pedro keeps it |", out)
+        self.assertNotIn("### Needs attention", out, "a ruling settles a finding")
+        self.assertIn("**A | in the title.** Ruled: Pedro keeps it\\\n", out)
+        self.assertIn("<details><summary>Coverage: 1 check</summary>\n\n| Check | Result | Note |\n| --- | --- | --- |\n"
+                      "| Nested conditionals | Clean |  |\n", out)
 
     def publish(self, remote_head, *args, posted=""):
         state = self.root / "gh"
@@ -224,40 +219,57 @@ class LoopTests(LoopCase):
             ## Review loop
 
             > [!WARNING]
-            > 3 findings over 3 rounds in 2 passes: 1 fixed, 1 declined, 1 open. Coverage: incomplete (Standards: Core runtime, Cognitive complexity (limit 8)).
+            > 3 findings over 3 rounds in 2 passes: 1 fixed, 1 declined, 1 open. Coverage: 2 gaps.
 
             Reviewed head [`{s[:9]}`](https://github.com/acme/app/commit/{s}) from fork point `{self.base[:9]}` · reviewers: claude-opus-5-5 medium, gpt-6.1-sol high
 
-            ### Pass 1: gpt-6.1-sol high
+            ### Needs attention
 
-            #### Rounds
+            - P3 advisory: **A | in the title.** Open\\
+              pass 1 · `R2-DELTA-1` · pedro/no-nested-ternary · `app.py:1`
+            - P3 violation: **A stale comment.** Declined: The comment is accurate\\
+              pass 2 · `R1-STD-1` · README.md "Errors" · [`app.py:1`](https://github.com/acme/app/blob/{s}/app.py#L1)
+
+            ### Coverage gaps
+
+            - **Standards: Core runtime**: not vendored
+            - **Cognitive complexity (limit 8)**: php missing
+
+            <details><summary>Pass 1, gpt-6.1-sol high: 2 rounds, 2 findings, 1 fixed</summary>
 
             | Round | Review | Head | Findings | Fixed |
             | --- | --- | --- | ---: | ---: |
             | r1 | whole: standards, audit | `{f[:9]}` | 1 | 1 |
             | r2 | delta: delta | `{s[:9]}` | 1 | 0 |
 
-            #### Findings
+            - P2 bug: **Errors are swallowed.** Fixed in `{s[:9]}`\\
+              `R1-STD-1` · README.md "Errors" · `app.py:2`
+            - P3 advisory: **A | in the title.** Open\\
+              `R2-DELTA-1` · pedro/no-nested-ternary · `app.py:1`
             """)), out)
-        self.assertIn("| R2-DELTA-1 | P3 advisory | pedro/no-nested-ternary | `app.py:1` | A \\| in the title. | Open |",
-                      out, "only the final pass's last round links its locations")
-        self.assertIn("\n##### R1-STD-1: Errors are swallowed.\n", out)
-        self.assertIn(textwrap.dedent(f"""\
-            ### Pass 2: claude-opus-5-5 medium
-
-            #### Rounds
+        self.assertTrue(out.endswith(textwrap.dedent(f"""\
+            <details><summary>Pass 2, claude-opus-5-5 medium: 1 round, 1 finding, 0 fixed</summary>
 
             | Round | Review | Head | Findings | Fixed |
             | --- | --- | --- | ---: | ---: |
             | r1 | whole: standards | `{s[:9]}` | 1 | 0 |
 
-            #### Findings
+            - P3 violation: **A stale comment.** Declined: The comment is accurate\\
+              `R1-STD-1` · README.md "Errors" · [`app.py:1`](https://github.com/acme/app/blob/{s}/app.py#L1)
 
-            | ID | Priority | Rule | Location | Finding | Outcome |
-            | --- | --- | --- | --- | --- | --- |
-            | R1-STD-1 | P3 violation | README.md "Errors" | [`app.py:1`](https://github.com/acme/app/blob/{s}/app.py#L1) | A stale comment. | Declined: The comment is accurate |
-            """), out)
-        self.assertIn("\n### Coverage\n", out)
+            #### R1-STD-1: A stale comment.
+
+            README.md "Errors" · `app.py:1` · Declined: The comment is accurate
+
+            **Evidence**
+
+            `except: pass`
+
+            **Recommendation.** Return the error.
+
+            </details>
+
+            """)), out)
 
     def test_render_refuses_an_earlier_pass_that_never_pinned_the_pr(self):
         self.two_rounds()
