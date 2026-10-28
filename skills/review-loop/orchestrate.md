@@ -3,9 +3,10 @@
 Your brief from `review-loop`'s launcher holds the target, the checkout, and
 the settings. Run two **passes**, each a loop with its own ledger: review in
 rounds, fix what is confirmed, and re-review only the **delta** until a round
-is **clean**. Pass 2's reviewers read the code without pass 1's verdicts. Code
-stays local until the finish; ask the user only for the decisions that are
-theirs.
+is **clean** (nothing to fix). A pass **converges** on a clean round, or is
+**capped** at the round cap. Pass 2's reviewers read the code without pass
+1's verdicts. Code stays local until the finish; ask the user only for the
+decisions that are theirs.
 
 `SKILL_DIR` is this file's directory, `loop.py` is
 `python3 "$SKILL_DIR/scripts/loop.py"` (briefs, findings checks, outcomes, the
@@ -28,6 +29,8 @@ reached:
   from `stack_layers.py heads` (step 1). FORK is the layer's fork point, so
   `git diff FORK HEAD` is its own change. PR is the number, or the branch
   while no PR is open; only numbered PRs get a comment.
+- `rN/tasks.tsv`: `NAME<TAB>TASKID` per reviewer you launch (step 2). A
+  reviewer listed there with no `rN/NAME.json` is still running.
 
 ## Steps
 
@@ -36,8 +39,9 @@ pass 2.
 
 ### 1. Pin the round
 
-Write `rN/heads.tsv` from the local branches, for a split-stacked-prs stack or
-a branch list (one branch for a single PR):
+Write `rN/heads.tsv` from the local branches: for a stack, from its
+manifests (`$plan/layers`, `split-stacked-prs` section 7 step 1); otherwise
+from the branch list (one branch for a single PR):
 
 ```bash
 stack_layers="$SKILL_DIR/../split-stacked-prs/scripts/stack_layers.py"
@@ -99,11 +103,11 @@ Done when `check` passes and every finding is a Fix or has an outcome.
 
 ### 4. Converge or fix
 
-Clean (no Fix items) or at the round cap: go to step 5. Otherwise:
+Clean, or at the round cap: go to step 5. Otherwise:
 
 1. Brief workers (the worker setting, `delegate_task`) to edit the fixed
    source: the stack's source branch, or the branch itself. Each gets disjoint
-   files, its findings, and the ledger, and runs no checks.
+   files, its findings, and the ledger; the checks are yours, next.
 2. Read each worker's diff as a reviewer would. Run the light check from
    `split-stacked-prs` section 7 step 4 (on a branch, the same check), and in
    the same host-check job measure the uncommitted fixes, with `PBP` the
@@ -142,12 +146,24 @@ round 1 reviews pass 1's final heads whole.
   `split-stacked-prs` section 7 step 5; for a branch, its gates, then push. On
   a coworker's branch, ask the user first.
 - **Comment**: `loop.py publish "$PASS2" --earlier "$PASS1" --checkout "$checkout"`
-  posts one comment per PR covering both passes and the audits, so post no
-  separate `pedro-best-practices` comment. It skips a PR whose GitHub head is
-  not pass 2's last reviewed head; run it again after that PR's push.
+  posts one comment per PR, covering both passes and the audits. It skips a
+  PR whose GitHub head is not pass 2's last reviewed head; run it again after
+  that PR's push.
+- **Merge or mark ready**, per the brief's `Finish` line, which is Pedro's
+  approval from the launching session. Act when both passes converged, the PRs
+  are pushed, and every PR's comment is posted at its reviewed head, and only
+  on PRs Pedro opened (author `PedroNavHur` or `PedroNavHurDCA`):
+  - `merge`: read each PR head's checks over REST
+    (`repos/<owner>/<repo>/commits/<head>/check-runs`). While any is running,
+    call `watch_pull_request` on the top PR and end the turn; its wake resumes
+    here. Once all pass, merge a PR with
+    `gh pr merge N --merge --match-head-commit <head>`, a stack with
+    `gh stack merge --yes --merge` on its top PR, then unwatch any PR you
+    watched. A failed check or a refused merge goes in the report, unmerged.
+  - `ready`: `gh pr ready N` for each draft PR, bottom to top.
+  - `none`: leave the PRs as they are.
 - **Report**: per pass, converged or capped; what is still open; each PR's
   comment URL or why it was skipped; local versus pushed heads; the gate
-  results. `loop.py render "$PASS2" PR --earlier "$PASS1" --checkout "$checkout"`
+  results; each PR merged, marked ready, or why it was left.
+  `loop.py render "$PASS2" PR --earlier "$PASS1" --checkout "$checkout"`
   prints one PR's comment.
-
-Merging and marking PRs ready stay with the user.
