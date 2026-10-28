@@ -1,5 +1,6 @@
 {
   "hostnames": ["Pedros-MBP", "Pedros-MacBook-Pro"],
+  "checkout": "~/dev/fleet",
   "slots": 3,
   "heavy_slots": 2,
   "build_slots": 1,

@@ -1,5 +1,6 @@
 {
   "hostnames": ["homebox"],
+  "checkout": "~/src/fleet",
   "slots": 6,
   "heavy_slots": 2,
   "build_slots": 2,
