@@ -64,18 +64,18 @@ def staged_errors(final, staged, changed, layers):
     return errors
 
 
-def hook_errors(directory, staged_layers, require_hooks):
-    """Errors for staged layers without an executable hook; warnings instead unless hooks are required."""
-    errors = []
-    for layer in staged_layers:
-        if os.access(os.path.join(directory, "hooks", layer), os.X_OK):
-            continue
-        message = f"no executable hooks/{layer} for its ~paths"
-        if require_hooks:
-            errors.append(message)
-        else:
-            print(f"warning: {message}; fix_layers.sh will 3-way merge them")
-    return errors
+def missing_hooks(directory, staged_layers):
+    """Staged layers without an executable hook for their ~paths."""
+    return [
+        f"no executable hooks/{layer} for its ~paths"
+        for layer in staged_layers
+        if not os.access(os.path.join(directory, "hooks", layer), os.X_OK)
+    ]
+
+
+def warn_missing_hooks(missing):
+    for message in missing:
+        print(f"warning: {message}; fix_layers.sh will 3-way merge them")
 
 
 def main():
@@ -95,7 +95,11 @@ def main():
     final, staged = layer_indexes(manifests)
 
     errors = final_errors(final, staged, changed, layers) + staged_errors(final, staged, changed, layers)
-    errors += hook_errors(directory, staged_layers, require_hooks)
+    missing = missing_hooks(directory, staged_layers)
+    if require_hooks:
+        errors += missing
+    else:
+        warn_missing_hooks(missing)
     for error in errors:
         print(error)
     print(
