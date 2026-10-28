@@ -8,6 +8,12 @@ cancelling one.
 Run builds, tests, lint, typechecks, format checks, and benchmarks through
 `~/.local/bin/host-check`, following `~/.config/host-validation.md`.
 
+## Transcripts
+
+Read earlier Claude Code and Codex sessions and their token spend with
+`transcripts list`, `show`, and `usage` (`--help`). Extend it in fleet's
+`lib/transcripts/` rather than writing another scanner in `/tmp`.
+
 ## Git
 
 - Commit when the work calls for it. Push Pedro's own branches whenever the
