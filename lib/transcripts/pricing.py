@@ -29,12 +29,12 @@ def rate(rates, model):
 
 
 def cost(rates, model, tokens):
-    """The tokens' price, or None for a model the rates do not list."""
+    """The tokens' price, or None for a model the rates do not price per input and output token."""
     entry = rate(rates, model)
-    if entry is None:
+    if entry is None or not {"input_cost_per_token", "output_cost_per_token"} <= entry.keys():
         return None
-    per_input = entry.get("input_cost_per_token", 0)
+    per_input = entry["input_cost_per_token"]
     return (tokens.fresh * per_input
             + tokens.write * entry.get("cache_creation_input_token_cost", per_input * 1.25)
             + tokens.read * entry.get("cache_read_input_token_cost", per_input * 0.1)
-            + tokens.out * entry.get("output_cost_per_token", 0))
+            + tokens.out * entry["output_cost_per_token"])

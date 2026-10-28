@@ -194,12 +194,20 @@ def usage(args):
         print(group_line(name, group))
     print(group_line("total", total))
     if total.unpriced:
-        print(f"unpriced (no rate in {pricing.RATES}): {', '.join(sorted(total.unpriced))}")
+        print(f"unpriced (no rate in {pricing.RATES}; ? has no price, + leaves some out): "
+              f"{', '.join(sorted(total.unpriced))}")
+
+
+def group_cost(group):
+    priced = "$" + format(group.usd, ",.2f")
+    if not group.unpriced:
+        return priced
+    return priced + "+" if group.usd else "?"
 
 
 def group_line(name, group):
     return (f"{str(name)[:40]:<40} {len(group.sessions):>8} {group.tokens.total / 1e6:>8.1f}M "
-            f"{group.tokens.out / 1e3:>7.0f}k {'$' + format(group.usd, ',.2f'):>10}")
+            f"{group.tokens.out / 1e3:>7.0f}k {group_cost(group):>10}")
 
 
 def filters(parser):

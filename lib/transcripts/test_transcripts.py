@@ -153,6 +153,11 @@ class Transcripts(unittest.TestCase):
         self.assertIn("unpriced", output)
         self.assertIn("claude-opus-5-5, gpt-6.1-terra", output)
 
+    def test_usage_marks_unpriced_and_partly_priced_costs(self):
+        pricing.RATES.write_text(json.dumps({"document": {"claude-opus-5-5": RATES["anthropic.claude-opus-5-5"]}}))
+        rows = {line.split()[0]: line.split()[-1] for line in self.run_cli("usage", "--since", "2000-01-01").splitlines()}
+        self.assertEqual((rows["claude-opus-5-5"], rows["gpt-6.1-terra"], rows["total"]), ("$0.00", "?", "$0.00+"))
+
     def test_an_unknown_id_exits_with_a_message(self):
         with self.assertRaises(SystemExit) as raised:
             transcripts.main(["show", "ffff"])
@@ -165,6 +170,10 @@ class Pricing(unittest.TestCase):
         self.assertEqual(pricing.rate(rates, "claude-opus-5-5[1m]"), "opus")
         self.assertEqual(pricing.rate(rates, "gpt-6.1-terra"), "terra")
         self.assertIsNone(pricing.rate(rates, "gpt-7"))
+
+    def test_an_entry_without_token_prices_is_unpriced_not_free(self):
+        image_model = {"dall-e-3": {"input_cost_per_pixel": 1e-8}}
+        self.assertIsNone(pricing.cost(image_model, "dall-e-3", Tokens(fresh=1000, out=10)))
 
 
 if __name__ == "__main__":
