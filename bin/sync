@@ -159,6 +159,12 @@ for name in $OWN; do
   ensure_link "$FLEET/skills/$name" "$AGENTS_DIR/$name"
   ensure_link "$FLEET/skills/$name" "$CLAUDE_DIR/$name"
 done
+# A link into fleet's skills/ that no own skill backs (renamed or deleted).
+for link in "$AGENTS_DIR"/* "$CLAUDE_DIR"/*; do
+  [ -L "$link" ] || continue
+  case "$(readlink "$link")" in "$FLEET/skills/"*) ;; *) continue ;; esac
+  has "$(basename "$link")" "$OWN" || retire "$link" prune
+done
 
 echo "== Third-party skills ($(echo "$THIRD_NAMES" | wc -l | tr -d ' ') in third-party.json)"
 MISSING=""
