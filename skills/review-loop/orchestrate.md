@@ -145,9 +145,20 @@ round 1 reviews pass 1's final heads whole.
   posts one comment per PR covering both passes and the audits, so post no
   separate `pedro-best-practices` comment. It skips a PR whose GitHub head is
   not pass 2's last reviewed head; run it again after that PR's push.
+- **Close out**, only when both passes converged (neither hit its cap), the
+  PRs are pushed, and every PR's comment is posted at its reviewed head. Touch
+  only PRs Pedro opened (author `PedroNavHur` or `PedroNavHurDCA`). The brief's
+  `Finish` line is his approval, given in the launching session:
+  - `merge`: read each PR head's checks over REST
+    (`repos/<owner>/<repo>/commits/<head>/check-runs`). While any is running,
+    call `watch_pull_request` on the top PR and end the turn; its wake resumes
+    here. Once all pass, merge a PR with
+    `gh pr merge N --merge --match-head-commit <head>`, a stack with
+    `gh stack merge --yes --merge` on its top PR, then `unwatch_pull_request`.
+    A failed check or a refused merge goes in the report, unmerged.
+  - `ready`: `gh pr ready N` for each draft PR, bottom to top.
+  - `none`: leave the PRs as they are.
 - **Report**: per pass, converged or capped; what is still open; each PR's
   comment URL or why it was skipped; local versus pushed heads; the gate
-  results. `loop.py render "$PASS2" PR --earlier "$PASS1" --checkout "$checkout"`
+  results; each PR merged, marked ready, or why it was left. `loop.py render "$PASS2" PR --earlier "$PASS1" --checkout "$checkout"`
   prints one PR's comment.
-
-Merging and marking PRs ready stay with the user.

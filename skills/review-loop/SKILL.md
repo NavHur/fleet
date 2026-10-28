@@ -1,6 +1,6 @@
 ---
 name: review-loop
-description: Review a PR or stack in two passes, Terra then Opus, from a fresh orchestrator thread, fixing between rounds until each pass converges.
+description: Review a PR or stack in two passes, Terra then Opus, from a fresh orchestrator thread, fixing between rounds until each pass converges, then merge it or mark it ready.
 disable-model-invocation: true
 ---
 
@@ -9,7 +9,8 @@ disable-model-invocation: true
 A review loop reviews a PR or stack in rounds, fixes what reviewers confirm,
 and re-reviews the **delta** until a round is clean. It runs two **passes**,
 each with its own ledger: Terra reviewers catch most bugs cheaply, then Opus
-reviewers read the converged code fresh. One comment per PR reports both.
+reviewers read the converged code fresh. One comment per PR reports both;
+then the loop merges the PRs or marks them ready for review.
 
 This session is the **launcher**: it settles the settings and starts the
 **orchestrator**, a new T3 thread that follows `orchestrate.md` in this
@@ -30,6 +31,7 @@ target, else:
 | Workers | `claudeAgent` `claude-sonnet-5-5`, `effort` medium |
 | Round cap | 5 per pass, the first round included |
 | Push | Yes, after pass 2 |
+| Finish | `merge` when the `origin` owner is `PedroNavHur`, else `ready` (mark ready for review); `none` when Push is no |
 
 Call `orchestrator_capabilities` once; launch only with offered settings and
 report any that is not.
@@ -65,7 +67,7 @@ Ledgers: ~/.cache/review-loop/<slug>-p1 and -p2; resume either if it exists
 Pass 1 reviewers: <provider model option>
 Pass 2 reviewers: <provider model option>
 Workers: <provider model option>
-Round cap: <N> per pass. Push: <yes | stop locally and report>
+Round cap: <N> per pass. Push: <yes | stop locally and report>. Finish: <merge | ready | none>
 Spec: <path, issue, or "the PR bodies">
 Settled in the launching session: <decisions and constraints, or "none">
 ```
