@@ -1,4 +1,0 @@
-interface:
-  display_name: "Split Stacked PRs"
-  short_description: "Split large changes into atomic stacked PRs"
-  default_prompt: "Use $split-stacked-prs to split my current branch into atomic GitHub stacked PRs."

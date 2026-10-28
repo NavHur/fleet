@@ -1,9 +1,9 @@
 ---
-name: split-stacked-prs
+name: stack
 description: Native GitHub stacked PRs, layers of small commits within Pedro's byte-size ceilings. Use to split a large branch into dependency-ordered layers, to carry review fixes through, gate, or re-measure an existing stack, or to restack one that fell behind its base. Not for code review.
 ---
 
-# Split Stacked PRs
+# Stack
 
 For agent dispatch in T3 Code, read `~/.config/t3-orchestration.md`.
 Every check runs through the shared queue in `~/.config/host-validation.md`;

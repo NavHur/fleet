@@ -10,7 +10,7 @@ Audit code without modifying it, combining Pedro's interface, ownership, complex
 ## PR size requests
 
 For an audit or explanation of Pedro's PR or layer size rule, read the
-installed `split-stacked-prs` skill, its `references/size-policy.md`, and its
+installed `stack` skill, its `references/size-policy.md`, and its
 `scripts/diff_budget.py`. This is a separate
 personal policy from the code audit below. For a policy-only request, return
 findings in the conversation without running the audit or posting a PR

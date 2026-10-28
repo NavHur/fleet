@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(SKILL_DIR.parent / "split-stacked-prs" / "scripts"))
+sys.path.insert(0, str(SKILL_DIR.parent / "stack" / "scripts"))
 
 from comment import render  # noqa: E402
 from loop_brief import brief  # noqa: E402
