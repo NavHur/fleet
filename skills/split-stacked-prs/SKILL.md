@@ -180,11 +180,10 @@ gh stack view
 ```
 
 `--auto` opens drafts. When the `origin` owner is `PedroNavHur`, add `--open`
-so they open ready for review; for any other owner, keep them draft. Give every
-PR body a one-sentence purpose and why the boundary is atomic, its parent and
-next layer, a change
-summary, gate results, and reviewer notes on migrations, rollout order,
-generated output or risk. Then write the size and gate lines into every body:
+so they open ready for review; for any other owner, keep them draft. Write every
+PR body with the `pr` skill's template. Under Summary, add why the boundary is
+atomic and the layer's parent and next layer; under Merge Danger, add notes on
+migrations, rollout order, and generated output. Then write the size and gate lines into every body:
 
 ```bash
 python3 "$SKILL_DIR/scripts/refresh_stack.py" --manifests "$plan/layers" --prefix "<source>-" \

@@ -1,6 +1,6 @@
 ---
 name: pr
-description: "Use when writing a PR body, including the screenshots for a visible change."
+description: "Use whenever opening a PR or rewriting its body (`gh pr create`, `gh api …/pulls`, `gh stack submit`), including the screenshots for a visible change."
 metadata:
   credits:
     skill: show-me
