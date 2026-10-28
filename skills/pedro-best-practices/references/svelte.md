@@ -11,7 +11,7 @@ A component's interface is its application-defined props, reported as `pedro/eig
 
 ## Ownership patterns
 
-The ownership criteria in `SKILL.md` apply. In Svelte, prefer a snippet or slot when the caller owns the rendered content, derive internal state with `$derived` (or a `$:` statement in Svelte 4) instead of asking the caller for it, and use context (`setContext`) only when it removes coordination across several levels rather than relocating one parent's props.
+The ownership criteria in `rules.md` apply. In Svelte, prefer a snippet or slot when the caller owns the rendered content, derive internal state with `$derived` (or a `$:` statement in Svelte 4) instead of asking the caller for it, and use context (`setContext`) only when it removes coordination across several levels rather than relocating one parent's props.
 
 ## Complexity mapping
 

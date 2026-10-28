@@ -10,7 +10,7 @@ Blade and Livewire components are UI components, so their interfaces take the ca
 - **Class-based Blade components**: the constructor's parameters.
 - **Livewire components**: the parameters of `mount()`, or the public properties a parent sets directly (`<livewire:invoice :invoice="$invoice" />`) when there is no `mount()`.
 
-Plain classes and functions have no numeric cap; apply the ownership criteria in `SKILL.md` to their public APIs.
+Plain classes and functions have no numeric cap; apply the ownership criteria in `rules.md` to their public APIs.
 
 ## Nested conditional expressions
 
