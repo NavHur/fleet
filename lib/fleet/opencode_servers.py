@@ -12,7 +12,6 @@ unmanaged server gets a warning with the command to run later.
 """
 import os
 from pathlib import Path
-import re
 import signal
 import subprocess
 import sys
