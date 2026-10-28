@@ -1,5 +1,7 @@
 {
   "hostnames": ["devbox.pnav.dev"],
+  "checkout": "~/src/fleet",
+  "ssh": "devbox",
   "slots": 6,
   "heavy_slots": 6,
   "build_slots": 6,

@@ -3,8 +3,10 @@
     python3 binaries.py MANIFEST BACKUP [--apply]
 
 Each entry names a GitHub repository, a release tag, and the sha256 of the
-`<name>-<target>.tar.gz` asset for each target this fleet runs. The archive
-unpacks to ~/.local/share/fleet/bin/<name>/<tag>/<name>, and ~/.local/bin/<name>
+`<name>-<target>.tar.gz` asset for each target this fleet runs. The binary is
+the archive's top-level `<name>`, or the entry's `member` path, where `{target}`
+stands for the target. It unpacks to
+~/.local/share/fleet/bin/<name>/<tag>/<name>, and ~/.local/bin/<name>
 links to it, so changing the tag swaps the binary and keeps the old one for a
 rollback. A file already at ~/.local/bin/<name> that is not this link (a
 `cargo install`, a manual copy) moves to BACKUP first.
@@ -53,11 +55,11 @@ def download(url: str, expected: str, into: Path) -> Path:
     return archive
 
 
-def unpack(archive: Path, name: str, destination: Path) -> None:
+def unpack(archive: Path, path: str, destination: Path) -> None:
     with tarfile.open(archive) as tar:
-        member = tar.getmember(name)
+        member = tar.getmember(path)
         if not member.isfile():
-            raise SystemExit(f"{archive}: {name} is not a regular file")
+            raise SystemExit(f"{archive}: {path} is not a regular file")
         source = tar.extractfile(member)
         destination.parent.mkdir(parents=True, exist_ok=True)
         partial = destination.with_suffix(".partial")
@@ -87,9 +89,10 @@ def install(name: str, entry: dict, target: str, backup: Path, apply: bool) -> N
         return
     if not binary.exists():
         asset = f"{name}-{target}.tar.gz"
+        member = entry.get("member", name).replace("{target}", target)
         with tempfile.TemporaryDirectory() as scratch:
             unpack(download(asset_url(entry["repo"], entry["tag"], asset), entry["sha256"][target], Path(scratch)),
-                   name, binary)
+                   member, binary)
     link.parent.mkdir(parents=True, exist_ok=True)
     link.symlink_to(binary)
 

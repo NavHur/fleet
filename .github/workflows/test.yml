@@ -23,6 +23,7 @@ jobs:
       - run: cargo build --release --locked -p pbp-complexity
       - run: python3 lib/fleet/binaries.py binaries.json "$RUNNER_TEMP/backup" --apply
       - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: ruff check
       # ci_covers.py parses workflows with PyYAML.
       - run: python3 -m pip install pyyaml
       - run: bin/test

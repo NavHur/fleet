@@ -27,12 +27,15 @@ Skills in this repo cite principles by path (`~/.agents/skills/principle-x/SKILL
 ## Sync a machine
 
 ```sh
-git clone https://github.com/PedroNavHur/fleet   # once: ~/dev on the Mac, ~/code on workbox, ~/src on devbox and homebox
+git clone https://github.com/PedroNavHur/fleet   # once, at the checkout in hosts/<machine>/host.json
 fleet/bin/sync            # show the plan
 fleet/bin/sync --apply    # pull, link own skills, install and update third-party skills
+fleet/bin/sync --all --apply   # the same on every machine, over SSH from the Mac
 ```
 
-`bin/sync` links each skill in `skills/` into `~/.agents/skills` (read by Codex, Cursor, and OpenCode) and `~/.claude/skills` (read by Claude Code). Any other entry in those folders, or a copy in `~/.codex/skills`, `~/.cursor/skills`, or `~/.config/opencode/skills`, is moved to `~/.skills-backups/fleet-<timestamp>/`. To add or change a skill, edit it here, push, and run `bin/sync --apply` on each machine.
+`--apply` runs only from the machine's own checkout (a worktree's links would vanish with it), refuses a checkout that lacks `origin/main`, holds a per-machine lock, and re-runs the pulled copy of itself when the pull changed it. `--all` prints one line per machine and writes each one's output to `~/.cache/fleet/sync/<machine>.log`.
+
+`bin/sync` links each skill in `skills/` into `~/.agents/skills` (read by Codex, Cursor, and OpenCode) and `~/.claude/skills` (read by Claude Code). Any other entry in those folders, or a copy in `~/.codex/skills`, `~/.cursor/skills`, or `~/.config/opencode/skills`, is moved to `~/.skills-backups/fleet-<timestamp>/`. To add or change a skill, edit it here, merge it, and run `bin/sync --all --apply`.
 
 ## Shared host files
 
@@ -48,7 +51,7 @@ fleet/bin/sync --apply    # pull, link own skills, install and update third-part
 | `~/.local/lib/host-check/` | `lib/host-check/`: `guard.py` (command guard), `walk.py` (the command walk every shell-command judge reads, over `shell.py` lexing and `packages.py` package scripts), `jobclass.py` (the validation catalogue: each command's job class), `merge_method.py` (squash and rebase merge refusal), tests, OpenCode plugin |
 | `~/.config/t3-orchestration.md` | `config/t3-orchestration.md` |
 | `~/.config/host-validation.md` | generated from `config/host-validation.md` plus `hosts/<machine>/host-validation.md` |
-| `~/.config/fleet/host.json` | `hosts/<machine>/host.json`: queue limits and CPU policy |
+| `~/.config/fleet/host.json` | `hosts/<machine>/host.json`: queue limits, CPU policy, the fleet checkout, and the SSH host `--all` reaches it by |
 | `~/.config/systemd/user/builds.slice` | `hosts/<machine>/builds.slice` (Linux) |
 | `~/.config/systemd/user/app-t3code*.slice.d/priority.conf` | `hosts/<machine>/systemd/`: CPU weight and memory floor for T3 agent sessions (workbox) |
 | `~/.claude/hooks/*-guard.py` | `hosts/workbox/claude-hooks/`: workbox's merge, migration, and agent-CLI guards, which `/etc/claude-code/managed-settings.json` and `~/.codex/hooks.json` run |
