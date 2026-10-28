@@ -43,6 +43,12 @@ class DeltaTests(unittest.TestCase):
         self.assertEqual(out, f"7 01-a: 5.0 KB, audit=yes -> {self.out}/delta-7.diff\n")
         self.assertIn("+line 99", (self.out / "delta-7.diff").read_text())
 
+    def test_a_small_delta_in_an_audited_language_skips_the_audit(self):
+        r2 = self.repo.branch("r2", "s-01-a", {"a.ts": "a\n" + lines(50)})
+        prev = self.heads("prev.tsv", [("7", "01-a", self.main, self.r1)])
+        out = self.delta(prev, self.heads("heads.tsv", [("7", "01-a", self.main, r2)]))
+        self.assertEqual(out, f"7 01-a: 2.5 KB, audit=no (under 3 KB) -> {self.out}/delta-7.diff\n")
+
     def test_relative_heads_paths_resolve_from_the_working_directory_not_the_repo(self):
         r2 = self.repo.branch("r2", "s-01-a", {"a.ts": "a\n" + lines(100)})
         self.heads("prev.tsv", [("7", "01-a", self.main, self.r1)])

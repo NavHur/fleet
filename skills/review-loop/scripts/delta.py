@@ -11,8 +11,10 @@ PREV_HEAD..HEAD diff. A rebase shows up as the base's changes merged into
 those files, which is what a hand-resolved conflict looks like. Writes
 DIR/delta-<KEY>.diff (KEY is the PR, percent-encoded) for every non-empty
 delta and prints PR, layer, changed size (bytes of added and deleted lines,
-measured by diff_budget.py) and whether files pedro-best-practices audits
-changed.
+measured by diff_budget.py) and whether it gets an audit: audit=yes when files
+pedro-best-practices audits changed and the delta reaches AUDIT_MIN_BYTES.
+Below that, the delta reviewer owns Pedro's rules and the orchestrator has
+already measured the fixes' complexity and comments.
 """
 from __future__ import annotations
 
@@ -29,6 +31,8 @@ from diff_budget import changed_files  # noqa: E402
 from loop_state import LoopError, pr_file_key, read_heads  # noqa: E402
 from revision import language_of  # noqa: E402
 from stack_layers import StackError, read_manifest  # noqa: E402
+
+AUDIT_MIN_BYTES = 3000
 
 
 def owned_paths(manifests: Path | None, layer: str) -> tuple[str, ...]:
@@ -53,8 +57,16 @@ def layer_delta(pr: str, layer: str, old: str, head: str, paths: tuple[str, ...]
     file.write_bytes(diff)
     changed = changed_files(old, head, paths)
     size = sum((added or 0) + (deleted or 0) for _, _, added, deleted in changed)
-    audit = any(language_of(name) for old_path, path, _, _ in changed for name in (old_path, path) if name)
-    return f"{pr} {layer}: {size / 1000:.1f} KB, audit={'yes' if audit else 'no'} -> {file}"
+    audited = any(language_of(name) for old_path, path, _, _ in changed for name in (old_path, path) if name)
+    return f"{pr} {layer}: {size / 1000:.1f} KB, {audit_verdict(audited, size)} -> {file}"
+
+
+def audit_verdict(audited: bool, size: int) -> str:
+    if not audited:
+        return "audit=no"
+    if size < AUDIT_MIN_BYTES:
+        return f"audit=no (under {AUDIT_MIN_BYTES / 1000:.0f} KB)"
+    return "audit=yes"
 
 
 def report(args) -> list[str]:

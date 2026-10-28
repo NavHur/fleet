@@ -7,6 +7,8 @@ import unittest
 
 from loop_fixture import SKILL_DIR, LoopCase
 
+RULES = SKILL_DIR.parent / "pedro-best-practices" / "references"
+
 
 class BriefTests(LoopCase):
     def test_brief_names_the_contract_the_output_and_the_id_prefix(self):
@@ -68,6 +70,28 @@ class BriefTests(LoopCase):
             self.run_loop("brief", self.loop, 1, "audit", "--pr", branch, "--model", "m")
         names = [line.split("\t")[0] for line in (self.loop / "r1" / "reviewers.tsv").read_text().splitlines()]
         self.assertEqual(names, ["audit-pedro%2Fa", "audit-pedro-a"])
+
+    def test_an_audit_brief_lists_the_rules_and_the_references_for_its_files(self):
+        code, out = self.run_loop("brief", self.loop, 1, "audit", "--model", "m", "--checkout", self.repo)
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"Your role's files are {RULES}/rules.md, {RULES}/complexity.md, {RULES}/construction-rules.md, "
+                      f"and the\nlanguage references for your scope's files: {RULES}/python.md.\n", out)
+        self.assertIn(f"Checkout: `{self.repo}`", (self.loop / "r1" / "context.md").read_text())
+
+    def test_a_delta_audit_takes_its_references_from_the_delta(self):
+        self.heads(2, self.second)
+        (self.loop / "r2" / "delta-7.diff").write_text("diff --git a/ui/view.tsx b/ui/view.tsx\n+x\n"
+                                                       "diff --git a/ui/old.py b/ui/new.php\n")
+        out = self.run_loop("brief", self.loop, 2, "audit", "--delta", "--model", "m")[1]
+        self.assertIn(f"language references for your scope's files: {RULES}/php.md, {RULES}/react.md.\n", out)
+
+    def test_a_whole_audit_with_no_checkout_points_at_the_languages_table(self):
+        out = self.run_loop("brief", self.loop, 1, "audit", "--model", "m")[1]
+        self.assertIn('your scope\'s files: each one rules.md "Languages" names for your files.\n', out)
+
+    def test_other_roles_get_no_audit_reading(self):
+        out = self.run_loop("brief", self.loop, 1, "standards", "--model", "m", "--checkout", self.repo)[1]
+        self.assertNotIn("rules.md", out)
 
     def test_rulings_reach_every_round_and_the_next_pass(self):
         self.loop = self.root / "pr-7-p1"

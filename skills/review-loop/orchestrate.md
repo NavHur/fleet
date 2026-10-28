@@ -75,7 +75,9 @@ findings itself.
 - **Whole**: one `standards` and one `spec` reviewer for the stack or branch,
   and one `audit` per PR.
 - **Delta**: one `delta` reviewer for the PRs with a delta, and one
-  `audit --delta` per PR whose delta has `audit=yes`.
+  `audit --delta` per PR whose delta has `audit=yes`. A smaller delta reads
+  `audit=no (under 3 KB)`: the delta reviewer covers Pedro's rules there,
+  after your step 4 measurements.
 
 Update the ledger, then brief every reviewer before launching any, since each
 brief rewrites the round's shared context file:

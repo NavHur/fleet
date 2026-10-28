@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
+import subprocess
+from pathlib import Path, PurePosixPath
 
 from loop_state import (LoopError, Reviewer, all_findings, findings_path, heads, id_prefix, location, outcomes,
                         pr_file_key, register, reviewers, round_dir)
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
+RULES = SKILL_DIR.parent / "pedro-best-practices" / "references"
+# The language references in rules.md "Languages", by the file suffixes that bring each into scope.
+REFERENCES = {".tsx": "react.md", ".jsx": "react.md", ".svelte": "svelte.md", ".gd": "godot.md", ".tscn": "godot.md",
+              ".py": "python.md", ".php": "php.md"}
 PASS = re.compile(r"(.+)-p(\d+)")
 
 BRIEF = """\
@@ -16,7 +21,7 @@ You are the {role} reviewer in round {n} of a review loop.
 Read {context} in full before anything else. It holds your rules, the method for the {role} role, and the
 output format (reviewer.md), the review's packet and ledger, the round's heads and reviewers, the user's
 rulings, and the settled findings.
-Then read every file your role names in one turn, and keep batching independent reads and commands into one
+{reading}Then read every file your role names in one turn, and keep batching independent reads and commands into one
 turn throughout.
 
 Your scope:
@@ -25,6 +30,11 @@ Your scope:
 Write your findings to {out}, numbering their IDs {prefix}1, {prefix}2, and so on. Then run
 `python3 {skill}/scripts/loop.py check {loop} {n} --only {name}{checkout}`
 and correct the file until it passes. Finish with one line: your finding counts by priority and the file path.
+"""
+
+AUDIT_READING = """\
+Your role's files are {rules}/rules.md, {rules}/complexity.md, {rules}/construction-rules.md, and the
+language references for your scope's files: {references}.
 """
 
 
@@ -40,15 +50,49 @@ def new_reviewer(loop, n, role, prs, delta, model):
     return Reviewer(name, role, "delta" if role == "delta" or delta else "whole", prs, model)
 
 
+def delta_path(loop, n, pr):
+    return round_dir(loop, n) / f"delta-{pr_file_key(pr)}.diff"
+
+
 def scope_line(loop, n, pr, reviewer):
     head = heads(loop, n)[pr]
     if reviewer.scope == "whole":
         return f"- PR {pr} ({head.layer}): the whole change, `git diff {head.fork} {head.head}`."
     previous = heads(loop, n - 1).get(pr) if n > 1 else None
-    diff = round_dir(loop, n) / f"delta-{pr_file_key(pr)}.diff"
+    diff = delta_path(loop, n, pr)
     if previous is None or not diff.exists():
         raise LoopError(f"PR {pr} has no delta in r{n}; review it whole or skip it")
     return f"- PR {pr} ({head.layer}): the fixes since round {n - 1}, in `{diff}` ({previous.head} to {head.head})."
+
+
+def changed_files(loop, n, pr, scope, checkout):
+    """The files a PR's scope changes, or None for a whole PR with no checkout to diff in."""
+    if scope == "delta":
+        diff = delta_path(loop, n, pr).read_text(errors="replace")
+        return set(re.findall(r"^diff --git a/.* b/(.*)$", diff, re.MULTILINE))
+    if checkout is None:
+        return None
+    head = heads(loop, n)[pr]
+    result = subprocess.run(["git", "-C", str(checkout), "diff", "--name-only", head.fork, head.head],
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        raise LoopError(result.stderr.strip() or f"git diff {head.fork} {head.head} failed")
+    return set(result.stdout.splitlines())
+
+
+def language_references(files):
+    if files is None:
+        return 'each one rules.md "Languages" names for your files'
+    suffixes = {PurePosixPath(path).suffix for path in files}
+    names = sorted({REFERENCES[suffix] for suffix in suffixes if suffix in REFERENCES})
+    return ", ".join(f"{RULES}/{name}" for name in names) or "none, since no file in your scope has one"
+
+
+def reading(loop, n, reviewer, checkout):
+    if reviewer.role != "audit":
+        return ""
+    files = changed_files(loop, n, reviewer.prs[0], reviewer.scope, checkout)
+    return AUDIT_READING.format(rules=RULES, references=language_references(files))
 
 
 CONTEXT = """\
@@ -157,9 +201,10 @@ def brief(loop, n, role, prs, delta, model, checkout):
     reviewer = new_reviewer(loop, n, role, prs, delta, model)
     scope = "\n".join(scope_line(loop, n, pr, reviewer) for pr in reviewer.prs)
     files = quoted_files(loop)
+    role_files = reading(loop, n, reviewer, checkout)
     register(loop, n, reviewer)
     (loop / "outcomes.jsonl").touch()
     context = write_context(loop, n, files, checkout)
-    return BRIEF.format(role=role, n=n, context=context, scope=scope, skill=SKILL_DIR, loop=loop,
+    return BRIEF.format(role=role, n=n, context=context, reading=role_files, scope=scope, skill=SKILL_DIR, loop=loop,
                         out=findings_path(loop, n, reviewer), prefix=id_prefix(n, reviewer), name=reviewer.name,
                         checkout=f" --checkout {checkout}" if checkout else "")
