@@ -97,7 +97,13 @@ End the turn; completions wake you.
 file and lists the findings. A failing file goes back to its reviewer with the
 output, as a new `delegate_task` with a new `clientRequestId`.
 
-Verify every finding against the code at its pinned SHA, then classify it:
+Verify every finding against the code at its pinned SHA, then classify it.
+`check` marks a finding `near fixed ID` when it sits by an earlier round's
+fix: it may be that fix's regression. Near two or more fixes is a
+**regression chain**: before another patch, write down the premise those
+fixes share and test it directly; when the premise is the design, the finding
+is a Decision.
+
 
 - **Fix**: a confirmed P1 or P2, or a confirmed P3 that needs no design
   decision. Its outcome is recorded at commit.
@@ -115,8 +121,12 @@ Clean, or at the round cap: go to step 5. Otherwise:
 
 1. Brief workers (the worker setting, `delegate_task`) to edit the fixed
    source: the stack's source branch, or the branch itself. Each gets disjoint
-   files, its findings, and the ledger; the checks are yours, next.
-2. Read each worker's diff as a reviewer would. Run the light check from
+   files, its findings, and the ledger; the checks are yours, next. Each bug
+   fix comes with a **regression test**: one that reproduces the finding's
+   failure, fails before the fix, and passes after it, in the cheapest layer
+   the repository tests. A fix to a finding marked `near` also keeps the
+   earlier fix's test passing.
+2. Read each worker's diff as a reviewer would, its regression tests included. Run the light check from
    `split-stacked-prs` section 7 step 4 (on a branch, the same check), and in
    the same host-check job measure the uncommitted fixes, with `PBP` the
    `pedro-best-practices` scripts directory and `$fixed` the fixed source's

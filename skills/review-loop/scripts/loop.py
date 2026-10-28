@@ -18,7 +18,7 @@ pass's packet), the ledger, the round's heads and reviewers, the rulings from
 this pass and the earlier passes (LOOP named <slug>-p2 finds <slug>-p1), and the
 settled findings. The reviewer writes rN/<name>.json in the format reviewer.md
 describes. check validates every registered reviewer's file and prints the
-round's findings. outcome appends a
+round's findings, marking each one near an earlier round's fix. outcome appends a
 finding's triage result (fixed, declined, decision, or ruled) to
 LOOP/outcomes.jsonl; the last record for an ID wins. render prints one PR's
 comment, and publish posts it on every PR whose GitHub head is the head the
@@ -43,13 +43,15 @@ sys.path.insert(0, str(SKILL_DIR.parent / "split-stacked-prs" / "scripts"))
 from comment import render  # noqa: E402
 from loop_brief import brief  # noqa: E402
 from stack_layers import GitHub, StackError  # noqa: E402
-from loop_state import (COVERAGE, ROLES, LoopError, all_findings, findings_path, heads, id_prefix, location,
+from loop_state import (COVERAGE, ROLES, LoopError, all_findings, findings_path, heads, id_prefix, location, outcomes,
                         read_findings, reviewers, rounds)  # noqa: E402
 
 PRIORITIES = ("P1", "P2", "P3")
 KINDS = ("bug", "violation", "advisory", "opportunity")
 STATUSES = ("fixed", "declined", "decision", "ruled")
 REQUIRED = ("id", "pr", "priority", "kind", "rule", "title", "evidence", "recommendation")
+# How close, in lines, a new finding sits to an earlier round's fix for check to mark it as a possible regression.
+NEAR_LINES = 20
 
 
 # check
@@ -101,10 +103,10 @@ def finding_problems(finding, reviewer, prefix, current, checkout):
 
 
 def coverage_problems(data, reviewer):
-    rows = data.get("coverage")
-    if rows is None and reviewer.role != "audit":
-        return []
-    if not isinstance(rows, list) or not rows:
+    rows = data.get("coverage") or []
+    if not isinstance(rows, list):
+        return ["coverage must be a list"]
+    if not rows and reviewer.role == "audit":
         return ["an audit needs a coverage entry for every check"]
     return [f"coverage {i + 1}: needs a check and a status from {', '.join(COVERAGE)}"
             for i, row in enumerate(rows)
@@ -132,6 +134,26 @@ def reviewer_problems(loop, n, reviewer, checkout):
     return problems
 
 
+def fixed_findings(loop, n):
+    recorded = outcomes(loop)
+    return [f for f in all_findings(loop) if f["round"] < n and recorded.get(f["id"], {}).get("status") == "fixed"]
+
+
+def near(finding, fixed):
+    """The earlier fixes in the finding's file within NEAR_LINES lines of it, which it may be a regression of."""
+    path, line = finding.get("file"), finding.get("line")
+    if not path:
+        return []
+    same_file = [f for f in fixed if str(f["pr"]) == str(finding["pr"]) and f.get("file") == path]
+    return [f["id"] for f in same_file if line is None or f.get("line") is None or abs(f["line"] - line) <= NEAR_LINES]
+
+
+def finding_line(f, fixed):
+    line = f"{f['id']}  {f['priority']} {f['kind']}  PR {f['pr']}  {location(f)}  {f['title']}"
+    earlier = near(f, fixed)
+    return line + (f"\n  near fixed {', '.join(earlier)}" if earlier else "")
+
+
 def status_lines(name, problems):
     return [f"{name}: {'FAIL' if problems else 'ok'}", *(f"  {p}" for p in problems)]
 
@@ -145,7 +167,8 @@ def check(loop, n, only, checkout):
     passed = [r for r in registered if not results[r.name]]
     found = [f for r in passed for f in read_findings(findings_path(loop, n, r))["findings"]]
     lines.append(f"{len(found)} findings from {len(passed)} of {len(registered)} reviewers")
-    lines += [f"{f['id']}  {f['priority']} {f['kind']}  PR {f['pr']}  {location(f)}  {f['title']}" for f in found]
+    fixed = fixed_findings(loop, n)
+    lines += [finding_line(f, fixed) for f in found]
     return len(passed) < len(registered), "\n".join(lines)
 
 

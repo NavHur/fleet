@@ -61,6 +61,25 @@ class LoopTests(LoopCase):
             0 findings from 0 of 1 reviewers
             """))
 
+    def test_check_takes_an_empty_coverage_list_from_any_role_but_an_audit(self):
+        self.run_loop("brief", self.loop, 1, "standards", "--model", "m")
+        self.run_loop("brief", self.loop, 1, "audit", "--model", "m")
+        self.write(1, "standards", {"findings": [], "coverage": []})
+        self.write(1, "audit-7", {"findings": [], "coverage": []})
+        code, out = self.run_loop("check", self.loop, 1)
+        self.assertEqual((code, out), (1, "standards: ok\naudit-7: FAIL\n  an audit needs a coverage entry for every "
+                                          "check\n0 findings from 1 of 2 reviewers\n"))
+
+    def test_check_marks_a_finding_near_an_earlier_fix(self):
+        self.two_rounds()
+        code, out = self.run_loop("check", self.loop, 2)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out.endswith("R2-DELTA-1  P3 advisory  PR 7  app.py:1  A | in the title.\n"
+                                     "  near fixed R1-STD-1\n"), out)
+        self.write(2, "delta", {"findings": [finding(id="R2-DELTA-1", line=30), finding(id="R2-DELTA-2", file=None,
+                                                                                         line=None)]})
+        self.assertNotIn("near fixed", self.run_loop("check", self.loop, 2)[1])
+
     def test_check_reports_a_reviewer_that_has_not_written(self):
         self.run_loop("brief", self.loop, 1, "spec", "--model", "m")
         code, out = self.run_loop("check", self.loop, 1)
