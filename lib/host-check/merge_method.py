@@ -11,8 +11,8 @@ import os
 import re
 
 REASON = (
-    "Merge with a merge commit so every commit is kept: gh pr merge N --merge, "
-    "gh stack merge --yes --merge, or REST merge_method=merge. Squash and rebase merges are off; "
+    "Merge with a merge commit so every commit is kept: gh pr merge N --merge --match-head-commit <head>, "
+    "or gh stack merge --yes --merge on a stack's top PR. Squash and rebase merges are off; "
     "rebase the branch onto its base first when it needs it."
 )
 HELP = {"-h", "--help"}
