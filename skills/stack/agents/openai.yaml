@@ -1,4 +1,4 @@
 interface:
   display_name: "Stack"
-  short_description: "Split large changes into atomic stacked PRs"
-  default_prompt: "Use $stack to split my current branch into atomic GitHub stacked PRs."
+  short_description: "Measure, split, fix, publish and restack stacked PRs"
+  default_prompt: "Use $stack to split my current branch into GitHub stacked PRs within the size budget."
