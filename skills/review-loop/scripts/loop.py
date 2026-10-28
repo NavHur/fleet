@@ -12,11 +12,13 @@ number; round N lives in LOOP/rN with its heads.tsv
 (PR<TAB>LAYER<TAB>FORK<TAB>HEAD, bottom to top).
 
 brief prints the task for one reviewer (ROLE is standards, spec, delta, or
-audit), registers it in rN/reviewers.tsv, and rewrites rN/context.md: reviewer.md,
-rN/common.md, the ledger, the round's reviewers, and the settled findings, the one
-file every reviewer in the round reads first. The reviewer writes
-rN/<name>.json in the format reviewer.md describes. check validates every
-registered reviewer's file and prints the round's findings. outcome appends a
+audit), registers it in rN/reviewers.tsv, and rewrites rN/context.md, the one
+file every reviewer in the round reads first: reviewer.md, LOOP/common.md (the
+pass's packet), the ledger, the round's heads and reviewers, the rulings from
+this pass and the earlier passes (LOOP named <slug>-p2 finds <slug>-p1), and the
+settled findings. The reviewer writes rN/<name>.json in the format reviewer.md
+describes. check validates every registered reviewer's file and prints the
+round's findings, marking each one near an earlier round's fix. outcome appends a
 finding's triage result (fixed, declined, decision, or ruled) to
 LOOP/outcomes.jsonl; the last record for an ID wins. render prints one PR's
 comment, and publish posts it on every PR whose GitHub head is the head the
@@ -39,126 +41,17 @@ SKILL_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL_DIR.parent / "split-stacked-prs" / "scripts"))
 
 from comment import render  # noqa: E402
+from loop_brief import brief  # noqa: E402
 from stack_layers import GitHub, StackError  # noqa: E402
-from loop_state import (COVERAGE, ROLES, LoopError, Reviewer, all_findings, findings_path, heads, id_prefix, location,
-                        outcomes, pr_file_key, read_findings, register, reviewers, round_dir, rounds)  # noqa: E402
+from loop_state import (COVERAGE, ROLES, LoopError, all_findings, findings_path, heads, id_prefix, location, outcomes,
+                        read_findings, reviewers, rounds)  # noqa: E402
 
 PRIORITIES = ("P1", "P2", "P3")
 KINDS = ("bug", "violation", "advisory", "opportunity")
 STATUSES = ("fixed", "declined", "decision", "ruled")
 REQUIRED = ("id", "pr", "priority", "kind", "rule", "title", "evidence", "recommendation")
-
-
-# brief
-
-
-BRIEF = """\
-You are the {role} reviewer in round {n} of a review loop.
-
-Read {context} in full before anything else. It holds your rules, the method for the {role} role, and the
-output format (reviewer.md), the round packet, this round's reviewers, the ledger, and the settled findings.
-Then read every file your role names in one turn, and keep batching independent reads and commands into one
-turn throughout.
-
-Your scope:
-{scope}
-
-Write your findings to {out}, numbering their IDs {prefix}1, {prefix}2, and so on. Then run
-`python3 {skill}/scripts/loop.py check {loop} {n} --only {name}{checkout}`
-and correct the file until it passes. Finish with one line: your finding counts by priority and the file path.
-"""
-
-
-def new_reviewer(loop, n, role, prs, delta, model):
-    current = list(heads(loop, n))
-    prs = prs or current
-    if not set(prs) <= set(current):
-        raise LoopError(f"r{n}/heads.tsv has PRs {', '.join(current)}, not {', '.join(prs)}")
-    if role == "audit" and len(prs) != 1:
-        raise LoopError("an audit covers one PR; pass --pr")
-    # Audits are per PR; the other roles are named for a subset only.
-    name = role if prs == current and role != "audit" else f"{role}-{'+'.join(map(pr_file_key, prs))}"
-    return Reviewer(name, role, "delta" if role == "delta" or delta else "whole", prs, model)
-
-
-def scope_line(loop, n, pr, reviewer):
-    head = heads(loop, n)[pr]
-    if reviewer.scope == "whole":
-        return f"- PR {pr} ({head.layer}): the whole change, `git diff {head.fork} {head.head}`."
-    previous = heads(loop, n - 1).get(pr) if n > 1 else None
-    diff = round_dir(loop, n) / f"delta-{pr_file_key(pr)}.diff"
-    if previous is None or not diff.exists():
-        raise LoopError(f"PR {pr} has no delta in r{n}; review it whole or skip it")
-    return f"- PR {pr} ({head.layer}): the fixes since round {n - 1}, in `{diff}` ({previous.head} to {head.head})."
-
-
-CONTEXT = """\
-# Review loop, round {n}: shared context
-
-Every reviewer in round {n} reads this file first. `loop.py brief` assembles it from the files it quotes;
-edit those, not this.
-
-{files}
-
-## Reviewers this round
-
-{reviewers}
-
-## Settled findings
-
-The last outcome of every finding from earlier rounds; a round's `<reviewer>.json` holds the full record.
-A finding fixed in the previous round carries the recommendation its fix answers.
-
-{settled}
-"""
-
-
-def quoted_file(path):
-    if not path.exists():
-        raise LoopError(f"write {path} before the briefs")
-    return f'<file path="{path}">\n{path.read_text().strip()}\n</file>'
-
-
-def settled_line(finding, outcome, previous):
-    status = outcome["status"]
-    result = f"fixed in {outcome['commit'][:9]}" if status == "fixed" else f"{status}: {outcome['note']}"
-    line = (f"- {finding['id']} ({finding['priority']} {finding['kind']}, PR {finding['pr']}, {location(finding)}) "
-            f"{result}. {finding['title']}")
-    if status == "fixed" and finding["round"] == previous:
-        line += f"\n  Recommendation: {finding['recommendation']}"
-    return line
-
-
-def settled_lines(loop, n):
-    recorded = outcomes(loop)
-    earlier = [f for f in all_findings(loop) if f["round"] < n and f["id"] in recorded]
-    return [settled_line(f, recorded[f["id"]], n - 1) for f in earlier] or ["None yet."]
-
-
-def quoted_files(loop, n):
-    paths = (SKILL_DIR / "reviewer.md", round_dir(loop, n) / "common.md", loop / "ledger.md")
-    return "\n\n".join(quoted_file(path) for path in paths)
-
-
-def write_context(loop, n, files):
-    """Write rN/context.md, the one file every reviewer in round n reads before its role's own files."""
-    roster = [f"- {r.name}: {r.role}, {r.scope}, PR {', '.join(r.prs)}" for r in reviewers(loop, n)]
-    text = CONTEXT.format(n=n, files=files, reviewers="\n".join(roster), settled="\n".join(settled_lines(loop, n)))
-    path = round_dir(loop, n) / "context.md"
-    path.write_text(text)
-    return path
-
-
-def brief(loop, n, role, prs, delta, model, checkout):
-    reviewer = new_reviewer(loop, n, role, prs, delta, model)
-    scope = "\n".join(scope_line(loop, n, pr, reviewer) for pr in reviewer.prs)
-    files = quoted_files(loop, n)
-    register(loop, n, reviewer)
-    (loop / "outcomes.jsonl").touch()
-    context = write_context(loop, n, files)
-    return BRIEF.format(role=role, n=n, context=context, scope=scope, skill=SKILL_DIR, loop=loop,
-                        out=findings_path(loop, n, reviewer), prefix=id_prefix(n, reviewer), name=reviewer.name,
-                        checkout=f" --checkout {checkout}" if checkout else "")
+# How close, in lines, a new finding sits to an earlier round's fix for check to mark it as a possible regression.
+NEAR_LINES = 20
 
 
 # check
@@ -210,10 +103,10 @@ def finding_problems(finding, reviewer, prefix, current, checkout):
 
 
 def coverage_problems(data, reviewer):
-    rows = data.get("coverage")
-    if rows is None and reviewer.role != "audit":
-        return []
-    if not isinstance(rows, list) or not rows:
+    rows = data.get("coverage") or []
+    if not isinstance(rows, list):
+        return ["coverage must be a list"]
+    if not rows and reviewer.role == "audit":
         return ["an audit needs a coverage entry for every check"]
     return [f"coverage {i + 1}: needs a check and a status from {', '.join(COVERAGE)}"
             for i, row in enumerate(rows)
@@ -241,6 +134,26 @@ def reviewer_problems(loop, n, reviewer, checkout):
     return problems
 
 
+def fixed_findings(loop, n):
+    recorded = outcomes(loop)
+    return [f for f in all_findings(loop) if f["round"] < n and recorded.get(f["id"], {}).get("status") == "fixed"]
+
+
+def near(finding, fixed):
+    """The earlier fixes in the finding's file within NEAR_LINES lines of it, which it may be a regression of."""
+    path, line = finding.get("file"), finding.get("line")
+    if not path:
+        return []
+    same_file = [f for f in fixed if str(f["pr"]) == str(finding["pr"]) and f.get("file") == path]
+    return [f["id"] for f in same_file if line is None or f.get("line") is None or abs(f["line"] - line) <= NEAR_LINES]
+
+
+def finding_line(f, fixed):
+    line = f"{f['id']}  {f['priority']} {f['kind']}  PR {f['pr']}  {location(f)}  {f['title']}"
+    earlier = near(f, fixed)
+    return line + (f"\n  near fixed {', '.join(earlier)}" if earlier else "")
+
+
 def status_lines(name, problems):
     return [f"{name}: {'FAIL' if problems else 'ok'}", *(f"  {p}" for p in problems)]
 
@@ -254,7 +167,8 @@ def check(loop, n, only, checkout):
     passed = [r for r in registered if not results[r.name]]
     found = [f for r in passed for f in read_findings(findings_path(loop, n, r))["findings"]]
     lines.append(f"{len(found)} findings from {len(passed)} of {len(registered)} reviewers")
-    lines += [f"{f['id']}  {f['priority']} {f['kind']}  PR {f['pr']}  {location(f)}  {f['title']}" for f in found]
+    fixed = fixed_findings(loop, n)
+    lines += [finding_line(f, fixed) for f in found]
     return len(passed) < len(registered), "\n".join(lines)
 
 

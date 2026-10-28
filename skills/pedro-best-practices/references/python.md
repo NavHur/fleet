@@ -4,7 +4,7 @@ Language reference for `pedro-best-practices`: Python has no interface cap and n
 
 ## Interface
 
-No numeric cap: the eight-input cap covers UI components and scene scripts, not function parameters. Apply the ownership criteria in `SKILL.md` to public module and class APIs: a function whose callers keep passing the same group of values in the same order is a candidate for a cohesive type (a dataclass or `TypedDict`), and a class whose callers must call methods in a fixed order is a candidate for owning that sequence.
+No numeric cap: the eight-input cap covers UI components and scene scripts, not function parameters. Apply the ownership criteria in `rules.md` to public module and class APIs: a function whose callers keep passing the same group of values in the same order is a candidate for a cohesive type (a dataclass or `TypedDict`), and a class whose callers must call methods in a fixed order is a candidate for owning that sequence.
 
 ## Nested conditional expressions
 

@@ -14,9 +14,9 @@ in it.
 - Run a check only when it settles a finding, through
   `~/.local/bin/host-check <command>`, one focused command at a time. The
   packet lists the checks that already passed.
-- The context file's ledger and settled findings hold earlier rounds'
-  verdicts and the user's rulings. Raise a settled item again only with new
-  evidence that its recorded reason is wrong, put first.
+- The context file's rulings and settled findings hold the user's rulings and
+  earlier rounds' verdicts. Raise a settled item again only with new evidence
+  that its recorded reason is wrong, put first.
 - Report what you verified in the code at the pinned head. A suspicion you
   could not confirm goes in `coverage` or nowhere.
 
@@ -35,14 +35,12 @@ packet names. Missing behavior gets a finding with `file` and `line` null.
 complete for the settled finding it answers, then look for regressions around
 it: callers, tests, sibling layers.
 
-**audit**: Read `~/.agents/skills/pedro-best-practices/SKILL.md` and follow
-its audit workflow on your range, with the reference for each language in
-scope. Measure complexity with its `measure_complexity.py BASE HEAD` over your
-range, through host-check; it works in a temporary directory. The loop
-replaces the "Combined report" and "GitHub publication" sections of its
-`references/report.md`: report in the findings file, and the loop posts one
-comment per PR. Give `coverage` one entry for each row of the coverage table
-in that file.
+**audit**: Read the rule files your brief lists and carry out `rules.md`'s
+audit steps on your range. Measure complexity with
+`~/.agents/skills/pedro-best-practices/scripts/measure_complexity.py BASE HEAD`
+over your range, through host-check; it works in a temporary directory.
+Report in the findings file; the loop posts one comment per PR. Give
+`coverage` one entry for each check in `rules.md`'s "Coverage".
 
 ## Lanes
 
@@ -58,8 +56,11 @@ Each defect has one owner, so it is reported once:
 Report what you verify in your lane. A defect a `pedro/...` rule names is the
 audit's, even when an engineering principle or a standard covers it too. A
 lane whose owner is missing from "Reviewers this round" is yours as well: in a
-delta round with no audit for a PR, the delta reviewer applies Pedro's rules
-to that PR's delta. Outside your lanes, only a P1 goes in your file.
+delta round with no audit for a PR, the delta reviewer checks that PR's delta
+for nested conditionals (`pedro/no-nested-ternary`) and against
+`~/.agents/skills/pedro-best-practices/references/construction-rules.md`; the
+orchestrator measures the fixes' complexity and comment length itself.
+Outside your lanes, only a P1 goes in your file.
 
 ## Priority and kind
 

@@ -4,14 +4,17 @@ Your brief from `review-loop`'s launcher holds the target, the checkout, and
 the settings. Run two **passes**, each a loop with its own ledger: review in
 rounds, fix what is confirmed, and re-review only the **delta** until a round
 is **clean** (nothing to fix). A pass **converges** on a clean round, or is
-**capped** at the round cap. Pass 2's reviewers read the code without pass
-1's verdicts. Code stays local until the finish; ask the user only for the
-decisions that are theirs.
+**capped** at the round cap. Each pass runs in its own task, the one your
+brief's `Pass` line names (both, when it names none), so pass 2 starts
+without pass 1's history; its reviewers read the code without pass 1's
+verdicts, and only the user's rulings carry over. When this session is the
+launcher, run both passes here. Code stays local until the finish; ask the
+user only for the decisions that are theirs.
 
-`SKILL_DIR` is this file's directory, `loop.py` is
-`python3 "$SKILL_DIR/scripts/loop.py"` (briefs, findings checks, outcomes, the
-PR comment; `--help` gives the ledger's file formats), and reviewers follow
-`reviewer.md`. Read first: `~/.config/t3-orchestration.md`,
+`SKILL_DIR` is this file's directory, `loop.py` is the executable
+`"$SKILL_DIR/scripts/loop.py"` (briefs, findings checks, outcomes, the PR
+comment; `--help` gives the ledger's file formats), called by that path, and
+reviewers follow `reviewer.md`. Read first: `~/.config/t3-orchestration.md`,
 `~/.config/host-validation.md`, and for a stack `split-stacked-prs` section 7,
 which owns carrying fixes and pushing.
 
@@ -21,10 +24,15 @@ which owns carrying fixes and pushing.
 (`PASS1`, `PASS2`). A lost session resumes from the pass and step the ledgers
 reached:
 
-- `ledger.md`: the target, the settings, standing decisions and rulings, and
-  one line per round. Update it at the end of every step that changes it.
+- `ledger.md`: the target, the settings, the launching session's standing
+  decisions, and one line per round: heads, reviewers, findings, fixes, and
+  the gates that passed. Reviewers read this file and `common.md` but none
+  of the files they name, so quote what a reviewer must know. Update it at
+  the end of every step that changes it.
+- `common.md`: the pass's packet (step 2).
 - `outcomes.jsonl`: written only by `loop.py outcome`. A finding with an
-  outcome is **settled**.
+  outcome is **settled**. `loop.py brief` quotes every ruling to each later
+  round's reviewers, and pass 1's to pass 2's.
 - `rN/heads.tsv`: `PR<TAB>LAYER<TAB>FORK<TAB>HEAD` per PR, bottom to top,
   from `stack_layers.py heads` (step 1). FORK is the layer's fork point, so
   `git diff FORK HEAD` is its own change. PR is the number, or the branch
@@ -39,9 +47,11 @@ pass 2.
 
 ### 1. Pin the round
 
-Write `rN/heads.tsv` from the local branches: for a stack, from its
-manifests (`$plan/layers`, `split-stacked-prs` section 7 step 1); otherwise
-from the branch list (one branch for a single PR):
+Fetch first (`git -C "$checkout" fetch origin`) and pin a base as
+`origin/<base>`: a local base branch can be stale. Write `rN/heads.tsv` from
+the local branches: for a stack, from its manifests (`$plan/layers`,
+`split-stacked-prs` section 7 step 1); otherwise from the branch list (one
+branch for a single PR):
 
 ```bash
 stack_layers="$SKILL_DIR/../split-stacked-prs/scripts/stack_layers.py"
@@ -61,15 +71,18 @@ Done when every PR is whole, delta, or skipped (no delta).
 
 ### 2. Dispatch reviewers
 
-Write `rN/common.md` with only what is true of this run: the checkout, the
-pinned base and heads, the spec path, the standards sources, the gates already
-passed, operational constraints, and the principles from
-`~/.config/principles.md` that match the diff.
+In round 1, write `common.md` with what holds for the whole pass: the spec
+path, the standards sources, operational constraints, and the lines of
+`~/.config/principles.md` that match the diff, copied verbatim. `loop.py
+brief` adds the round's checkout, heads, reviewers, rulings, and settled
+findings itself.
 
 - **Whole**: one `standards` and one `spec` reviewer for the stack or branch,
   and one `audit` per PR.
 - **Delta**: one `delta` reviewer for the PRs with a delta, and one
-  `audit --delta` per PR whose delta has `audit=yes`.
+  `audit --delta` per PR whose delta has `audit=yes`. A smaller delta reads
+  `audit=no (under 3 KB)`: the delta reviewer covers Pedro's rules there,
+  after your step 4 measurements.
 
 Update the ledger, then brief every reviewer before launching any, since each
 brief rewrites the round's shared context file:
@@ -89,7 +102,13 @@ End the turn; completions wake you.
 file and lists the findings. A failing file goes back to its reviewer with the
 output, as a new `delegate_task` with a new `clientRequestId`.
 
-Verify every finding against the code at its pinned SHA, then classify it:
+Verify every finding against the code at its pinned SHA, then classify it.
+`check` marks a finding `near fixed ID` when it sits by an earlier round's
+fix: it may be that fix's regression. Near two or more fixes is a
+**regression chain**: before another patch, write down the premise those
+fixes share and test it directly; when the premise is the design, the finding
+is a Decision.
+
 
 - **Fix**: a confirmed P1 or P2, or a confirmed P3 that needs no design
   decision. Its outcome is recorded at commit.
@@ -107,8 +126,12 @@ Clean, or at the round cap: go to step 5. Otherwise:
 
 1. Brief workers (the worker setting, `delegate_task`) to edit the fixed
    source: the stack's source branch, or the branch itself. Each gets disjoint
-   files, its findings, and the ledger; the checks are yours, next.
-2. Read each worker's diff as a reviewer would. Run the light check from
+   files, its findings, and the ledger; the checks are yours, next. Each bug
+   fix comes with a **regression test**: one that reproduces the finding's
+   failure, fails before the fix, and passes after it, in the cheapest layer
+   the repository tests. A fix to a finding marked `near` also keeps the
+   earlier fix's test passing.
+2. Read each worker's diff as a reviewer would, its regression tests included. Run the light check from
    `split-stacked-prs` section 7 step 4 (on a branch, the same check), and in
    the same host-check job measure the uncommitted fixes, with `PBP` the
    `pedro-best-practices` scripts directory and `$fixed` the fixed source's
@@ -136,9 +159,12 @@ record each answer with `loop.py outcome "$LOOP" ID ruled --note RULING`. A
 ruling that changes code reopens step 4 for one more delta round, outside the
 cap. Done when every decision is ruled.
 
-After pass 1, write pass 2's ledger with only pass 1's target, settings, spec,
-standing decisions, and rulings, and an empty `outcomes.jsonl`; pass 2's
-round 1 reviews pass 1's final heads whole.
+After pass 1, write pass 2's ledger with only pass 1's target, settings,
+spec, and standing decisions, and an empty `outcomes.jsonl`; pass 2's round 1
+reviews pass 1's final heads whole. Then end the task with pass 1's report:
+converged or capped, what is still open, and the final heads. The launcher
+starts pass 2 in a fresh task. When this session is the launcher, go on to
+pass 2 here.
 
 ### 6. Finish
 
@@ -153,17 +179,14 @@ round 1 reviews pass 1's final heads whole.
   approval from the launching session. Act when both passes converged, the PRs
   are pushed, and every PR's comment is posted at its reviewed head, and only
   on PRs Pedro opened (author `PedroNavHur` or `PedroNavHurDCA`):
-  - `merge`: read each PR head's checks over REST
-    (`repos/<owner>/<repo>/commits/<head>/check-runs`). While any is running,
-    call `watch_pull_request` on the top PR and end the turn; its wake resumes
-    here. Once all pass, merge a PR with
-    `gh pr merge N --merge --match-head-commit <head>`, a stack with
-    `gh stack merge --yes --merge` on its top PR, then unwatch any PR you
-    watched. A failed check or a refused merge goes in the report, unmerged.
+  - `merge`: the launcher merges, since it can wait on checks. List each
+    PR bottom to top with its pushed head in the report, under "Merge: hand
+    back". When this session is the launcher, continue with `SKILL.md`'s
+    Finish step after the report.
   - `ready`: `gh pr ready N` for each draft PR, bottom to top.
   - `none`: leave the PRs as they are.
 - **Report**: per pass, converged or capped; what is still open; each PR's
   comment URL or why it was skipped; local versus pushed heads; the gate
-  results; each PR merged, marked ready, or why it was left.
+  results; each PR handed back for merge, marked ready, or why it was left.
   `loop.py render "$PASS2" PR --earlier "$PASS1" --checkout "$checkout"`
   prints one PR's comment.

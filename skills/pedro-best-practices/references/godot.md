@@ -20,7 +20,7 @@ It lists each script over the cap with the counted names. Validate each against 
 
 ## Ownership patterns
 
-The ownership criteria in `SKILL.md` apply; in Godot they usually take these forms:
+The ownership criteria in `rules.md` apply; in Godot they usually take these forms:
 
 - **Call down, signal up.** A parent calls methods on its children; a child reports upward with signals and never reaches into its parent (`get_parent()` chains, absolute paths into the tree). A child that does is coupled to one placement.
 - **One signal per intent, or one signal with a payload.** `action_bar.gd` emits sixteen signals, one per button, and its parent connects each. Ask whether one `action_requested(action: Action)` signal with an enum would serve the parent better; per-intent signals are idiomatic when handlers differ in kind, and a single payload signal is better when the parent dispatches them all the same way. `inspector_card.gd`'s nine signals all carry `colonist_id`, which the card already knows: a `command_requested(colonist_id, command)` signal removes that repetition.

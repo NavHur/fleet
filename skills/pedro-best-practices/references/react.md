@@ -8,7 +8,7 @@ A component's interface is its application-defined top-level props. Count them w
 
 ## Ownership patterns
 
-The ownership criteria in `SKILL.md` apply; in React they usually take these forms:
+The ownership criteria in `rules.md` apply; in React they usually take these forms:
 
 - Replacing `ctaLabel` and `ctaHref` with a cohesive `cta` is reasonable; replacing seventeen independent inputs with eight bags is insufficient.
 - Derive internal IDs inside the owner, pass a field's resolved error instead of whole-form validation, and use explicit variants for fixed combinations. Use children or focused slots when the caller owns the rendered content.

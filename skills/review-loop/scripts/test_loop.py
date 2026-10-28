@@ -1,19 +1,13 @@
-"""Behavior tests for loop.py, run against a real Git checkout and a fake gh.
+"""Behavior tests for loop.py check, outcome, render, and publish, run against a real Git checkout and a fake gh.
 
 Run from this directory: python3 -m unittest test_loop
 """
 
-import json
 import os
-from pathlib import Path
-import subprocess
-import sys
-import tempfile
 import textwrap
 import unittest
 
-SCRIPT = Path(__file__).with_name("loop.py")
-SKILL_DIR = SCRIPT.resolve().parent.parent
+from loop_fixture import LoopCase, finding
 
 FAKE_GH = """\
 #!/usr/bin/env python3
@@ -37,128 +31,7 @@ else:
 """
 
 
-def finding(**fields):
-    base = {"id": "R1-STD-1", "pr": "7", "priority": "P2", "kind": "bug", "rule": "README.md \"Errors\"",
-            "file": "app.py", "line": 2, "title": "Errors are swallowed.", "evidence": "`except: pass`",
-            "failure": "A failed save looks like a success.", "recommendation": "Return the error.",
-            "decision": False}
-    return {**base, **fields}
-
-
-class LoopTests(unittest.TestCase):
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
-        self.repo = self.root / "repo"
-        self.repo.mkdir()
-        self.git("init", "--quiet")
-        self.git("remote", "add", "origin", "git@github.com:acme/app.git")
-        self.base = self.commit({"app.py": "def save():\n    pass\n"})
-        self.first = self.commit({"app.py": "def save():\n    try:\n        write()\n    except: pass\n"})
-        self.second = self.commit({"app.py": "def save():\n    write()\n"})
-        self.loop = self.root / "pr-7"
-        self.heads(1, self.first)
-        (self.loop / "ledger.md").write_text("# Review loop: acme/app #7\n\n- Ruling: keep the retry.\n")
-
-    def git(self, *args):
-        return subprocess.check_output(["git", "-C", str(self.repo), *args], text=True).strip()
-
-    def commit(self, files):
-        for path, text in files.items():
-            (self.repo / path).write_text(text)
-        self.git("add", "-A")
-        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "c")
-        return self.git("rev-parse", "HEAD")
-
-    def heads(self, n, head):
-        (self.loop / f"r{n}").mkdir(parents=True, exist_ok=True)
-        (self.loop / f"r{n}" / "heads.tsv").write_text(f"7\tbranch\t{self.base}\t{head}\n")
-        (self.loop / f"r{n}" / "common.md").write_text(f"# Round {n} packet\n\nSpec: spec.md\n")
-
-    def run_loop(self, *args, env=None):
-        result = subprocess.run([sys.executable, str(SCRIPT), *map(str, args)], capture_output=True, text=True,
-                                env=env)
-        return result.returncode, result.stdout + result.stderr
-
-    def write(self, n, name, data):
-        (self.loop / f"r{n}" / f"{name}.json").write_text(json.dumps(data))
-
-    def two_rounds(self):
-        self.run_loop("brief", self.loop, 1, "standards", "--model", "gpt-6.1-sol high")
-        self.run_loop("brief", self.loop, 1, "audit", "--model", "gpt-6.1-sol high")
-        self.write(1, "standards", {"findings": [finding()], "coverage": [
-            {"check": "Core runtime", "status": "incomplete", "note": "not vendored"},
-            {"check": "Glossary terms", "status": "clean"}]})
-        self.write(1, "audit-7", {"findings": [], "coverage": [
-            {"check": "Cognitive complexity (limit 8)", "status": "incomplete", "note": "php missing"}]})
-        self.run_loop("outcome", self.loop, "R1-STD-1", "fixed", "--commit", self.second)
-        self.heads(2, self.second)
-        (self.loop / "r2" / "delta-7.diff").write_text("diff\n")
-        self.run_loop("brief", self.loop, 2, "delta", "--model", "gpt-6.1-sol high")
-        self.write(2, "delta", {"findings": [finding(id="R2-DELTA-1", priority="P3", kind="advisory",
-                                                     rule="pedro/no-nested-ternary", line=1,
-                                                     title="A | in the title.", failure="")]})
-
-    def test_brief_names_the_contract_the_output_and_the_id_prefix(self):
-        code, out = self.run_loop("brief", self.loop, 1, "audit", "--model", "gpt-6.1-sol high",
-                                  "--checkout", self.repo)
-        self.assertEqual(code, 0, out)
-        self.assertIn(f"Read {self.loop.resolve()}/r1/context.md in full before anything else.", out)
-        self.assertIn(f"- PR 7 (branch): the whole change, `git diff {self.base} {self.first}`.", out)
-        self.assertIn(f"Write your findings to {self.loop.resolve()}/r1/audit-7.json, numbering their IDs R1-PBP7-1",
-                      out)
-        self.assertIn(f"check {self.loop.resolve()} 1 --only audit-7 --checkout {self.repo}", out)
-        self.assertEqual((self.loop / "r1" / "reviewers.tsv").read_text(),
-                         "audit-7\taudit\twhole\t7\tgpt-6.1-sol high\n")
-
-    def test_brief_writes_one_context_file_for_the_round(self):
-        self.two_rounds()
-        self.run_loop("brief", self.loop, 2, "audit", "--delta", "--model", "gpt-6.1-sol high")
-        context = (self.loop / "r2" / "context.md").read_text()
-        reviewer_md = (SKILL_DIR / "reviewer.md").read_text().strip()
-        self.assertIn(f'<file path="{SKILL_DIR}/reviewer.md">\n{reviewer_md}\n</file>', context)
-        self.assertIn(f'<file path="{self.loop.resolve()}/r2/common.md">\n# Round 2 packet', context)
-        self.assertIn("- Ruling: keep the retry.\n</file>", context)
-        self.assertIn("## Reviewers this round\n\n- delta: delta, delta, PR 7\n- audit-7: audit, delta, PR 7\n",
-                      context)
-        self.assertIn(f"## Settled findings\n\n"
-                      "The last outcome of every finding from earlier rounds; a round's `<reviewer>.json` holds the "
-                      "full record.\nA finding fixed in the previous round carries the recommendation its fix "
-                      f"answers.\n\n- R1-STD-1 (P2 bug, PR 7, app.py:2) fixed in {self.second[:9]}. "
-                      "Errors are swallowed.\n  Recommendation: Return the error.\n", context)
-        self.assertTrue(context.endswith("Recommendation: Return the error.\n"),
-                        "round 2's own findings are not settled")
-
-    def test_brief_refuses_a_round_without_its_packet(self):
-        (self.loop / "r1" / "common.md").unlink()
-        code, out = self.run_loop("brief", self.loop, 1, "spec", "--model", "m")
-        self.assertEqual((code, out), (2, f"loop.py: write {self.loop.resolve()}/r1/common.md before the briefs\n"))
-        self.assertFalse((self.loop / "r1" / "reviewers.tsv").exists())
-
-    def test_brief_refuses_a_delta_with_no_diff(self):
-        self.heads(2, self.second)
-        code, out = self.run_loop("brief", self.loop, 2, "delta", "--model", "m")
-        self.assertEqual((code, out), (2, "loop.py: PR 7 has no delta in r2; review it whole or skip it\n"))
-
-    def test_a_branch_in_the_pr_column_gets_an_encoded_reviewer_name_and_delta_file(self):
-        for n, head in ((1, self.first), (2, self.second)):
-            self.heads(n, head)
-            (self.loop / f"r{n}" / "heads.tsv").write_text(f"pedro/feature\tbranch\t{self.base}\t{head}\n")
-        (self.loop / "r2" / "delta-pedro%2Ffeature.diff").write_text("diff\n")
-        code, out = self.run_loop("brief", self.loop, 2, "audit", "--delta", "--model", "m")
-        self.assertEqual(code, 0, out)
-        self.assertIn(f"{self.loop.resolve()}/r2/audit-pedro%2Ffeature.json", out)
-        self.assertIn(f"in `{self.loop.resolve()}/r2/delta-pedro%2Ffeature.diff`", out)
-
-    def test_branches_that_differ_only_in_a_slash_get_their_own_audits(self):
-        rows = "".join(f"{b}\tbranch\t{self.base}\t{self.first}\n" for b in ("pedro/a", "pedro-a"))
-        (self.loop / "r1" / "heads.tsv").write_text(rows)
-        for branch in ("pedro/a", "pedro-a"):
-            self.run_loop("brief", self.loop, 1, "audit", "--pr", branch, "--model", "m")
-        names = [line.split("\t")[0] for line in (self.loop / "r1" / "reviewers.tsv").read_text().splitlines()]
-        self.assertEqual(names, ["audit-pedro%2Fa", "audit-pedro-a"])
-
+class LoopTests(LoopCase):
     def test_check_passes_a_valid_file_and_lists_its_findings(self):
         self.run_loop("brief", self.loop, 1, "standards", "--model", "m")
         self.write(1, "standards", {"findings": [finding()]})
@@ -187,6 +60,25 @@ class LoopTests(unittest.TestCase):
               R1-PBP7-3: pr must be one of 7
             0 findings from 0 of 1 reviewers
             """))
+
+    def test_check_takes_an_empty_coverage_list_from_any_role_but_an_audit(self):
+        self.run_loop("brief", self.loop, 1, "standards", "--model", "m")
+        self.run_loop("brief", self.loop, 1, "audit", "--model", "m")
+        self.write(1, "standards", {"findings": [], "coverage": []})
+        self.write(1, "audit-7", {"findings": [], "coverage": []})
+        code, out = self.run_loop("check", self.loop, 1)
+        self.assertEqual((code, out), (1, "standards: ok\naudit-7: FAIL\n  an audit needs a coverage entry for every "
+                                          "check\n0 findings from 1 of 2 reviewers\n"))
+
+    def test_check_marks_a_finding_near_an_earlier_fix(self):
+        self.two_rounds()
+        code, out = self.run_loop("check", self.loop, 2)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out.endswith("R2-DELTA-1  P3 advisory  PR 7  app.py:1  A | in the title.\n"
+                                     "  near fixed R1-STD-1\n"), out)
+        self.write(2, "delta", {"findings": [finding(id="R2-DELTA-1", line=30), finding(id="R2-DELTA-2", file=None,
+                                                                                         line=None)]})
+        self.assertNotIn("near fixed", self.run_loop("check", self.loop, 2)[1])
 
     def test_check_reports_a_reviewer_that_has_not_written(self):
         self.run_loop("brief", self.loop, 1, "spec", "--model", "m")
@@ -313,6 +205,7 @@ class LoopTests(unittest.TestCase):
         """A second ledger on the same PR: one whole round at the first pass's final head."""
         earlier, self.loop = self.loop, self.root / "pr-7-opus"
         self.heads(1, self.second)
+        (self.loop / "common.md").write_text("# Pass packet\n")
         (self.loop / "ledger.md").write_text("# Review loop: acme/app #7, Opus pass\n")
         self.run_loop("brief", self.loop, 1, "standards", "--model", "claude-opus-5-5 medium")
         self.write(1, "standards", {"findings": [finding(priority="P3", kind="violation", line=1, failure="",
