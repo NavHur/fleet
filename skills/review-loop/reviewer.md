@@ -14,9 +14,9 @@ in it.
 - Run a check only when it settles a finding, through
   `~/.local/bin/host-check <command>`, one focused command at a time. The
   packet lists the checks that already passed.
-- The context file's ledger and settled findings hold earlier rounds'
-  verdicts and the user's rulings. Raise a settled item again only with new
-  evidence that its recorded reason is wrong, put first.
+- The context file's rulings and settled findings hold the user's rulings and
+  earlier rounds' verdicts. Raise a settled item again only with new evidence
+  that its recorded reason is wrong, put first.
 - Report what you verified in the code at the pinned head. A suspicion you
   could not confirm goes in `coverage` or nowhere.
 

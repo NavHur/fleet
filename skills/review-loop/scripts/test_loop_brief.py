@@ -27,12 +27,13 @@ class BriefTests(LoopCase):
         context = (self.loop / "r2" / "context.md").read_text()
         reviewer_md = (SKILL_DIR / "reviewer.md").read_text().strip()
         self.assertIn(f'<file path="{SKILL_DIR}/reviewer.md">\n{reviewer_md}\n</file>', context)
-        self.assertIn(f'<file path="{self.loop.resolve()}/r2/common.md">\n# Round 2 packet', context)
+        self.assertIn(f'<file path="{self.loop.resolve()}/common.md">\n# Pass packet', context)
+        self.assertIn(f"## Round 2\n\n- PR 7 (branch): fork `{self.base}`, head `{self.second}`\n", context)
         self.assertIn("- Ruling: keep the retry.\n</file>", context)
         self.assertIn("## Reviewers this round\n\n- delta: delta, delta, PR 7\n- audit-7: audit, delta, PR 7\n",
                       context)
         self.assertIn(f"## Settled findings\n\n"
-                      "The last outcome of every finding from earlier rounds; a round's `<reviewer>.json` holds the "
+                      "The last outcome of every other finding from earlier rounds; a round's `<reviewer>.json` holds the "
                       "full record.\nA finding fixed in the previous round carries the recommendation its fix "
                       f"answers.\n\n- R1-STD-1 (P2 bug, PR 7, app.py:2) fixed in {self.second[:9]}. "
                       "Errors are swallowed.\n  Recommendation: Return the error.\n", context)
@@ -40,9 +41,9 @@ class BriefTests(LoopCase):
                         "round 2's own findings are not settled")
 
     def test_brief_refuses_a_round_without_its_packet(self):
-        (self.loop / "r1" / "common.md").unlink()
+        (self.loop / "common.md").unlink()
         code, out = self.run_loop("brief", self.loop, 1, "spec", "--model", "m")
-        self.assertEqual((code, out), (2, f"loop.py: write {self.loop.resolve()}/r1/common.md before the briefs\n"))
+        self.assertEqual((code, out), (2, f"loop.py: write {self.loop.resolve()}/common.md before the briefs\n"))
         self.assertFalse((self.loop / "r1" / "reviewers.tsv").exists())
 
     def test_brief_refuses_a_delta_with_no_diff(self):
@@ -67,6 +68,26 @@ class BriefTests(LoopCase):
             self.run_loop("brief", self.loop, 1, "audit", "--pr", branch, "--model", "m")
         names = [line.split("\t")[0] for line in (self.loop / "r1" / "reviewers.tsv").read_text().splitlines()]
         self.assertEqual(names, ["audit-pedro%2Fa", "audit-pedro-a"])
+
+    def test_rulings_reach_every_round_and_the_next_pass(self):
+        self.loop = self.root / "pr-7-p1"
+        self.setUpLoop()
+        self.two_rounds()
+        self.run_loop("outcome", self.loop, "R2-DELTA-1", "ruled", "--note", "Pedro keeps the ternary.")
+        self.heads(3, self.second)
+        (self.loop / "r3" / "delta-7.diff").write_text("diff\n")
+        self.run_loop("brief", self.loop, 3, "delta", "--model", "m")
+        ruling = "(PR 7, app.py:1): A | in the title.\n  Ruling: Pedro keeps the ternary.\n"
+        context = (self.loop / "r3" / "context.md").read_text()
+        self.assertIn(f"\n- R2-DELTA-1 {ruling}", context)
+        self.assertNotIn("R2-DELTA-1 (P3", context, "a ruling is not repeated under settled findings")
+        self.loop = self.root / "pr-7-p2"
+        self.setUpLoop()
+        self.run_loop("brief", self.loop, 1, "standards", "--model", "m")
+        context = (self.loop / "r1" / "context.md").read_text()
+        self.assertIn(f"\n- R2-DELTA-1 from pr-7-p1 {ruling}", context)
+        self.assertIn("## Settled findings\n\nThe last outcome", context)
+        self.assertTrue(context.endswith("\n\nNone yet.\n"), "pass 1's other verdicts stay out of pass 2")
 
 
 if __name__ == "__main__":

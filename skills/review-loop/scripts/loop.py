@@ -12,11 +12,13 @@ number; round N lives in LOOP/rN with its heads.tsv
 (PR<TAB>LAYER<TAB>FORK<TAB>HEAD, bottom to top).
 
 brief prints the task for one reviewer (ROLE is standards, spec, delta, or
-audit), registers it in rN/reviewers.tsv, and rewrites rN/context.md: reviewer.md,
-rN/common.md, the ledger, the round's reviewers, and the settled findings, the one
-file every reviewer in the round reads first. The reviewer writes
-rN/<name>.json in the format reviewer.md describes. check validates every
-registered reviewer's file and prints the round's findings. outcome appends a
+audit), registers it in rN/reviewers.tsv, and rewrites rN/context.md, the one
+file every reviewer in the round reads first: reviewer.md, LOOP/common.md (the
+pass's packet), the ledger, the round's heads and reviewers, the rulings from
+this pass and the earlier passes (LOOP named <slug>-p2 finds <slug>-p1), and the
+settled findings. The reviewer writes rN/<name>.json in the format reviewer.md
+describes. check validates every registered reviewer's file and prints the
+round's findings. outcome appends a
 finding's triage result (fixed, declined, decision, or ruled) to
 LOOP/outcomes.jsonl; the last record for an ID wins. render prints one PR's
 comment, and publish posts it on every PR whose GitHub head is the head the

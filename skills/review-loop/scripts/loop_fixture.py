@@ -32,7 +32,12 @@ class LoopCase(unittest.TestCase):
         self.first = self.commit({"app.py": "def save():\n    try:\n        write()\n    except: pass\n"})
         self.second = self.commit({"app.py": "def save():\n    write()\n"})
         self.loop = self.root / "pr-7"
+        self.setUpLoop()
+
+    def setUpLoop(self):
+        """Round 1 of self.loop, pinned to the first commit, with the pass's packet and ledger."""
         self.heads(1, self.first)
+        (self.loop / "common.md").write_text("# Pass packet\n\nSpec: spec.md\n")
         (self.loop / "ledger.md").write_text("# Review loop: acme/app #7\n\n- Ruling: keep the retry.\n")
 
     def git(self, *args):
@@ -48,7 +53,6 @@ class LoopCase(unittest.TestCase):
     def heads(self, n, head):
         (self.loop / f"r{n}").mkdir(parents=True, exist_ok=True)
         (self.loop / f"r{n}" / "heads.tsv").write_text(f"7\tbranch\t{self.base}\t{head}\n")
-        (self.loop / f"r{n}" / "common.md").write_text(f"# Round {n} packet\n\nSpec: spec.md\n")
 
     def run_loop(self, *args, env=None):
         result = subprocess.run([sys.executable, str(SCRIPT), *map(str, args)], capture_output=True, text=True,

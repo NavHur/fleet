@@ -21,10 +21,15 @@ which owns carrying fixes and pushing.
 (`PASS1`, `PASS2`). A lost session resumes from the pass and step the ledgers
 reached:
 
-- `ledger.md`: the target, the settings, standing decisions and rulings, and
-  one line per round. Update it at the end of every step that changes it.
+- `ledger.md`: the target, the settings, the launching session's standing
+  decisions, and one line per round: heads, reviewers, findings, fixes, and
+  the gates that passed. Reviewers read this file and `common.md` but none
+  of the files they name, so quote what a reviewer must know. Update it at
+  the end of every step that changes it.
+- `common.md`: the pass's packet (step 2).
 - `outcomes.jsonl`: written only by `loop.py outcome`. A finding with an
-  outcome is **settled**.
+  outcome is **settled**. `loop.py brief` quotes every ruling to each later
+  round's reviewers, and pass 1's to pass 2's.
 - `rN/heads.tsv`: `PR<TAB>LAYER<TAB>FORK<TAB>HEAD` per PR, bottom to top,
   from `stack_layers.py heads` (step 1). FORK is the layer's fork point, so
   `git diff FORK HEAD` is its own change. PR is the number, or the branch
@@ -61,10 +66,11 @@ Done when every PR is whole, delta, or skipped (no delta).
 
 ### 2. Dispatch reviewers
 
-Write `rN/common.md` with only what is true of this run: the checkout, the
-pinned base and heads, the spec path, the standards sources, the gates already
-passed, operational constraints, and the principles from
-`~/.config/principles.md` that match the diff.
+In round 1, write `common.md` with what holds for the whole pass: the spec
+path, the standards sources, operational constraints, and the lines of
+`~/.config/principles.md` that match the diff, copied verbatim. `loop.py
+brief` adds the round's checkout, heads, reviewers, rulings, and settled
+findings itself.
 
 - **Whole**: one `standards` and one `spec` reviewer for the stack or branch,
   and one `audit` per PR.
@@ -137,7 +143,7 @@ ruling that changes code reopens step 4 for one more delta round, outside the
 cap. Done when every decision is ruled.
 
 After pass 1, write pass 2's ledger with only pass 1's target, settings, spec,
-standing decisions, and rulings, and an empty `outcomes.jsonl`; pass 2's
+and standing decisions, and an empty `outcomes.jsonl`; pass 2's
 round 1 reviews pass 1's final heads whole.
 
 ### 6. Finish
