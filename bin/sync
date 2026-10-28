@@ -3,10 +3,12 @@
 #
 #   bin/sync [--host NAME]            show the plan, change nothing
 #   bin/sync [--host NAME] --apply    pull the repo, then carry out the plan
+#   bin/sync --all [--apply]          the same on every machine in hosts/
 #
 # --apply runs only from the checkout hosts/NAME/host.json names, and only
 # when that checkout contains origin/main. After a pull that changes this
-# script, it re-runs the new copy.
+# script, it re-runs the new copy. --all reaches the other machines over SSH
+# (lib/fleet/sync_all.py).
 #
 # Own skills (skills/*) are symlinked into ~/.agents/skills, which Codex,
 # Cursor, and OpenCode read, and into ~/.claude/skills for Claude Code.
@@ -28,13 +30,15 @@ main() {
 ARGS=("$@")
 FLEET=$(cd "$(dirname "$0")/.." && pwd)
 APPLY=0
+ALL=0
 HOST=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --apply) APPLY=1 ;;
+    --all) ALL=1 ;;
     --host) HOST=${2:-}; shift ;;
     --host=*) HOST=${1#--host=} ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -60,6 +64,10 @@ if [ -z "$HOST" ] || [ ! -f "$FLEET/hosts/$HOST/host.json" ]; then
   exit 2
 fi
 
+if [ "$ALL" = 1 ]; then
+  exec python3 "$FLEET/lib/fleet/sync_all.py" "$FLEET" "$HOST" ${ARGS[@]+"${ARGS[@]}"}
+fi
+
 if [ "$APPLY" = 1 ]; then
   # Links point into the checkout that ran sync, so a worktree or a second
   # clone would leave every skill pointing somewhere that later disappears.
@@ -67,7 +75,7 @@ if [ "$APPLY" = 1 ]; then
 print(os.path.expanduser(json.load(open(sys.argv[1])).get("checkout", "")))' "$FLEET/hosts/$HOST/host.json")
   if [ -n "$CHECKOUT" ] && [ "$(cd "$CHECKOUT" 2>/dev/null && pwd -P)" != "$(cd "$FLEET" && pwd -P)" ]; then
     echo "This machine syncs from $CHECKOUT (hosts/$HOST/host.json), not $FLEET." >&2
-    echo "Run $CHECKOUT/bin/sync --apply." >&2
+    echo "Run $CHECKOUT/bin/sync --apply, or bin/sync --all --apply." >&2
     exit 2
   fi
 
