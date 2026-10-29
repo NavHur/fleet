@@ -2,7 +2,6 @@
 #   <path under ~>  <path in this repo>  [if:<path under ~ that must exist>]
 # {host} is this machine's name in hosts/. A missing repo path is skipped.
 .local/bin/axe-review                   skills/axe-review/scripts/scan.mjs
-.local/bin/shots                        lib/shots/shots.mjs
 .local/bin/pr-assets                    lib/pr-assets/pr_assets.py
 .local/bin/host-check                   bin/host-check
 .local/bin/bg-job                       bin/bg-job
