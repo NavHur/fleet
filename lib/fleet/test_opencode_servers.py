@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -58,10 +60,26 @@ class RestartCommand(unittest.TestCase):
             self.assertIsNone(opencode_servers.restart_command(7, "opencode serve --port 4096"))
 
 
+class BinaryChanged(unittest.TestCase):
+    def test_reads_ctime_of_the_serving_binary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "opencode"
+            binary.write_text("#!/bin/sh\n")
+            binary.chmod(0o755)
+            os.utime(binary, (0, 0))  # the install script keeps the tarball's 1985 mtime
+            changed = opencode_servers.binary_changed(f"{binary} serve --port 3790")
+            self.assertEqual(changed, binary.stat().st_ctime)
+            self.assertGreater(changed, 0)
+
+    def test_unknown_binary_never_counts_as_changed(self):
+        self.assertEqual(opencode_servers.binary_changed("/nonexistent/opencode serve"), 0)
+
+
 class Main(unittest.TestCase):
-    def plan(self, started, busy=False):
+    def plan(self, started, busy=False, binary=0.0):
         patches = [
             mock.patch.object(opencode_servers, "plugins_changed", return_value=100.0),
+            mock.patch.object(opencode_servers, "binary_changed", return_value=binary),
             mock.patch.object(opencode_servers, "servers", return_value=[(7, started, "opencode serve --service")]),
             mock.patch.object(opencode_servers, "unit", return_value=None),
             mock.patch.object(opencode_servers, "clients", return_value=["x"] if busy else []),
@@ -81,6 +99,11 @@ class Main(unittest.TestCase):
 
     def test_stale_idle_server_restarts(self):
         lines, restart = self.plan(started=50.0)
+        self.assertEqual(lines, ["restart"])
+        restart.assert_called_once_with(7, ["kill", "7"])
+
+    def test_server_older_than_its_binary_restarts(self):
+        lines, restart = self.plan(started=200.0, binary=300.0)
         self.assertEqual(lines, ["restart"])
         restart.assert_called_once_with(7, ["kill", "7"])
 

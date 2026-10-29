@@ -1,17 +1,20 @@
-"""Restart OpenCode servers that started before the current plugins.
+"""Restart OpenCode servers that started before their current plugins or binary.
 
     python3 opencode_servers.py [--apply]
 
 A long-running `opencode serve` keeps the plugin modules it imported at startup,
 so a plugin that changed under it (bin/sync links plugins into the repo, so a
-`git pull` is enough) never takes effect. Prints one plan line per stale server,
-in bin/sync's format. With --apply, restarts each one that has no client
-connected: a systemd unit through systemctl, a detached `serve --service`
-daemon by SIGTERM (the next OpenCode client starts a fresh one). A busy or
-unmanaged server gets a warning with the command to run later.
+`git pull` is enough) never takes effect. It also keeps running the binary it
+started from, so an upgrade leaves it on the old version, and T3 Code, which
+asks that server for its version, reports the upgrade as not taken. Prints one
+plan line per stale server, in bin/sync's format. With --apply, restarts each
+one that has no client connected: a systemd unit through systemctl, a detached
+`serve --service` daemon by SIGTERM (the next OpenCode client starts a fresh
+one). A busy or unmanaged server gets a warning with the command to run later.
 """
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -58,6 +61,28 @@ def plugins_changed():
     return max(times, default=0)
 
 
+def binary_changed(args):
+    """When the opencode binary the server was started from was installed.
+
+    ctime, not mtime: the install script keeps the release tarball's mtime, but
+    any install creates or renames the file, which sets its ctime.
+    """
+    word = next((w for w in args.split() if Path(w).name == "opencode"), None)
+    path = word and shutil.which(word)
+    try:
+        return os.stat(path).st_ctime if path else 0
+    except OSError:
+        return 0
+
+
+def stale_reason(started, args, plugins):
+    if started < plugins:
+        return "plugins changed since it started"
+    if started < binary_changed(args):
+        return "its binary was replaced since it started"
+    return None
+
+
 def clients(pid):
     """Inbound TCP connections to the server's listening ports."""
     lsof = ("lsof", "-nP", "-a", "-p", str(pid), "-iTCP")
@@ -97,15 +122,16 @@ def restart(pid, command):
 
 def main(argv):
     apply = "--apply" in argv
-    changed = plugins_changed()
+    plugins = plugins_changed()
     for pid, started, args in servers():
-        if started >= changed:
+        reason = stale_reason(started, args, plugins)
+        if not reason:
             continue
         command = restart_command(pid, args)
         if not command:
-            say("warning", f"OpenCode server {pid} predates its plugins; restart it by hand: {args}")
+            say("warning", f"OpenCode server {pid} is stale ({reason}); restart it by hand: {args}")
             continue
-        say("restart", f"OpenCode server {pid} (plugins changed since it started): {' '.join(command)}")
+        say("restart", f"OpenCode server {pid} ({reason}): {' '.join(command)}")
         if not apply:
             continue
         if clients(pid):
