@@ -15,8 +15,8 @@ user only for the decisions that are theirs.
 `"$SKILL_DIR/scripts/loop.py"` (briefs, findings checks, outcomes, the PR
 comment; `--help` gives the ledger's file formats), called by that path, and
 reviewers follow `reviewer.md`. Read first: `~/.config/t3-orchestration.md`,
-`~/.config/host-validation.md`, and for a stack `split-stacked-prs` section 7,
-which owns carrying fixes and pushing.
+`~/.config/host-validation.md`, and for a stack the `stack` skill's
+`references/fix-rounds.md`, which owns carrying fixes and pushing.
 
 ## The ledger
 
@@ -50,11 +50,11 @@ pass 2.
 Fetch first (`git -C "$checkout" fetch origin`) and pin a base as
 `origin/<base>`: a local base branch can be stale. Write `rN/heads.tsv` from
 the local branches: for a stack, from its manifests (`$plan/layers`,
-`split-stacked-prs` section 7 step 1); otherwise from the branch list (one
+the `stack` skill's "Find the stack"); otherwise from the branch list (one
 branch for a single PR):
 
 ```bash
-stack_layers="$SKILL_DIR/../split-stacked-prs/scripts/stack_layers.py"
+stack_layers="$SKILL_DIR/../stack/scripts/stack_layers.py"
 python3 "$stack_layers" heads --manifests "$plan/layers" --prefix "<source>-" >rN/heads.tsv
 python3 "$stack_layers" heads --base "$base" "$branch_1" "$branch_2" >rN/heads.tsv
 ```
@@ -132,7 +132,7 @@ Clean, or at the round cap: go to step 5. Otherwise:
    the repository tests. A fix to a finding marked `near` also keeps the
    earlier fix's test passing.
 2. Read each worker's diff as a reviewer would, its regression tests included. Run the light check from
-   `split-stacked-prs` section 7 step 4 (on a branch, the same check), and in
+   `stack`'s `references/fix-rounds.md` (on a branch, the same check), and in
    the same host-check job measure the uncommitted fixes, with `PBP` the
    `pedro-best-practices` scripts directory and `$fixed` the fixed source's
    checkout:
@@ -169,7 +169,7 @@ pass 2 here.
 ### 6. Finish
 
 - **Push**, unless the brief says to stop locally: for a stack,
-  `split-stacked-prs` section 7 step 5; for a branch, its gates, then push. On
+  the Publish step of `stack`'s `references/fix-rounds.md`; for a branch, its gates, then push. On
   a coworker's branch, ask the user first.
 - **Comment**: `loop.py publish "$PASS2" --earlier "$PASS1" --checkout "$checkout"`
   posts one comment per PR, covering both passes and the audits. It skips a

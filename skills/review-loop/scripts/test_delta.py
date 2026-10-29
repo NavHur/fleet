@@ -6,7 +6,7 @@ import sys
 import unittest
 
 SKILLS = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(SKILLS / "split-stacked-prs" / "scripts"))
+sys.path.insert(0, str(SKILLS / "stack" / "scripts"))
 
 from stack_fixture import StackRepo  # noqa: E402
 

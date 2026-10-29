@@ -2,8 +2,7 @@
 """A stack's layers: name, branch, parent, fork point, head, and pull request.
 
 The reader of a manifest directory's stack identity (the format is in the
-header of lib.sh; check_manifests.py still lists manifests itself, see ADR
-0003) and of a stack given as a branch list. The parent of a layer
+header of lib.sh; see ADR 0003) and of a stack given as a branch list. The parent of a layer
 is the branch below it, or the stack base for the bottom layer; its fork point
 is the merge-base of its head with its parent's head, so `git diff FORK HEAD`
 is the layer's own change. Pull requests come from a manifest's `# pr:`
@@ -55,9 +54,13 @@ class Layer:
 
 @dataclass(frozen=True)
 class Manifest:
+    """`paths` in file order without the tilde; `whole` are the plain lines, `staged` the ~path ones."""
+
     name: str
     headers: dict[str, str]
     paths: tuple[str, ...]
+    whole: tuple[str, ...]
+    staged: frozenset[str]
 
 
 def git(*args: str) -> str:
@@ -123,15 +126,19 @@ class GitHub:
 
 
 def read_manifest(path: Path) -> Manifest:
-    headers, paths = {}, []
+    headers, paths, whole, staged = {}, [], [], set()
     for raw in path.read_text().splitlines():
         line = raw.strip()
         header = re.match(r"#\s*(\w+):\s*(.+)", line)
         if header:
             headers.setdefault(header.group(1), header.group(2).strip())
+        elif line.startswith("~"):
+            paths.append(line[1:].strip())
+            staged.add(paths[-1])
         elif line and not line.startswith("#"):
-            paths.append(line.removeprefix("~"))
-    return Manifest(path.name, headers, tuple(paths))
+            paths.append(line)
+            whole.append(line)
+    return Manifest(path.name, headers, tuple(paths), tuple(whole), frozenset(staged))
 
 
 def read_manifests(directory: Path) -> list[Manifest]:

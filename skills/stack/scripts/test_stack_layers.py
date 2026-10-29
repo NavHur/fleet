@@ -52,6 +52,12 @@ class ManifestListingTests(unittest.TestCase):
         self.repo.manifest("01-contract", "# base: main\n# commit: first\na.ts  \n~b.ts\n\n# note\nc.ts\n")
         manifest = read_manifest(self.repo.manifests / "01-contract")
         self.assertEqual(manifest.paths, ("a.ts", "b.ts", "c.ts"))
+        self.assertEqual((manifest.whole, manifest.staged), (("a.ts", "c.ts"), {"b.ts"}))
+
+    def test_a_path_written_both_plain_and_staged_stays_whole(self):
+        self.repo.manifest("01-contract", "# base: main\nb.ts\n~b.ts\n")
+        manifest = read_manifest(self.repo.manifests / "01-contract")
+        self.assertEqual((manifest.whole, manifest.staged), (("b.ts",), {"b.ts"}))
 
     def test_a_layer_without_branch_header_or_prefix_is_refused(self):
         self.repo.manifest("01-contract", "# base: main\na.ts\n")

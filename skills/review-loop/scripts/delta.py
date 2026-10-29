@@ -4,7 +4,7 @@
     delta.py --prev PREV_HEADS.tsv --heads HEADS.tsv --out DIR [--manifests DIR] [--repo DIR]
 
 Heads files come from `stack_layers.py heads`: one line per PR, bottom to top,
-PR<TAB>LAYER<TAB>FORK<TAB>HEAD. With --manifests (split-stacked-prs layout) a
+PR<TAB>LAYER<TAB>FORK<TAB>HEAD. With --manifests (the stack skill's layout) a
 layer's delta is restricted to the files its manifest owns, so fixes carried
 up from lower layers stay out of it; without, the delta is the whole
 PREV_HEAD..HEAD diff. A rebase shows up as the base's changes merged into
@@ -25,7 +25,7 @@ import subprocess
 import sys
 
 SKILLS = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(SKILLS / "split-stacked-prs" / "scripts"), str(SKILLS / "pedro-best-practices" / "scripts")]
+sys.path[:0] = [str(SKILLS / "stack" / "scripts"), str(SKILLS / "pedro-best-practices" / "scripts")]
 
 from diff_budget import changed_files  # noqa: E402
 from loop_state import LoopError, pr_file_key, read_heads  # noqa: E402

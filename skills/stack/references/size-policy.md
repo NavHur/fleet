@@ -42,7 +42,7 @@ both; confirm the evidence before adding another exclusion. Measure from the
 repository root before pushing:
 
 ```sh
-python3 ~/.agents/skills/split-stacked-prs/scripts/diff_budget.py \
+python3 ~/.agents/skills/stack/scripts/diff_budget.py \
   <base> HEAD \
   --generated 'data/*.json' --generated '*/data/*.json' \
   --generated 'prisma/municipalities.json' --generated '*/prisma/municipalities.json' \
