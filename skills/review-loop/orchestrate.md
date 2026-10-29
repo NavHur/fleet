@@ -9,7 +9,9 @@ brief's `Pass` line names (both, when it names none), so pass 2 starts
 without pass 1's history; its reviewers read the code without pass 1's
 verdicts, and only the user's rulings carry over. When this session is the
 launcher, run both passes here. Code stays local until the finish; ask the
-user only for the decisions that are theirs.
+user only for the decisions that are theirs, and ask each as soon as it
+arises. The PR comment records what was settled; the user never learns from it
+that something needs them.
 
 `SKILL_DIR` is this file's directory, `loop.py` is the executable
 `"$SKILL_DIR/scripts/loop.py"` (briefs, findings checks, outcomes, the PR
@@ -115,10 +117,15 @@ is a Decision.
 - **Decline**: unconfirmed, settled, pre-existing outside the change, or
   contradicted by a ruling: `loop.py outcome "$LOOP" ID declined --note REASON`.
 - **Decision**: product behavior, copy, scope, or a design or architecture
-  choice: `loop.py outcome "$LOOP" ID decision --note RECOMMENDATION`. Keep
-  going with the rest.
+  choice: `loop.py outcome "$LOOP" ID decision --note RECOMMENDATION`.
 
 Done when `check` passes and every finding is a Fix or has an outcome.
+
+Put the round's Decisions to the user now, in one `AskUserQuestion`,
+recommendation first, once step 4 has started the workers so fixes run while
+the user answers (on a clean round, right away). Record each answer with
+`loop.py outcome "$LOOP" ID ruled --note RULING`; a ruling that changes code
+is a Fix for the next round.
 
 ### 4. Converge or fix
 
@@ -154,15 +161,17 @@ fixes.
 
 ### 5. Close the pass
 
-Ask the pass's decisions in one `AskUserQuestion`, recommendation first, and
-record each answer with `loop.py outcome "$LOOP" ID ruled --note RULING`. A
+Every finding is settled before a pass ends. At the cap, put each finding
+still open to the user in one `AskUserQuestion` (one more round to fix it, or
+leave it and why), recommendation first, and record the answers as rulings. A
 ruling that changes code reopens step 4 for one more delta round, outside the
-cap. Done when every decision is ruled.
+cap. Done when no finding is open or awaiting a decision; `publish` refuses
+otherwise.
 
 After pass 1, write pass 2's ledger with only pass 1's target, settings,
 spec, and standing decisions, and an empty `outcomes.jsonl`; pass 2's round 1
 reviews pass 1's final heads whole. Then end the task with pass 1's report:
-converged or capped, what is still open, and the final heads. The launcher
+converged or capped, the coverage gaps you confirmed, and the final heads. The launcher
 starts pass 2 in a fresh task. When this session is the launcher, go on to
 pass 2 here.
 
@@ -185,7 +194,8 @@ pass 2 here.
     Finish step after the report.
   - `ready`: `gh pr ready N` for each draft PR, bottom to top.
   - `none`: leave the PRs as they are.
-- **Report**: per pass, converged or capped; what is still open; each PR's
+- **Report**: per pass, converged or capped; the coverage gaps you confirmed
+  (a check this change needed that no reviewer could run), first; each PR's
   comment URL or why it was skipped; local versus pushed heads; the gate
   results; each PR handed back for merge, marked ready, or why it was left.
   `loop.py render "$PASS2" PR --earlier "$PASS1" --checkout "$checkout"`

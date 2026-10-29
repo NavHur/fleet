@@ -61,9 +61,10 @@ report any that is not.
    one `AskUserQuestion`, options in their order, and pass the answer back with
    `respond`. Every question goes to the user, however settled it looks here.
    "Already answered" means the user answered in the child thread.
-5. **Pass 2** on pass 1's report: relay it to the user in a line, launch
-   pass 2 as in step 2, and end the turn.
-6. **Finish** on pass 2's report: relay it to the user. When it hands the merge
+5. **Pass 2** on pass 1's report: relay it to the user in a line, its
+   confirmed coverage gaps in full, launch pass 2 as in step 2, and end the
+   turn.
+6. **Finish** on pass 2's report: relay it to the user, coverage gaps first. When it hands the merge
    back (Finish `merge`), **merge**: read each listed PR head's checks over
    REST (`repos/<owner>/<repo>/commits/<head>/check-runs`). While any is running,
    call `watch_pull_request` on the top PR and end the turn; its wake resumes
