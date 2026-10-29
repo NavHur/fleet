@@ -22,8 +22,11 @@ generated files with the evidence for each.
 
 ```bash
 python3 "$SKILL_DIR/scripts/diff_budget.py" "$merge_base" "$source_tip" --generated 'src/generated/**'
-python3 "$SKILL_DIR/scripts/import_graph.py" "$merge_base" "$source_tip" --alias '@/=apps/web/src/' --generated 'src/generated/**'
+python3 "$SKILL_DIR/scripts/import_graph.py" "$merge_base" "$source_tip" --alias "$import_alias" --generated 'src/generated/**'
 ```
+
+`$import_alias` is the repository's path alias as `PREFIX=DIR` (`repos.md`
+lists the known ones); drop `--alias` when imports are all relative.
 
 `import_graph.py` (JS/TS) prints each changed file's size in bytes, counted as
 `diff_budget.py` does (weighted is zero for tests and excluded files; pass it

@@ -15,6 +15,12 @@ layer's gates, each step only when its input changed:
    `receipt-hub-test-db --worktree` for receipt-hub. `SETUP_HOOK="command"`
    replaces it; `SETUP_HOOK=skip` turns it off.
 
+## Import alias
+
+`import_graph.py --alias` maps a path alias to its directory. nj-homes-choice-next
+uses `--alias '@/=apps/web/src/'`; repeat the flag for each alias a repository
+defines in its `tsconfig.json` `paths`.
+
 ## Gate commands
 
 `layer_gates.sh` runs each step in `--app` (the package holding the app, such

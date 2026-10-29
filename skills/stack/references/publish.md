@@ -32,8 +32,7 @@ Close or supersede the original PR only when the user authorized it.
 
 ## Report
 
-Return `refresh_stack.py`'s table (layer, PR, weighted, raw, test and excluded
-churn, commits, status, gates), and add each PR's link and parent, the reason
-for any `small` layer, and any `Size-Exception` trailer. State the
-disposition of the original PR, the source branch, the temporary worktree and
-the safety branch.
+Return `refresh_stack.py`'s table as it prints it, and add each PR's link and
+parent, the reason for any `small` layer, and any `Size-Exception` trailer.
+State the disposition of the original PR, the source branch, the temporary
+worktree and the safety branch.
