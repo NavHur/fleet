@@ -96,12 +96,14 @@ class BinaryReplaced(unittest.TestCase):
         self.executable("/nonexistent/opencode")
         self.assertTrue(opencode_servers.binary_replaced(7, 1e12))
 
-    def test_without_proc_reads_the_path_from_ps(self):
+    def test_without_proc_reads_the_absolute_path_from_lsof(self):
         binary = self.binary()
+        listing = f"p7\nftxt\nn{binary}\nftxt\nn/usr/lib/dyld\n"
         with mock.patch.object(opencode_servers.os, "readlink", side_effect=FileNotFoundError), \
-                mock.patch.object(opencode_servers, "run", return_value=f"{binary}\n") as ps:
+                mock.patch.object(opencode_servers, "run", return_value=listing) as lsof:
             self.assertTrue(opencode_servers.binary_replaced(7, binary.stat().st_ctime - 10))
-        ps.assert_called_once_with("ps", "-o", "comm=", "-p", "7")
+            self.assertFalse(opencode_servers.binary_replaced(7, binary.stat().st_ctime + 10))
+        lsof.assert_called_with("lsof", "-a", "-p", "7", "-d", "txt", "-Fn")
 
     def test_exited_process_is_not_replaced(self):
         with mock.patch.object(opencode_servers.os, "readlink", side_effect=FileNotFoundError), \

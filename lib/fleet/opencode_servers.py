@@ -66,7 +66,9 @@ def running_executable(pid):
     try:
         return os.readlink(f"/proc/{pid}/exe")
     except FileNotFoundError:  # no /proc (macOS), or the process exited
-        return run("ps", "-o", "comm=", "-p", str(pid)).strip()
+        # lsof, not ps: ps shows the path the process was launched by, maybe relative
+        listing = run("lsof", "-a", "-p", str(pid), "-d", "txt", "-Fn").splitlines()
+        return next((line[1:] for line in listing if line.startswith("n")), "")
 
 
 def binary_replaced(pid, started):
@@ -87,8 +89,8 @@ def binary_replaced(pid, started):
         return True
 
 
-def stale_reason(pid, started, plugins):
-    if started < plugins:
+def stale_reason(pid, started, plugins_mtime):
+    if started < plugins_mtime:
         return "plugins changed since it started"
     if binary_replaced(pid, started):
         return "its binary was replaced since it started"
@@ -132,9 +134,9 @@ def restart(pid, command):
         subprocess.run(command, check=True)
 
 
-def plan(pid, started, args, plugins):
+def plan(pid, started, args, plugins_mtime):
     """Print the plan line for a stale server; the restart command, if it has one."""
-    reason = stale_reason(pid, started, plugins)
+    reason = stale_reason(pid, started, plugins_mtime)
     if not reason:
         return None
     command = restart_command(pid, args)
@@ -154,9 +156,9 @@ def restart_when_idle(pid, command):
 
 def main(argv):
     apply = "--apply" in argv
-    plugins = plugins_changed()
+    plugins_mtime = plugins_changed()
     for pid, started, args in servers():
-        command = plan(pid, started, args, plugins)
+        command = plan(pid, started, args, plugins_mtime)
         if command and apply:
             restart_when_idle(pid, command)
 
