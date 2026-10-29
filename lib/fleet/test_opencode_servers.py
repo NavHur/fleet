@@ -32,6 +32,14 @@ class IsServer(unittest.TestCase):
         self.assertFalse(opencode_servers.is_server("vim serve.md opencode"))
 
 
+class Servers(unittest.TestCase):
+    def test_lists_only_this_users_servers(self):
+        listing = "  7    01:40 /home/u/.opencode/bin/opencode serve --service\n  8    00:05 vim notes\n"
+        with mock.patch.object(opencode_servers, "run", return_value=listing) as ps:
+            self.assertEqual([pid for pid, _, _ in opencode_servers.servers()], [7])
+        ps.assert_called_once_with("ps", "-U", str(os.getuid()), "-o", "pid=,etime=,args=")
+
+
 class Clients(unittest.TestCase):
     def test_counts_inbound_connections_only(self):
         outputs = {"-sTCP:LISTEN": LSOF_LISTEN, "-sTCP:ESTABLISHED": LSOF_ESTABLISHED}

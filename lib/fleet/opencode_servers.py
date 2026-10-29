@@ -46,9 +46,10 @@ def is_server(args):
 
 
 def servers():
-    """(pid, start time, args) for each running `opencode serve`."""
+    """(pid, start time, args) for each `opencode serve` this user runs, the only
+    ones it can inspect or restart."""
     now = time.time()
-    for line in run("ps", "-Ao", "pid=,etime=,args=").splitlines():
+    for line in run("ps", "-U", str(os.getuid()), "-o", "pid=,etime=,args=").splitlines():
         pid, etime, args = line.split(None, 2)
         if is_server(args):
             yield int(pid), now - seconds(etime), args
@@ -131,17 +132,20 @@ def restart(pid, command):
         subprocess.run(command, check=True)
 
 
-def handle(pid, started, args, plugins, apply):
+def plan(pid, started, args, plugins):
+    """Print the plan line for a stale server; the restart command, if it has one."""
     reason = stale_reason(pid, started, plugins)
     if not reason:
-        return
+        return None
     command = restart_command(pid, args)
     if not command:
         say("warning", f"OpenCode server {pid} is stale ({reason}); restart it by hand: {args}")
-        return
+        return None
     say("restart", f"OpenCode server {pid} ({reason}): {' '.join(command)}")
-    if not apply:
-        return
+    return command
+
+
+def restart_when_idle(pid, command):
     if clients(pid):
         say("warning", f"OpenCode server {pid} has a client connected; run `{' '.join(command)}` when it is idle")
         return
@@ -149,9 +153,12 @@ def handle(pid, started, args, plugins, apply):
 
 
 def main(argv):
+    apply = "--apply" in argv
     plugins = plugins_changed()
     for pid, started, args in servers():
-        handle(pid, started, args, plugins, "--apply" in argv)
+        command = plan(pid, started, args, plugins)
+        if command and apply:
+            restart_when_idle(pid, command)
 
 
 if __name__ == "__main__":
