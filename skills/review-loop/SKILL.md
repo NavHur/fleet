@@ -20,8 +20,8 @@ instead.
 
 ## Settings
 
-Each comes from the user's message, else an earlier run's ledgers on the same
-target, else:
+Each comes from the user's message, else this table. An earlier run's ledgers
+never supply one: they record that day's defaults as if chosen.
 
 | Setting | Default |
 | --- | --- |
