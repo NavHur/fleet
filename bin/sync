@@ -119,7 +119,9 @@ PROTECTED="synced .system"
 NPX_AGENTS="claude-code codex cursor opencode"
 BACKUP="$HOME/.skills-backups/fleet-$(date +%Y%m%d-%H%M%S)"
 
-OWN=$(cd "$FLEET/skills" && ls)
+# A folder is an own skill when it holds a SKILL.md: a renamed skill's old
+# folder can outlive the pull, holding only untracked files such as __pycache__.
+OWN=$(cd "$FLEET/skills" && for skill in */SKILL.md; do echo "${skill%/SKILL.md}"; done)
 THIRD=$(python3 -c 'import json,sys
 for src,names in json.load(open(sys.argv[1]))["sources"].items():
     for n in names: print(src, n)' "$FLEET/third-party.json")
