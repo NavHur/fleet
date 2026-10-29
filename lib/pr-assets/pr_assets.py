@@ -68,16 +68,15 @@ def files_under(folder):
 
 
 def build_commit(parent, uploads, branch):
-    """Commit parent's tree with each (folder, destination) replaced by the folder's files."""
+    """Commit parent's tree with each upload's destination replaced by its files."""
     with tempfile.TemporaryDirectory() as scratch:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
         if parent:
             git("read-tree", parent, env=env)
-        for folder, destination in uploads:
+        for destination, files in uploads.items():
             git("rm", "--cached", "-r", "-q", "--ignore-unmatch", "--", destination, env=env)
-            for path in files_under(folder):
+            for path, target in files:
                 blob = git("hash-object", "-w", str(path))
-                target = f"{destination}/{path.relative_to(folder).as_posix()}"
                 git("update-index", "--add", "--cacheinfo", f"100644,{blob},{target}", env=env)
         tree = git("write-tree", env=env)
     parents = ["-p", parent] if parent else []
@@ -101,11 +100,16 @@ def blob_url(repo, path):
 
 
 def parse_uploads(folders, branch):
-    uploads = []
+    """Map each folder's destination on pr-assets to its (file, path on pr-assets) pairs."""
+    uploads = {}
     for folder in map(Path, folders):
-        if not folder.is_dir() or not files_under(folder):
+        files = files_under(folder) if folder.is_dir() else []
+        if not files:
             raise Failure(f"{folder}: not a folder with files in it")
-        uploads.append((folder, f"{branch}/{folder.resolve().name}"))
+        destination = f"{branch}/{folder.resolve().name}"
+        if destination in uploads:
+            raise Failure(f"{folder}: another DIR has the same name; both would land at {destination}")
+        uploads[destination] = [(path, f"{destination}/{path.relative_to(folder).as_posix()}") for path in files]
     return uploads
 
 
@@ -122,9 +126,9 @@ def main(argv):
     except Failure as failure:
         print(f"pr-assets: {failure}", file=sys.stderr)
         return 1
-    for folder, destination in uploads:
-        for path in files_under(folder):
-            print(blob_url(repo, f"{destination}/{path.relative_to(folder).as_posix()}"))
+    for files in uploads.values():
+        for _, target in files:
+            print(blob_url(repo, target))
     return 0
 
 

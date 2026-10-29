@@ -101,6 +101,16 @@ class PrAssetsTest(unittest.TestCase):
         self.assertEqual(run.returncode, 1)
         self.assertIn("not a folder with files", run.stderr)
 
+    def test_refuses_two_folders_with_one_name_and_pushes_nothing(self):
+        repo = self.fleet.clone("one", "feat/x")
+        first = self.fleet.shots("a/after", **{"desktop.jpg": "d"})
+        second = self.fleet.shots("b/after", **{"phone.jpg": "p"})
+        run = upload(repo, str(first), str(second))
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("feat/x/after", run.stderr)
+        self.assertEqual(run.stdout, "")
+        self.assertEqual(git(self.fleet.bare, "branch", "--list", "pr-assets"), "")
+
     def test_detached_head_needs_a_branch_name(self):
         repo = self.fleet.clone("one", "feat/x")
         git(repo, "checkout", "-q", "--detach")
