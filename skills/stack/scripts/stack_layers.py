@@ -54,16 +54,13 @@ class Layer:
 
 @dataclass(frozen=True)
 class Manifest:
-    """`paths` in file order without the tilde; `staged` are the ones written as ~path."""
+    """`paths` in file order without the tilde; `whole` are the plain lines, `staged` the ~path ones."""
 
     name: str
     headers: dict[str, str]
     paths: tuple[str, ...]
+    whole: tuple[str, ...]
     staged: frozenset[str]
-
-    @property
-    def whole(self) -> tuple[str, ...]:
-        return tuple(path for path in self.paths if path not in self.staged)
 
 
 def git(*args: str) -> str:
@@ -129,7 +126,7 @@ class GitHub:
 
 
 def read_manifest(path: Path) -> Manifest:
-    headers, paths, staged = {}, [], set()
+    headers, paths, whole, staged = {}, [], [], set()
     for raw in path.read_text().splitlines():
         line = raw.strip()
         header = re.match(r"#\s*(\w+):\s*(.+)", line)
@@ -140,7 +137,8 @@ def read_manifest(path: Path) -> Manifest:
             staged.add(paths[-1])
         elif line and not line.startswith("#"):
             paths.append(line)
-    return Manifest(path.name, headers, tuple(paths), frozenset(staged))
+            whole.append(line)
+    return Manifest(path.name, headers, tuple(paths), tuple(whole), frozenset(staged))
 
 
 def read_manifests(directory: Path) -> list[Manifest]:

@@ -60,6 +60,15 @@ class CheckManifestsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("staged at or after its final layer: b.ts in 02-b", result.stdout)
 
+    def test_a_path_both_whole_and_staged_below_its_final_layer_fails(self):
+        self.repo.manifest("01-a", "a.ts\napp.ts\nb.ts\n~b.ts\n")
+        self.repo.manifest("02-b", "b.ts\n")
+        self.hook("01-a")
+        result = self.check()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("duplicated: b.ts in 01-a, 02-b", result.stdout)
+        self.assertIn("staged at or after its final layer: b.ts in 01-a", result.stdout)
+
     def test_a_staged_layer_without_a_hook_warns_unless_hooks_are_required(self):
         self.repo.manifest("01-a", "~b.ts\na.ts\napp.ts\n")
         self.repo.manifest("02-b", "b.ts\n")
