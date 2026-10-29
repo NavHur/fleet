@@ -21,7 +21,8 @@ class MergeGuardTests(unittest.TestCase):
 
     def say(self, text):
         line = {"type": "user", "message": {"role": "user", "content": text}}
-        self.transcript.write_text(json.dumps(line) + "\n")
+        with self.transcript.open("a") as f:
+            f.write(json.dumps(line) + "\n")
 
     def reason(self, command, **payload):
         return merge_guard.bash_reason(command, {"transcript_path": str(self.transcript), **payload})
@@ -51,6 +52,13 @@ class MergeGuardTests(unittest.TestCase):
             self.assertIsNone(self.reason("pnpm ship", cwd="/"))
             workdir = {"command": "pnpm ship", "workdir": root}
             self.assertIn("hasn't approved merging PR #12", self.reason("pnpm ship", cwd="/", tool_input=workdir))
+
+    def test_t3_notices_do_not_replace_approval(self):
+        self.say("perfect, now let's merge 808")
+        self.say("Update on pull request #808 (https://github.com/o/r/pull/808), which T3 Code is watching "
+                 "for you:\n- All 13 checks passed on 617b719.")
+        self.say("Delegated task node:delegated-task:abc finished.")
+        self.assertIsNone(self.reason("gh pr merge 808 --merge"))
 
     def test_negation_withholds_approval(self):
         self.say("don't merge 12 yet")

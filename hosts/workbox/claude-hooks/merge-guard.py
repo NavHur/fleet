@@ -10,7 +10,9 @@ in one of two ways:
   APPROVALS.
 
 Chat approval is read from the session transcript and applies only on the main
-thread; subagents must hand merges back. Claude Code and Codex both run this hook.
+thread; subagents must hand merges back. T3 notices (a watched PR's checks, a finished
+delegate) arrive as user messages but are skipped, so they don't displace his approval.
+Claude Code and Codex both run this hook.
 A Codex call carries `turn_id`, and its transcript is the thread's rollout JSONL
 (found by session_id when transcript_path is empty). A Codex thread counts as a
 subagent when Codex spawned it, it came from `codex exec`, or its first message is
@@ -36,12 +38,14 @@ MUTATIONS = re.compile(r"\b(mergePullRequest|enablePullRequestAutoMerge|enqueueP
 PR_URL = re.compile(r"/pull/(\d+)")
 MERGE_PATH = re.compile(r"pulls/(\d+)/merge\b")
 NEGATION = re.compile(r"\b(don'?t|do not|never|not yet|wait|hold|stop|no)\b", re.I)
-NOT_HUMAN = ("<task-notification", "<local-command", "<command-name>", "<command-message>")
+# T3 notices that both agents record as user messages: a watched PR changed, a delegate finished.
+T3_NOTICES = ("Update on pull request #", "Delegated task ")
+NOT_HUMAN = ("<task-notification", "<local-command", "<command-name>", "<command-message>") + T3_NOTICES
 HELP = {"-h", "--help"}
 USE_GH = "use `gh pr merge <N> --merge` or `gh stack merge <N> --yes --merge`"
 CODEX_SESSIONS = os.path.expanduser("~/.codex/sessions")
-# T3 notices and context injections that Codex records as user messages.
-CODEX_NOT_HUMAN = ("Delegated task ", "The user supplied replacement AGENTS.md guidance", "<")
+# Context injections that Codex also records as user messages.
+CODEX_NOT_HUMAN = T3_NOTICES + ("The user supplied replacement AGENTS.md guidance", "<")
 CODEX_T3_BRIEF = re.compile(r"\s*Act as the [\w-]+ sub-agent for this task\.")
 PATCH_PATH = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
 
