@@ -14,7 +14,6 @@ one). A busy or unmanaged server gets a warning with the command to run later.
 """
 import os
 from pathlib import Path
-import shutil
 import signal
 import subprocess
 import sys
@@ -61,24 +60,36 @@ def plugins_changed():
     return max(times, default=0)
 
 
-def binary_changed(args):
-    """When the opencode binary the server was started from was installed.
+def running_executable(pid):
+    """Path of the file the process is running; Linux marks a replaced one " (deleted)"."""
+    try:
+        return os.readlink(f"/proc/{pid}/exe")
+    except FileNotFoundError:  # no /proc (macOS), or the process exited
+        return run("ps", "-o", "comm=", "-p", str(pid)).strip()
+
+
+def binary_replaced(pid, started):
+    """Whether the executable the server runs was installed after it started.
 
     ctime, not mtime: the install script keeps the release tarball's mtime, but
-    any install creates or renames the file, which sets its ctime.
+    any install creates or renames the file, which sets its ctime. A binary that
+    vanished was removed or replaced, so it counts as replaced.
     """
-    word = next((w for w in args.split() if Path(w).name == "opencode"), None)
-    path = word and shutil.which(word)
+    path = running_executable(pid)
+    if not path:  # the process exited
+        return False
+    if path.endswith(" (deleted)"):
+        return True
     try:
-        return os.stat(path).st_ctime if path else 0
-    except OSError:
-        return 0
+        return os.stat(path).st_ctime > started
+    except FileNotFoundError:
+        return True
 
 
-def stale_reason(started, args, plugins):
+def stale_reason(pid, started, plugins):
     if started < plugins:
         return "plugins changed since it started"
-    if started < binary_changed(args):
+    if binary_replaced(pid, started):
         return "its binary was replaced since it started"
     return None
 
@@ -120,24 +131,27 @@ def restart(pid, command):
         subprocess.run(command, check=True)
 
 
+def handle(pid, started, args, plugins, apply):
+    reason = stale_reason(pid, started, plugins)
+    if not reason:
+        return
+    command = restart_command(pid, args)
+    if not command:
+        say("warning", f"OpenCode server {pid} is stale ({reason}); restart it by hand: {args}")
+        return
+    say("restart", f"OpenCode server {pid} ({reason}): {' '.join(command)}")
+    if not apply:
+        return
+    if clients(pid):
+        say("warning", f"OpenCode server {pid} has a client connected; run `{' '.join(command)}` when it is idle")
+        return
+    restart(pid, command)
+
+
 def main(argv):
-    apply = "--apply" in argv
     plugins = plugins_changed()
     for pid, started, args in servers():
-        reason = stale_reason(started, args, plugins)
-        if not reason:
-            continue
-        command = restart_command(pid, args)
-        if not command:
-            say("warning", f"OpenCode server {pid} is stale ({reason}); restart it by hand: {args}")
-            continue
-        say("restart", f"OpenCode server {pid} ({reason}): {' '.join(command)}")
-        if not apply:
-            continue
-        if clients(pid):
-            say("warning", f"OpenCode server {pid} has a client connected; run `{' '.join(command)}` when it is idle")
-            continue
-        restart(pid, command)
+        handle(pid, started, args, plugins, "--apply" in argv)
 
 
 if __name__ == "__main__":

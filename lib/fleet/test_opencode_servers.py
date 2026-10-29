@@ -60,26 +60,58 @@ class RestartCommand(unittest.TestCase):
             self.assertIsNone(opencode_servers.restart_command(7, "opencode serve --port 4096"))
 
 
-class BinaryChanged(unittest.TestCase):
-    def test_reads_ctime_of_the_serving_binary(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            binary = Path(tmp) / "opencode"
-            binary.write_text("#!/bin/sh\n")
-            binary.chmod(0o755)
-            os.utime(binary, (0, 0))  # the install script keeps the tarball's 1985 mtime
-            changed = opencode_servers.binary_changed(f"{binary} serve --port 3790")
-            self.assertEqual(changed, binary.stat().st_ctime)
-            self.assertGreater(changed, 0)
+class BinaryReplaced(unittest.TestCase):
+    def executable(self, exe):
+        patch = mock.patch.object(opencode_servers.os, "readlink", return_value=exe)
+        patch.start()
+        self.addCleanup(patch.stop)
 
-    def test_unknown_binary_never_counts_as_changed(self):
-        self.assertEqual(opencode_servers.binary_changed("/nonexistent/opencode serve"), 0)
+    def binary(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        binary = Path(tmp.name) / "opencode"
+        binary.write_text("#!/bin/sh\n")
+        os.utime(binary, (0, 0))  # the install script keeps the tarball's 1985 mtime
+        return binary
+
+    def test_installed_after_start_is_replaced(self):
+        binary = self.binary()
+        self.executable(str(binary))
+        self.assertTrue(opencode_servers.binary_replaced(7, binary.stat().st_ctime - 10))
+        self.assertFalse(opencode_servers.binary_replaced(7, binary.stat().st_ctime + 10))
+
+    def test_deleted_executable_is_replaced(self):
+        self.executable("/x/@opencode/.cli-dcyX9P6v/bin/opencode.exe (deleted)")
+        self.assertTrue(opencode_servers.binary_replaced(7, 1e12))
+
+    def test_vanished_executable_is_replaced(self):
+        self.executable("/nonexistent/opencode")
+        self.assertTrue(opencode_servers.binary_replaced(7, 1e12))
+
+    def test_without_proc_reads_the_path_from_ps(self):
+        binary = self.binary()
+        with mock.patch.object(opencode_servers.os, "readlink", side_effect=FileNotFoundError), \
+                mock.patch.object(opencode_servers, "run", return_value=f"{binary}\n") as ps:
+            self.assertTrue(opencode_servers.binary_replaced(7, binary.stat().st_ctime - 10))
+        ps.assert_called_once_with("ps", "-o", "comm=", "-p", "7")
+
+    def test_exited_process_is_not_replaced(self):
+        with mock.patch.object(opencode_servers.os, "readlink", side_effect=FileNotFoundError), \
+                mock.patch.object(opencode_servers, "run", return_value=""):
+            self.assertFalse(opencode_servers.binary_replaced(7, 0))
+
+    def test_unreadable_executable_raises(self):
+        self.executable("/locked/opencode")
+        with mock.patch.object(opencode_servers.os, "stat", side_effect=PermissionError):
+            with self.assertRaises(PermissionError):
+                opencode_servers.binary_replaced(7, 0)
 
 
 class Main(unittest.TestCase):
-    def plan(self, started, busy=False, binary=0.0):
+    def plan(self, started, busy=False, replaced=False):
         patches = [
             mock.patch.object(opencode_servers, "plugins_changed", return_value=100.0),
-            mock.patch.object(opencode_servers, "binary_changed", return_value=binary),
+            mock.patch.object(opencode_servers, "binary_replaced", return_value=replaced),
             mock.patch.object(opencode_servers, "servers", return_value=[(7, started, "opencode serve --service")]),
             mock.patch.object(opencode_servers, "unit", return_value=None),
             mock.patch.object(opencode_servers, "clients", return_value=["x"] if busy else []),
@@ -103,7 +135,7 @@ class Main(unittest.TestCase):
         restart.assert_called_once_with(7, ["kill", "7"])
 
     def test_server_older_than_its_binary_restarts(self):
-        lines, restart = self.plan(started=200.0, binary=300.0)
+        lines, restart = self.plan(started=200.0, replaced=True)
         self.assertEqual(lines, ["restart"])
         restart.assert_called_once_with(7, ["kill", "7"])
 
