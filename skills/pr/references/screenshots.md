@@ -6,45 +6,44 @@ Before and after images for a PR whose diff changes what a user sees. Images liv
 
 Shoot the same pages and states twice: **before** from the base, **after** from the head.
 
-- **Web app**: run it (the project's dev or preview command, or its run skill) and capture with `shots`, which writes desktop and phone JPEGs (`shots --help` for sign-in, waits, and clicks):
+Work in a folder of your own: other agents on the host capture too, and `pr-assets` uploads everything in the folders it is given.
 
-  ```sh
-  shots --out /tmp/pr-shots/after --base-url http://localhost:5173 /settings /settings/billing
-  ```
+```sh
+shots_dir=$(mktemp -d) && mkdir "$shots_dir/before" "$shots_dir/after"
+```
 
-- **Before**: point `shots` at a deployed build of the base (production or its preview URL) when one exists. Otherwise add a worktree at the base (`git worktree add --detach /tmp/pr-base origin/<base>`), run it on another port, capture into `/tmp/pr-shots/before`, then `git worktree remove /tmp/pr-base`.
-- **Anything else** (Godot, native, mobile): use the project's own capture route: a capture script or skill in the repo, or T3's preview and `device_screenshot` tools.
+- **Web app**: run it (the project's dev or preview command, or its run skill) and capture with T3's preview tools. They drive a headless browser on this machine, so they reach its `127.0.0.1` and need no one at the T3 app:
+  1. `preview_open` the page with `open=false` and `reuseExistingTab=false`; keep the returned `tabId` for every later call. Pass `profileId` (`preview_status` lists them) for a browser profile that is already signed in, or `incognito` for a clean one.
+  2. Sign in when the app needs it. With a cookie, such as the `Cookie:` line a preview's `signin` command prints, open the app's origin first, set it with `preview_evaluate` (`document.cookie = "NAME=VALUE; Path=/; Secure; SameSite=Lax"`; `Secure` works on `127.0.0.1` and `localhost`), then `preview_navigate` to the page.
+  3. Size the tab with `preview_resize` (`freeform`): desktop 1440×900, then phone 390×844 when the layout changes at that width.
+  4. Reach the changed state: `preview_act` clicks, types, or scrolls (dismiss notices, open collapsed sections); `preview_wait_for` waits for a selector or text.
+  5. `preview_snapshot` with `save=true` writes a PNG and returns its `screenshotPath`. Copy it into `$shots_dir/after` under a name that says what it shows, such as `settings-desktop.png`.
+  6. `t3_preview_close` the tab when done.
+- **Before**: repeat against a deployed build of the base (production or its preview URL) when one exists. Otherwise add a worktree at the base (`git worktree add --detach "$shots_dir/base" origin/<base>`), run it on another port, capture into `$shots_dir/before` under the same names, then `git worktree remove "$shots_dir/base"`.
+- **Anything else** (Godot, native, mobile): use the project's own capture route: a capture script or skill in the repo, or T3's `device_screenshot`.
 - **New UI with no before**: capture the after only and say so.
 
-Open each image and keep the ones that show the changed region. Crop or recapture with `--wait-for` or `--click` when the change sits below the fold or behind a dialog.
+Open each image and keep the ones that show the changed region. Recapture after scrolling, a taller `preview_resize`, or another `preview_act` when the change sits below the fold or behind a dialog.
 
 ## 2. Host
 
-Commit the images to `pr-assets` from a throwaway worktree, leaving the PR branch untouched. Push follows the branch rule in Pedro's Git instructions: a `pr-assets` branch he or his agents created pushes without asking; one a coworker created needs his say first.
+From the PR's checkout, push the folders with `pr-assets`, which prints one embed link per image:
 
 ```sh
-branch=$(git branch --show-current)
-assets=$(mktemp -d)/assets
-if git ls-remote --exit-code origin pr-assets >/dev/null; then
-  git fetch origin pr-assets && git worktree add --detach "$assets" FETCH_HEAD
-else
-  git worktree add --detach "$assets" && git -C "$assets" checkout --orphan pr-assets && git -C "$assets" rm -rfq .
-fi
-mkdir -p "$assets/$branch" && cp -R /tmp/pr-shots/before /tmp/pr-shots/after "$assets/$branch/"
-git -C "$assets" add -A && git -C "$assets" commit -m "chore(pr-assets): screenshots for $branch"
-git -C "$assets" push origin HEAD:pr-assets
-git worktree remove --force "$assets"
+pr-assets "$shots_dir/before" "$shots_dir/after"
 ```
 
-Re-running for the same branch overwrites its folder; images already embedded in older PR bodies keep pointing at the same path.
+It writes `<branch>/before/` and `<branch>/after/` on origin's `pr-assets` branch, creating the branch when the repo has none, without touching the PR branch or the working tree. Re-running for the same branch replaces its folders; images already embedded in older PR bodies keep pointing at the same path. Pass `--branch <name>` from a detached HEAD. Push follows the branch rule in Pedro's Git instructions: a `pr-assets` branch he or his agents created pushes without asking; one a coworker created needs his say first.
+
+Host images nowhere else: not in a gist, not on a branch named `pr-assets/<x>` (GitHub refuses one next to `pr-assets`), not through the contents API.
 
 ## 3. Embed
 
-Link each image through `blob/…?raw=true`, which renders in private repos for anyone who can read the repo (`raw.githubusercontent.com` renders only in public ones):
+Embed the links `pr-assets` printed. They go through `blob/…?raw=true`, which renders in private repos for anyone who can read the repo; `raw.githubusercontent.com` renders only in public ones, so never rewrite them to it:
 
 ```markdown
-- **Before:** ![settings, desktop, before](https://github.com/<owner>/<repo>/blob/pr-assets/<branch>/before/settings-desktop.jpg?raw=true)
-  **After:** ![settings, desktop, after](https://github.com/<owner>/<repo>/blob/pr-assets/<branch>/after/settings-desktop.jpg?raw=true)
+- **Before:** ![settings, desktop, before](https://github.com/<owner>/<repo>/blob/pr-assets/<branch>/before/settings-desktop.png?raw=true)
+  **After:** ![settings, desktop, after](https://github.com/<owner>/<repo>/blob/pr-assets/<branch>/after/settings-desktop.png?raw=true)
 ```
 
-Pair each before with its after on adjacent lines, desktop first, and add the phone pair when the layout changes at that width. Before publishing the body, confirm each embedded path exists: `gh api "repos/<owner>/<repo>/contents/<branch>/after/settings-desktop.jpg?ref=pr-assets" --jq .size`.
+Pair each before with its after on adjacent lines, desktop first, and add the phone pair when the layout changes at that width. Embed only links `pr-assets` printed: it exits non-zero unless the push landed, so a printed link exists.
