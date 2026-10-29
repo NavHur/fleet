@@ -1,14 +1,16 @@
-"""Restart OpenCode servers that started before the current plugins.
+"""Restart OpenCode servers that started before their current plugins or binary.
 
     python3 opencode_servers.py [--apply]
 
 A long-running `opencode serve` keeps the plugin modules it imported at startup,
 so a plugin that changed under it (bin/sync links plugins into the repo, so a
-`git pull` is enough) never takes effect. Prints one plan line per stale server,
-in bin/sync's format. With --apply, restarts each one that has no client
-connected: a systemd unit through systemctl, a detached `serve --service`
-daemon by SIGTERM (the next OpenCode client starts a fresh one). A busy or
-unmanaged server gets a warning with the command to run later.
+`git pull` is enough) never takes effect. It also keeps running the binary it
+started from, so an upgrade leaves it on the old version, and T3 Code, which
+asks that server for its version, reports the upgrade as not taken. Prints one
+plan line per stale server, in bin/sync's format. With --apply, restarts each
+one that has no client connected: a systemd unit through systemctl, a detached
+`serve --service` daemon by SIGTERM (the next OpenCode client starts a fresh
+one). A busy or unmanaged server gets a warning with the command to run later.
 """
 import os
 from pathlib import Path
@@ -44,9 +46,10 @@ def is_server(args):
 
 
 def servers():
-    """(pid, start time, args) for each running `opencode serve`."""
+    """(pid, start time, args) for each `opencode serve` this user runs, the only
+    ones it can inspect or restart."""
     now = time.time()
-    for line in run("ps", "-Ao", "pid=,etime=,args=").splitlines():
+    for line in run("ps", "-U", str(os.getuid()), "-o", "pid=,etime=,args=").splitlines():
         pid, etime, args = line.split(None, 2)
         if is_server(args):
             yield int(pid), now - seconds(etime), args
@@ -56,6 +59,42 @@ def plugins_changed():
     """Newest modification time among the plugin files, following links."""
     times = [path.stat().st_mtime for path in PLUGINS.glob("*") if path.exists()]
     return max(times, default=0)
+
+
+def running_executable(pid):
+    """Path of the file the process is running; Linux marks a replaced one " (deleted)"."""
+    try:
+        return os.readlink(f"/proc/{pid}/exe")
+    except FileNotFoundError:  # no /proc (macOS), or the process exited
+        # lsof, not ps: ps shows the path the process was launched by, maybe relative
+        listing = run("lsof", "-a", "-p", str(pid), "-d", "txt", "-Fn").splitlines()
+        return next((line[1:] for line in listing if line.startswith("n")), "")
+
+
+def binary_replaced(pid, started):
+    """Whether the executable the server runs was installed after it started.
+
+    ctime, not mtime: the install script keeps the release tarball's mtime, but
+    any install creates or renames the file, which sets its ctime. A binary that
+    vanished was removed or replaced, so it counts as replaced.
+    """
+    path = running_executable(pid)
+    if not path:  # the process exited
+        return False
+    if path.endswith(" (deleted)"):
+        return True
+    try:
+        return os.stat(path).st_ctime > started
+    except FileNotFoundError:
+        return True
+
+
+def stale_reason(pid, started, plugins_mtime):
+    if started < plugins_mtime:
+        return "plugins changed since it started"
+    if binary_replaced(pid, started):
+        return "its binary was replaced since it started"
+    return None
 
 
 def clients(pid):
@@ -95,23 +134,33 @@ def restart(pid, command):
         subprocess.run(command, check=True)
 
 
+def plan(pid, started, args, plugins_mtime):
+    """Print the plan line for a stale server; the restart command, if it has one."""
+    reason = stale_reason(pid, started, plugins_mtime)
+    if not reason:
+        return None
+    command = restart_command(pid, args)
+    if not command:
+        say("warning", f"OpenCode server {pid} is stale ({reason}); restart it by hand: {args}")
+        return None
+    say("restart", f"OpenCode server {pid} ({reason}): {' '.join(command)}")
+    return command
+
+
+def restart_when_idle(pid, command):
+    if clients(pid):
+        say("warning", f"OpenCode server {pid} has a client connected; run `{' '.join(command)}` when it is idle")
+        return
+    restart(pid, command)
+
+
 def main(argv):
     apply = "--apply" in argv
-    changed = plugins_changed()
+    plugins_mtime = plugins_changed()
     for pid, started, args in servers():
-        if started >= changed:
-            continue
-        command = restart_command(pid, args)
-        if not command:
-            say("warning", f"OpenCode server {pid} predates its plugins; restart it by hand: {args}")
-            continue
-        say("restart", f"OpenCode server {pid} (plugins changed since it started): {' '.join(command)}")
-        if not apply:
-            continue
-        if clients(pid):
-            say("warning", f"OpenCode server {pid} has a client connected; run `{' '.join(command)}` when it is idle")
-            continue
-        restart(pid, command)
+        command = plan(pid, started, args, plugins_mtime)
+        if command and apply:
+            restart_when_idle(pid, command)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -30,6 +32,14 @@ class IsServer(unittest.TestCase):
         self.assertFalse(opencode_servers.is_server("vim serve.md opencode"))
 
 
+class Servers(unittest.TestCase):
+    def test_lists_only_this_users_servers(self):
+        listing = "  7    01:40 /home/u/.opencode/bin/opencode serve --service\n  8    00:05 vim notes\n"
+        with mock.patch.object(opencode_servers, "run", return_value=listing) as ps:
+            self.assertEqual([pid for pid, _, _ in opencode_servers.servers()], [7])
+        ps.assert_called_once_with("ps", "-U", str(os.getuid()), "-o", "pid=,etime=,args=")
+
+
 class Clients(unittest.TestCase):
     def test_counts_inbound_connections_only(self):
         outputs = {"-sTCP:LISTEN": LSOF_LISTEN, "-sTCP:ESTABLISHED": LSOF_ESTABLISHED}
@@ -58,10 +68,60 @@ class RestartCommand(unittest.TestCase):
             self.assertIsNone(opencode_servers.restart_command(7, "opencode serve --port 4096"))
 
 
+class BinaryReplaced(unittest.TestCase):
+    def executable(self, exe):
+        patch = mock.patch.object(opencode_servers.os, "readlink", return_value=exe)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def binary(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        binary = Path(tmp.name) / "opencode"
+        binary.write_text("#!/bin/sh\n")
+        os.utime(binary, (0, 0))  # the install script keeps the tarball's 1985 mtime
+        return binary
+
+    def test_installed_after_start_is_replaced(self):
+        binary = self.binary()
+        self.executable(str(binary))
+        self.assertTrue(opencode_servers.binary_replaced(7, binary.stat().st_ctime - 10))
+        self.assertFalse(opencode_servers.binary_replaced(7, binary.stat().st_ctime + 10))
+
+    def test_deleted_executable_is_replaced(self):
+        self.executable("/x/@opencode/.cli-dcyX9P6v/bin/opencode.exe (deleted)")
+        self.assertTrue(opencode_servers.binary_replaced(7, 1e12))
+
+    def test_vanished_executable_is_replaced(self):
+        self.executable("/nonexistent/opencode")
+        self.assertTrue(opencode_servers.binary_replaced(7, 1e12))
+
+    def test_without_proc_reads_the_absolute_path_from_lsof(self):
+        binary = self.binary()
+        listing = f"p7\nftxt\nn{binary}\nftxt\nn/usr/lib/dyld\n"
+        with mock.patch.object(opencode_servers.os, "readlink", side_effect=FileNotFoundError), \
+                mock.patch.object(opencode_servers, "run", return_value=listing) as lsof:
+            self.assertTrue(opencode_servers.binary_replaced(7, binary.stat().st_ctime - 10))
+            self.assertFalse(opencode_servers.binary_replaced(7, binary.stat().st_ctime + 10))
+        lsof.assert_called_with("lsof", "-a", "-p", "7", "-d", "txt", "-Fn")
+
+    def test_exited_process_is_not_replaced(self):
+        with mock.patch.object(opencode_servers.os, "readlink", side_effect=FileNotFoundError), \
+                mock.patch.object(opencode_servers, "run", return_value=""):
+            self.assertFalse(opencode_servers.binary_replaced(7, 0))
+
+    def test_unreadable_executable_raises(self):
+        self.executable("/locked/opencode")
+        with mock.patch.object(opencode_servers.os, "stat", side_effect=PermissionError):
+            with self.assertRaises(PermissionError):
+                opencode_servers.binary_replaced(7, 0)
+
+
 class Main(unittest.TestCase):
-    def plan(self, started, busy=False):
+    def plan(self, started, busy=False, replaced=False):
         patches = [
             mock.patch.object(opencode_servers, "plugins_changed", return_value=100.0),
+            mock.patch.object(opencode_servers, "binary_replaced", return_value=replaced),
             mock.patch.object(opencode_servers, "servers", return_value=[(7, started, "opencode serve --service")]),
             mock.patch.object(opencode_servers, "unit", return_value=None),
             mock.patch.object(opencode_servers, "clients", return_value=["x"] if busy else []),
@@ -81,6 +141,11 @@ class Main(unittest.TestCase):
 
     def test_stale_idle_server_restarts(self):
         lines, restart = self.plan(started=50.0)
+        self.assertEqual(lines, ["restart"])
+        restart.assert_called_once_with(7, ["kill", "7"])
+
+    def test_server_older_than_its_binary_restarts(self):
+        lines, restart = self.plan(started=200.0, replaced=True)
         self.assertEqual(lines, ["restart"])
         restart.assert_called_once_with(7, ["kill", "7"])
 
