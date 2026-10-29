@@ -13,11 +13,11 @@ shots_dir=$(mktemp -d) && mkdir "$shots_dir/before" "$shots_dir/after"
 ```
 
 - **Web app**: run it (the project's dev or preview command, or its run skill) and capture with T3's preview tools. They drive a headless browser on this machine, so they reach its `127.0.0.1` and need no one at the T3 app:
-  1. `preview_open` the page with `open=false` and `reuseExistingTab=false`; keep the returned `tabId` for every later call. Pass `profileId` (`preview_status` lists them) for a browser profile that is already signed in, or `incognito` for a clean one.
+  1. `preview_open` the page with `open=false` and `reuseExistingTab=false`; keep the returned `tabId` for every later call. For a fresh session, pass `profileId: "incognito"`; for one that is already signed in, pass that profile's id from the list `preview_open` and `preview_status` return.
   2. Sign in when the app needs it. With a cookie, such as the `Cookie:` line a preview's `signin` command prints, open the app's origin first, set it with `preview_evaluate` (`document.cookie = "NAME=VALUE; Path=/; Secure; SameSite=Lax"`; `Secure` works on `127.0.0.1` and `localhost`), then `preview_navigate` to the page.
   3. Size the tab with `preview_resize` (`freeform`): desktop 1440×900, then phone 390×844 when the layout changes at that width.
-  4. Reach the changed state: `preview_act` clicks, types, or scrolls (dismiss notices, open collapsed sections); `preview_wait_for` waits for a selector or text.
-  5. `preview_snapshot` with `save=true` writes a PNG and returns its `screenshotPath`. Copy it into `$shots_dir/after` under a name that says what it shows, such as `settings-desktop.png`.
+  4. Reach the changed state: `preview_act` clicks, types, or scrolls (dismiss notices, open collapsed sections), targeting a CSS `selector` such as `summary`, or `locator='aria-ref=<ref>'` from a `preview_snapshot`; `preview_wait_for` confirms the state, such as `details[open]`. A navigation resets the page, so redo this step after each one; a resize keeps it.
+  5. `preview_snapshot` with `save=true` writes a PNG and returns its `screenshotPath`. Copy it into `$shots_dir/after` under a name that says what it shows, such as `settings-desktop.png`. Images may come out at 2x, or scaled down to 1280 wide for a wider tab; both are fine.
   6. `t3_preview_close` the tab when done.
 - **Before**: repeat against a deployed build of the base (production or its preview URL) when one exists. Otherwise add a worktree at the base (`git worktree add --detach "$shots_dir/base" origin/<base>`), run it on another port, capture into `$shots_dir/before` under the same names, then `git worktree remove "$shots_dir/base"`.
 - **Anything else** (Godot, native, mobile): use the project's own capture route: a capture script or skill in the repo, or T3's `device_screenshot`.
@@ -30,7 +30,7 @@ Open each image and keep the ones that show the changed region. Recapture after 
 From the PR's checkout, push the folders with `pr-assets`, which prints one embed link per image:
 
 ```sh
-pr-assets "$shots_dir/before" "$shots_dir/after"
+pr-assets "$shots_dir/before" "$shots_dir/after" && rm -rf "$shots_dir"
 ```
 
 It writes `<branch>/before/` and `<branch>/after/` on origin's `pr-assets` branch, creating the branch when the repo has none, without touching the PR branch or the working tree. Re-running for the same branch replaces its folders; images already embedded in older PR bodies keep pointing at the same path. Pass `--branch <name>` from a detached HEAD. Push follows the branch rule in Pedro's Git instructions: a `pr-assets` branch he or his agents created pushes without asking; one a coworker created needs his say first.
