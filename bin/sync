@@ -13,7 +13,8 @@
 # Own skills (skills/*) are symlinked into ~/.agents/skills, which Codex,
 # Cursor, and OpenCode read, and into ~/.claude/skills for Claude Code.
 # Third-party skills (third-party.json) are installed and updated with
-# `npx skills`. The files listed in `links` are symlinked into place,
+# `npx skills`. The files listed in `links` are symlinked into place, and
+# links to fleet files that are gone are retired,
 # ~/.config/host-validation.md is generated, the release binaries in
 # binaries.json are installed into ~/.local/bin, the host-check guard is
 # registered as a hook for each agent, ~/.zshenv sources the agent shell
@@ -216,6 +217,15 @@ while read -r home_path repo_path condition; do
     *.slice|*.service|*.timer|*.d/*.conf) [ "$before" = "$FLEET/$repo_path" ] || SLICE_CHANGED=1 ;;
   esac
 done < "$FLEET/links"
+
+# A line removed from links leaves its symlink pointing at a file this
+# checkout no longer has; retire every such link.
+for dir in "$HOME/.local/bin" "$HOME/.local/lib" "$HOME/.config" "$HOME/.claude/hooks"; do
+  [ -d "$dir" ] || continue
+  while read -r path; do
+    case "$(readlink "$path")" in "$FLEET"/*) [ -e "$path" ] || retire "$path" dangling ;; esac
+  done < <(find "$dir" -maxdepth 4 -type l)
+done
 
 # Append line $2 to shell startup file $1 unless it is there; $3 names the source.
 ensure_source() {

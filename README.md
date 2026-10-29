@@ -47,7 +47,7 @@ fleet/bin/sync --all --apply   # the same on every machine, over SSH from the Ma
 | `~/.local/bin/bg-job` | `bin/bg-job`: long jobs that outlive the agent session |
 | `~/.local/bin/idle-compact` | `bin/idle-compact`: idle Claude threads in T3 to compact before their prompt cache expires |
 | `~/.local/bin/actions-runners` | `bin/actions-runners`: a self-hosted GitHub Actions runner per repository |
-| `~/.local/bin/shots` | `lib/shots/shots.mjs`: screenshots of a running app as small JPEGs, queued through host-check |
+| `~/.local/bin/pr-assets` | `lib/pr-assets/pr_assets.py`: pushes screenshot folders to a repo's `pr-assets` branch without a checkout and prints their embed links |
 | `~/.local/bin/transcripts` | `lib/transcripts/`: this machine's Claude Code and Codex sessions. `list` filters them by age, agent, directory, prompt, or text; `show` prints one condensed to a few percent of its file; `usage` totals tokens and list-price cost by model, agent, directory, day, or week, priced with T3's `usage-model-rates.json` |
 | `~/.local/lib/host-check/` | `lib/host-check/`: `guard.py` (command guard), `walk.py` (the command walk every shell-command judge reads, over `shell.py` lexing and `packages.py` package scripts), `jobclass.py` (the validation catalogue: each command's job class), `merge_method.py` (squash and rebase merge refusal), tests, OpenCode plugin |
 | `~/.config/t3-orchestration.md` | `config/t3-orchestration.md` |
