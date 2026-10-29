@@ -116,5 +116,7 @@ Write the path your brief names as JSON:
 - `coverage` status is `clean`, `findings`, `inapplicable`, or `incomplete`,
   with a one-sentence note on what was checked or is missing. An audit fills
   it for every check; other roles add what they could not verify, as
-  `incomplete`.
+  `incomplete`. `incomplete` is a gap the user must hear about: a check this
+  change needs that you could not run or read. A check you had no reason to
+  run, or one the packet says already passed, is not a gap.
 - No findings is `"findings": []`.

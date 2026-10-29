@@ -22,7 +22,8 @@ round's findings, marking each one near an earlier round's fix. outcome appends 
 finding's triage result (fixed, declined, decision, or ruled) to
 LOOP/outcomes.jsonl; the last record for an ID wins. render prints one PR's
 comment, and publish posts it on every PR whose GitHub head is the head the
-last round reviewed, once per round. --earlier names an earlier pass's loop
+last round reviewed, once per round; it posts nothing while any finding is open
+or awaiting a decision. --earlier names an earlier pass's loop
 (oldest first): its rounds and findings join the same comment, ahead of LOOP's.
 """
 from __future__ import annotations
@@ -40,7 +41,7 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL_DIR.parent / "stack" / "scripts"))
 
-from comment import render  # noqa: E402
+from comment import render, unsettled  # noqa: E402
 from loop_brief import brief  # noqa: E402
 from stack_layers import GitHub, StackError  # noqa: E402
 from loop_state import (COVERAGE, ROLES, LoopError, all_findings, findings_path, heads, id_prefix, location, outcomes,
@@ -219,6 +220,11 @@ def post_comment(github, pr, body):
 def publish(loops, checkout, dry_run):
     """Posts on the PRs of the final loop's last round; loops runs oldest pass first."""
     github, n = GitHub.from_origin(root=checkout), rounds(loops[-1])[-1]
+    left = {pr: ids for pr in heads(loops[-1], n) if pr.isdigit() and (ids := unsettled(loops, pr))}
+    if left:
+        raise LoopError("not posted: " + "; ".join(f"PR {pr} has {', '.join(ids)} open or awaiting a decision"
+                                                   for pr, ids in left.items())
+                        + ". Put each to the user and record the outcome, then publish again.")
     for pr, head in heads(loops[-1], n).items():
         if pr.isdigit():
             print(publish_pr(loops, github, pr, head.head, dry_run))
