@@ -1,6 +1,6 @@
 """Ask a Godot repository's godot-guard for its verdicts, so audits tag what its lint enforces.
 
-godot-guard (github.com/PedroNavHur/godot-guard) runs complexity and comment
+godot-guard (github.com/NavHur/godot-guard) runs complexity and comment
 rules from `.godot-guard.yml` with a ratchet baseline. Its `check --json`
 (v0.2+) reports the effective limits and rule levels, the files it checked,
 and every problem `check` reports; this module never reads the config itself.

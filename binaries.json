@@ -2,7 +2,7 @@
   "$comment": "Release binaries bin/sync installs into ~/.local/bin (lib/fleet/binaries.py). Each asset is <name>-<target>.tar.gz on the repository's release <tag>; sha256 pins it per target, and member, when set, is the binary's path inside the archive.",
   "binaries": {
     "godot-guard": {
-      "repo": "PedroNavHur/godot-guard",
+      "repo": "NavHur/godot-guard",
       "tag": "v0.7.0",
       "sha256": {
         "aarch64-apple-darwin": "b716c5414b983ad6cb31a55bfea77df18abf62696c8ba94bcfd108ba773509ad",
@@ -10,7 +10,7 @@
       }
     },
     "pbp-complexity": {
-      "repo": "PedroNavHur/fleet",
+      "repo": "NavHur/fleet",
       "tag": "pbp-complexity-v0.1.0",
       "sha256": {
         "aarch64-apple-darwin": "c0e805ef958e7c6fde72256c54accd7b7ea6bee3ca1e7f0b2add12d9121cb593",

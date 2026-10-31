@@ -12,8 +12,9 @@ gh stack submit --auto
 gh stack view
 ```
 
-`--auto` opens drafts. When the `origin` owner is `PedroNavHur`, add `--open`
-so they open ready for review; for any other owner, keep them draft.
+`--auto` opens drafts. When the `origin` owner is `PedroNavHur` or `NavHur`,
+add `--open` so they open ready for review; for any other owner, keep them
+draft.
 
 ## Write the bodies
 
