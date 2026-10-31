@@ -12,7 +12,7 @@ know what to do. Read `~/.config/t3-orchestration.md` before dispatching.
 ## Invocation
 
 - **Members**: three models, each with an optional effort, such as
-  `gpt-6.1-sol xhigh, claude-fable-5-1 max, opencode-go/gemini-4-argon high`.
+  `gpt-6.1-terra high, claude-opus-5-5 high, opencode-go/muse-spark-1.3-contributor xhigh`.
   Ask once if he named fewer than three.
 - **Question**: the one in his message, else the last question you asked him.
   Give it a short kebab-case `<slug>` for the task IDs.
