@@ -32,7 +32,7 @@ never supply one: they record that day's defaults as if chosen.
 | Workers | `claudeAgent` `claude-sonnet-5-5`, `effort` medium |
 | Round cap | 5 per pass, the first round included |
 | Push | Yes, after pass 2 |
-| Finish | `merge` when the `origin` owner is `PedroNavHur`; `ready` (mark ready for review) for any other owner; `none` when Push stops locally |
+| Finish | `merge` when the `origin` owner is `PedroNavHur` or `NavHur`; `ready` (mark ready for review) for any other owner; `none` when Push stops locally |
 
 Call `orchestrator_capabilities` once; launch only with offered settings and
 report any that is not.

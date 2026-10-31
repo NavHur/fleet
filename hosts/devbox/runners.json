@@ -1,14 +1,14 @@
 {
   "labels": ["devbox"],
   "repos": {
-    "hexstead": "PedroNavHur/hexstead",
-    "heavenrest": "PedroNavHur/heavenrest",
-    "govstructure": "PedroNavHur/govstructure",
-    "nj-impact": "PedroNavHur/nj-impact",
-    "fonema": "PedroNavHur/fonema",
-    "pnav": "PedroNavHur/pnav",
-    "leetwiz": "PedroNavHur/leetwiz",
-    "LiteQuiz": "PedroNavHur/LiteQuiz",
-    "HiveFront": "PedroNavHur/HiveFront"
+    "hexstead": "NavHur/hexstead",
+    "heavenrest": "NavHur/heavenrest",
+    "govstructure": "NavHur/govstructure",
+    "nj-impact": "NavHur/nj-impact",
+    "fonema": "NavHur/fonema",
+    "pnav": "NavHur/pnav",
+    "leetwiz": "NavHur/leetwiz",
+    "LiteQuiz": "NavHur/LiteQuiz",
+    "HiveFront": "NavHur/HiveFront"
   }
 }

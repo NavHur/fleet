@@ -27,7 +27,7 @@ Skills in this repo cite principles by path (`~/.agents/skills/principle-x/SKILL
 ## Sync a machine
 
 ```sh
-git clone https://github.com/PedroNavHur/fleet   # once, at the checkout in hosts/<machine>/host.json
+git clone https://github.com/NavHur/fleet   # once, at the checkout in hosts/<machine>/host.json
 fleet/bin/sync            # show the plan
 fleet/bin/sync --apply    # pull, link own skills, install and update third-party skills
 fleet/bin/sync --all --apply   # the same on every machine, over SSH from the Mac
@@ -111,7 +111,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: PedroNavHur/fleet/.github/actions/file-size@main
+      - uses: NavHur/fleet/.github/actions/file-size@main
 ```
 
 ## Actions runners

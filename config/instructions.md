@@ -48,10 +48,11 @@ confidence.
 ## Pull requests
 
 - Write every PR body, and any rewrite of one, with the `pr` skill.
-- Draft state follows the owner in the `origin` URL. `PedroNavHur` opens PRs
-  ready for review (`draft=false`, or `gh stack submit --auto --open`); any
-  other owner opens drafts (REST `draft=true`, or `gh stack submit --auto`),
-  marked ready when Pedro asks in that conversation.
+- Draft state follows the owner in the `origin` URL. `PedroNavHur` and
+  `NavHur` open PRs ready for review (`draft=false`, or `gh stack submit
+  --auto --open`); any other owner opens drafts (REST `draft=true`, or
+  `gh stack submit --auto`), marked ready when Pedro asks in that
+  conversation.
 - Stacks use `gh stack`: fix on the layer that owns the code, `gh stack rebase`
   descendants when their dependencies need it or Pedro asks, and merge with
   `gh stack merge --yes --merge` on the top PR.
