@@ -20,7 +20,8 @@
 # registered as a hook for each agent, ~/.zshenv sources the agent shell
 # options, macOS login profiles put ~/.local/bin back ahead of /usr/bin,
 # PyYAML is installed when python3 lacks it, and OpenCode servers
-# older than their plugins are restarted when idle. NAME picks hosts/NAME; it is
+# older than their plugins are restarted when idle, and a machine with
+# hosts/NAME/zfs gets those ZFS settings (lib/fleet/zfs.py). NAME picks hosts/NAME; it is
 # needed only when this machine's hostname is not listed in a hosts/*/host.json.
 # Anything replaced is moved to ~/.skills-backups/fleet-<timestamp>/.
 # Written for bash 3.2 so it runs on stock macOS.
@@ -40,7 +41,7 @@ while [ $# -gt 0 ]; do
     --all) ALL=1 ;;
     --host) HOST=${2:-}; shift ;;
     --host=*) HOST=${1#--host=} ;;
-    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -340,6 +341,15 @@ binary_plan=$(python3 "$FLEET/lib/fleet/binaries.py" "${binary_args[@]}")
 if [ -n "$binary_plan" ]; then
   echo "$binary_plan"
   PLANNED=$((PLANNED + $(echo "$binary_plan" | grep -cE '^  (binary|replace) ' || true)))
+fi
+
+echo "== ZFS"
+zfs_args=("$FLEET/hosts/$HOST/zfs")
+[ "$APPLY" = 1 ] && zfs_args+=(--apply)
+zfs_plan=$(python3 "$FLEET/lib/fleet/zfs.py" "${zfs_args[@]}")
+if [ -n "$zfs_plan" ]; then
+  echo "$zfs_plan"
+  PLANNED=$((PLANNED + $(echo "$zfs_plan" | grep -cE '^  (zfs-set|system|initramfs) ' || true)))
 fi
 
 # pre-commit's ci_covers.py parses CI workflows with PyYAML, which the Mac's

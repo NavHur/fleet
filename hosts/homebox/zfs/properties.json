@@ -1,0 +1,11 @@
+{
+  "rpool": {"mountpoint": "none", "canmount": "off", "compression": "lz4", "atime": "off",
+            "xattr": "sa", "dnodesize": "auto", "acltype": "posix"},
+  "rpool/ROOT": {"mountpoint": "none", "canmount": "off"},
+  "rpool/ROOT/ubuntu": {"mountpoint": "/", "canmount": "noauto"},
+  "rpool/home": {"mountpoint": "none", "canmount": "off"},
+  "rpool/home/pedro": {"mountpoint": "/home/pedro", "sync": "disabled"},
+  "rpool/home/pedro/cache": {"mountpoint": "/home/pedro/.cache"},
+  "rpool/var": {"mountpoint": "none", "canmount": "off"},
+  "rpool/var/log": {"mountpoint": "/var/log"}
+}
