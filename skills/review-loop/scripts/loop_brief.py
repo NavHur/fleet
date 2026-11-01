@@ -38,16 +38,26 @@ language references for your scope's files: {references}.
 """
 
 
-def new_reviewer(loop, n, role, prs, delta, model):
+PANEL = re.compile(r"[a-z][a-z0-9]*")
+
+
+def reviewer_name(role, prs, current, panel):
+    # Audits are per PR; the other roles are named for a subset only.
+    name = role if prs == current and role != "audit" else f"{role}-{'+'.join(map(pr_file_key, prs))}"
+    return f"{name}-{panel}" if panel else name
+
+
+def new_reviewer(loop, n, role, prs, delta, model, panel):
     current = list(heads(loop, n))
     prs = prs or current
     if not set(prs) <= set(current):
         raise LoopError(f"r{n}/heads.tsv has PRs {', '.join(current)}, not {', '.join(prs)}")
     if role == "audit" and len(prs) != 1:
         raise LoopError("an audit covers one PR; pass --pr")
-    # Audits are per PR; the other roles are named for a subset only.
-    name = role if prs == current and role != "audit" else f"{role}-{'+'.join(map(pr_file_key, prs))}"
-    return Reviewer(name, role, "delta" if role == "delta" or delta else "whole", prs, model)
+    if panel and not PANEL.fullmatch(panel):
+        raise LoopError(f"a panel is a short lowercase name such as terra or muse, not {panel!r}")
+    name = reviewer_name(role, prs, current, panel)
+    return Reviewer(name, role, "delta" if role == "delta" or delta else "whole", prs, model, panel)
 
 
 def delta_path(loop, n, pr):
@@ -197,10 +207,10 @@ def write_context(loop, n, files, checkout):
     return path
 
 
-def brief(loop, n, role, prs, delta, model, checkout):
+def brief(loop, n, role, prs, delta, model, checkout, panel=""):
     if not (loop / "run.json").exists():
         raise LoopError(f"run loop.py start {loop} before the briefs: it saves the spec and the run record")
-    reviewer = new_reviewer(loop, n, role, prs, delta, model)
+    reviewer = new_reviewer(loop, n, role, prs, delta, model, panel)
     scope = "\n".join(scope_line(loop, n, pr, reviewer) for pr in reviewer.prs)
     files = quoted_files(loop)
     role_files = reading(loop, n, reviewer, checkout)

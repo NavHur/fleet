@@ -2,7 +2,7 @@
 """Reviewer briefs, findings checks, outcomes, and the PR comment for a review loop.
 
   loop.py start LOOP --orchestrator TEXT --checkout DIR [--spec FILE ...]
-  loop.py brief LOOP ROUND ROLE --model TEXT [--pr PR ...] [--delta] [--checkout DIR]
+  loop.py brief LOOP ROUND ROLE --model TEXT [--panel NAME] [--pr PR ...] [--delta] [--checkout DIR]
   loop.py check LOOP ROUND [--only NAME] [--checkout DIR]
   loop.py outcome LOOP ID STATUS [--commit SHA] [--note TEXT]
   loop.py render LOOP PR --checkout DIR [--earlier LOOP ...]
@@ -25,7 +25,10 @@ audit), registers it in rN/reviewers.tsv, and rewrites rN/context.md, the one
 file every reviewer in the round reads first: reviewer.md, LOOP/common.md (the
 pass's packet), the ledger, the round's heads and reviewers, the rulings from
 this pass and the earlier passes (LOOP named <slug>-p2 finds <slug>-p1), and the
-settled findings. The reviewer writes rN/<name>.json in the format reviewer.md
+settled findings. With --panel, the reviewer belongs to one of the pass's
+reviewer settings: its name ends in -<panel> and its IDs start R<N>-<PANEL>-,
+so two panels' reviewers of one role never share a file or an ID.
+The reviewer writes rN/<name>.json in the format reviewer.md
 describes. check validates every registered reviewer's file and prints the
 round's findings, marking each one near an earlier round's fix. outcome appends a
 finding's triage result (fixed, declined, decision, or ruled) to
@@ -264,6 +267,7 @@ def parser():
     cmd.add_argument("--model", required=True, help='the reviewer model and effort, e.g. "gpt-6.1-sol high"')
     cmd.add_argument("--pr", action="append", default=[], help="a PR from heads.tsv; repeatable (default: all)")
     cmd.add_argument("--delta", action="store_true", help="an audit of the round's delta instead of the whole PR")
+    cmd.add_argument("--panel", default="", help="the reviewer setting's short name when a pass runs several, e.g. muse")
     cmd.add_argument("--checkout", type=Path)
     cmd = commands.add_parser("check")
     cmd.add_argument("loop", type=Path)
@@ -319,7 +323,7 @@ def printed(text):
 COMMANDS = {
     "start": lambda a, loop: printed(start(loop, a.orchestrator, GitHub.from_origin(root=a.checkout), a.spec)),
     "finish": lambda a, loop: printed(finish(loop)),
-    "brief": lambda a, loop: printed(brief(loop, a.round, a.role, a.pr, a.delta, a.model, a.checkout)),
+    "brief": lambda a, loop: printed(brief(loop, a.round, a.role, a.pr, a.delta, a.model, a.checkout, a.panel)),
     "check": run_check,
     "outcome": run_outcome,
     "render": lambda a, loop: printed(render(passes(a), a.pr, GitHub.from_origin(root=a.checkout).slug)),

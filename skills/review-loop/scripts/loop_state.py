@@ -11,7 +11,8 @@ ROLES = {"standards": "STD", "spec": "SPEC", "delta": "DELTA", "audit": "PBP"}
 COVERAGE = ("incomplete", "findings", "clean", "inapplicable")
 
 Head = namedtuple("Head", "layer fork head")
-Reviewer = namedtuple("Reviewer", "name role scope prs model")
+# panel names the reviewer setting when a pass runs several; "" when it runs one.
+Reviewer = namedtuple("Reviewer", "name role scope prs model panel", defaults=("",))
 
 
 class LoopError(Exception):
@@ -54,18 +55,20 @@ def reviewers(loop, n):
     if not path.exists():
         return []
     rows = (line.split("\t") for line in path.read_text().splitlines() if line.strip())
-    return [Reviewer(name, role, scope, prs.split(","), model) for name, role, scope, prs, model in rows]
+    return [Reviewer(name, role, scope, prs.split(","), *rest) for name, role, scope, prs, *rest in rows]
 
 
 def register(loop, n, reviewer):
     others = [r for r in reviewers(loop, n) if r.name != reviewer.name]
-    lines = ["\t".join((r.name, r.role, r.scope, ",".join(r.prs), r.model)) for r in [*others, reviewer]]
+    lines = ["\t".join((r.name, r.role, r.scope, ",".join(r.prs), r.model, *([r.panel] if r.panel else [])))
+             for r in [*others, reviewer]]
     (round_dir(loop, n) / "reviewers.tsv").write_text("\n".join(lines) + "\n")
 
 
 def id_prefix(n, reviewer):
     pr = reviewer.prs[0] if reviewer.role == "audit" else ""
-    return f"R{n}-{ROLES[reviewer.role]}{pr}-"
+    panel = f"{reviewer.panel.upper()}-" if reviewer.panel else ""
+    return f"R{n}-{panel}{ROLES[reviewer.role]}{pr}-"
 
 
 def findings_path(loop, n, reviewer):

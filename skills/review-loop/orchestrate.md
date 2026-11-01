@@ -104,8 +104,14 @@ Update the ledger, then brief every reviewer before launching any, since each
 brief rewrites the round's shared context file:
 
 ```bash
-loop.py brief "$LOOP" N ROLE --model "MODEL EFFORT" [--pr PR ...] [--delta] --checkout "$checkout"
+loop.py brief "$LOOP" N ROLE --model "MODEL EFFORT" [--panel NAME] [--pr PR ...] [--delta] --checkout "$checkout"
 ```
+
+When the pass's reviewer setting names several **panels** (pass 1: `terra`
+and `muse`), brief every reviewer above once per panel with `--panel NAME`
+and that panel's model, and launch each on its panel's setting. A panel whose
+reviewer fails twice (a provider error or a usage cap) sits out the round:
+note it in the ledger and triage the other panel's findings.
 
 Launch them all at once: `delegate_task`, `mode: "async"`, the pass's reviewer
 setting, `clientRequestId` `<slug>-pN-rN-<reviewer name>`, and the brief's
@@ -132,6 +138,11 @@ is a Decision.
   contradicted by a ruling: `loop.py outcome "$LOOP" ID declined --note REASON`.
 - **Decision**: product behavior, copy, scope, or a design or architecture
   choice: `loop.py outcome "$LOOP" ID decision --note RECOMMENDATION`.
+
+Two panels often report one defect. Findings with the same root cause are
+**twins**: classify them together and give each the same outcome, one fix
+commit recorded for both, the twin's ID in each note
+(`--note "twin of ID"`), so a later replay can count what each panel caught.
 
 Done when `check` passes and every finding is a Fix or has an outcome.
 
