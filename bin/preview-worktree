@@ -224,12 +224,13 @@ def copy_from_main(recipe, worktree, main):
 
 
 def copy_new(source, target):
-    """Publish a complete 0600 copy of source as target, unless it exists; a failed copy leaves nothing behind."""
-    descriptor, temp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
+    """Publish a complete 0600 copy of source as target, unless it exists; the worktree never holds a partial file."""
+    STATE.mkdir(parents=True, exist_ok=True)
+    descriptor, temp = tempfile.mkstemp(dir=STATE, prefix=".copy-")  # outside the worktree: a crash leaves no secret in git's reach
     try:
         with os.fdopen(descriptor, "wb") as out, open(source, "rb") as original:
             shutil.copyfileobj(original, out)
-        os.link(temp, target)  # fails, rather than replaces, when target exists
+        os.link(temp, target)  # fails, rather than replaces, when target exists; EXDEV propagates
     except FileExistsError:
         pass
     finally:
@@ -308,14 +309,16 @@ def wait_ready(record, seconds):
 
 def listens_in_unit(port, name):
     """True when a listener on port runs inside the preview's unit, not another process that took the port."""
-    listing = subprocess.run(["ss", "-H", "-ltnp", f"sport = :{port}"], capture_output=True, text=True).stdout
-    return any(in_unit(pid, name) for pid in re.findall(r"pid=(\d+)", listing))
+    result = subprocess.run(["ss", "-H", "-ltnp", f"sport = :{port}"], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Refusal(f"ss failed ({result.returncode}): {result.stderr.strip()}")
+    return any(in_unit(pid, name) for pid in re.findall(r"pid=(\d+)", result.stdout))
 
 
 def in_unit(pid, name):
     try:
         cgroup = Path(f"/proc/{pid}/cgroup").read_text()
-    except OSError:  # the process exited since ss listed it
+    except (FileNotFoundError, ProcessLookupError):  # the process exited since ss listed it
         return False
     return cgroup.strip().endswith(f"/{unit(name)}.service")
 

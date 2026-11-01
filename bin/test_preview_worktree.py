@@ -179,24 +179,51 @@ class Robustness(Temp):
                 pw.wait_ready(record, 5)
         report.assert_not_called()
 
-    def wait_with(self, listens):
-        record = self.record("a", 4400)
+    @contextlib.contextmanager
+    def answering(self, listener):
+        """An active unit whose port answers; yields the record and the report mock."""
         with mock.patch.object(pw, "active", lambda name: True), mock.patch.object(pw, "responds", lambda url: True), \
-                mock.patch.object(pw, "listens_in_unit", lambda port, name: listens), mock.patch.object(pw.time, "sleep"), \
+                mock.patch.object(pw, "listens_in_unit", listener), mock.patch.object(pw.time, "sleep"), \
                 mock.patch.object(pw.time, "monotonic", side_effect=[0, 1, 2, 100]), \
                 mock.patch.object(pw, "report") as report, mock.patch.object(pw.subprocess, "run"):
-            if listens:
-                pw.wait_ready(record, 5)
-            else:
-                with self.assertRaisesRegex(pw.Refusal, "did not answer"):
-                    pw.wait_ready(record, 5)
-        return report
+            yield self.record("a", 4400), report
 
     def test_an_answer_from_a_process_outside_the_unit_is_not_readiness(self):
-        self.wait_with(False).assert_not_called()
+        with self.answering(lambda port, name: False) as (record, report):
+            with self.assertRaisesRegex(pw.Refusal, "did not answer"):
+                pw.wait_ready(record, 5)
+        report.assert_not_called()
 
     def test_an_answer_from_the_units_own_listener_is_readiness(self):
-        self.wait_with(True).assert_called_once()
+        with self.answering(lambda port, name: True) as (record, report):
+            pw.wait_ready(record, 5)
+        report.assert_called_once()
+
+    def test_a_failing_ss_is_refused_at_once_not_polled_to_the_deadline(self):
+        failing = completed(1, "ss: netlink error\n")
+        with mock.patch.object(pw.subprocess, "run", return_value=failing):
+            with self.assertRaisesRegex(pw.Refusal, "ss failed .*netlink error"):
+                pw.listens_in_unit(4400, "a")
+        calls = []
+        real = pw.listens_in_unit
+
+        def listener(port, name):
+            calls.append(port)
+            return real(port, name)
+
+        with self.answering(listener) as (record, report):
+            with mock.patch.object(pw.subprocess, "run", return_value=failing):
+                with self.assertRaisesRegex(pw.Refusal, "netlink error"):
+                    pw.wait_ready(record, 5)
+        self.assertEqual(len(calls), 1)
+        report.assert_not_called()
+
+    def test_an_unreadable_cgroup_is_an_error_not_a_foreign_process(self):
+        with mock.patch.object(Path, "read_text", side_effect=PermissionError("denied")):
+            with self.assertRaises(PermissionError):
+                pw.in_unit(11, "a")
+        with mock.patch.object(Path, "read_text", side_effect=FileNotFoundError("gone")):
+            self.assertFalse(pw.in_unit(11, "a"))
 
     def test_listens_in_unit_matches_the_listener_cgroup(self):
         line = 'LISTEN 0      4096   127.0.0.1:4400 0.0.0.0:* users:(("workerd",pid=11,fd=12),("x",pid=12,fd=3))\n'
@@ -232,11 +259,30 @@ class Robustness(Temp):
         with mock.patch.object(pw.shutil, "copyfileobj", torn), self.assertRaises(OSError):
             pw.copy_from_main(RECIPE, worktree, main)
         self.assertEqual(list(worktree.iterdir()), [])
+        self.assertEqual(list(pw.STATE.glob(".copy-*")), [])
         with mock.patch.object(pw.shutil, "copyfileobj", real):
             pw.copy_from_main(RECIPE, worktree, main)
         self.assertEqual([p.name for p in worktree.iterdir()], [".dev.vars"])
         self.assertEqual((worktree / ".dev.vars").read_text(), "SECRET=main\n")
         self.assertEqual((worktree / ".dev.vars").stat().st_mode & 0o777, 0o600)
+
+    def test_the_worktree_holds_nothing_while_a_copy_is_in_flight(self):
+        main, worktree = self.root / "main", self.root / "wt"
+        main.mkdir()
+        worktree.mkdir()
+        (main / ".dev.vars").write_text("SECRET=main\n")
+        real = pw.shutil.copyfileobj
+        inside = []
+
+        def spying(source, out):
+            real(source, out)
+            out.flush()
+            inside.extend(worktree.iterdir())
+
+        with mock.patch.object(pw.shutil, "copyfileobj", spying):
+            pw.copy_from_main(RECIPE, worktree, main)
+        self.assertEqual(inside, [])
+        self.assertEqual([p.name for p in worktree.iterdir()], [".dev.vars"])
 
     def test_a_reader_never_sees_a_partly_written_record(self):
         self.record("a", 4400)
