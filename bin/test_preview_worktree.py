@@ -47,7 +47,7 @@ class Temp(unittest.TestCase):
     def record(self, name, port, worktree=None):
         worktree = worktree or self.root
         record = {"name": name, "project": "shop", "worktree": str(worktree), "dir": str(worktree),
-                  "port": port, "recipe": RECIPE}
+                  "port": port, "launch": "mine", "recipe": RECIPE}
         pw.write_state(record)
         return record
 
@@ -186,8 +186,22 @@ class Robustness(Temp):
         stop_unit.assert_called_once_with("a")
         self.assertEqual(pw.read_states(), [])
 
+    def test_a_start_that_gives_up_leaves_a_newer_start_running(self):
+        record = self.record("a", 4400)
+        pw.write_state({**record, "launch": "newer"})
+        with mock.patch.object(pw, "active", lambda name: False), mock.patch.object(pw, "stop_unit") as stop_unit, \
+                mock.patch.object(pw.subprocess, "run"):
+            with self.assertRaisesRegex(pw.Refusal, "newer start"):
+                pw.wait_ready(record, 5)
+        stop_unit.assert_not_called()
+        self.assertEqual(pw.read_states()[0]["launch"], "newer")
+
     def test_a_recipe_the_unit_could_not_run_is_refused_before_the_build(self):
-        for recipe in ({}, {"serve": []}, {"serve": "server"}, {**RECIPE, "install": {"run": ["bun", "install"]}}):
+        bad = ({}, {"serve": []}, {"serve": "server"}, {"serve": [1]}, {**RECIPE, "build": "npm build"},
+               {**RECIPE, "setup": ["migrate"]}, {**RECIPE, "install": ["bun", "install"]},
+               {**RECIPE, "install": {"run": ["bun", "install"]}},
+               {**RECIPE, "install": {"unless": "node_modules", "run": "bun install"}})
+        for recipe in bad:
             with self.subTest(recipe=recipe), self.assertRaisesRegex(pw.Refusal, "recipe"):
                 pw.recipe_for({"projects": {"shop": recipe}}, "shop")
         self.assertIs(pw.recipe_for({"projects": {"shop": RECIPE}}, "shop"), RECIPE)

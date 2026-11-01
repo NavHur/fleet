@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 import urllib.error
 import urllib.request
 
@@ -96,14 +97,25 @@ def recipe_for(config, project):
     return recipe
 
 
+def commands_in(recipe):
+    """(field, value) for each command a recipe holds; its install, when present, is already known to be an object."""
+    yield "serve", recipe.get("serve")
+    if recipe.get("build"):
+        yield "build", recipe["build"]
+    if "install" in recipe:
+        yield "install.run", recipe["install"].get("run")
+    for number, step in enumerate(recipe.get("setup", [])):
+        yield f"setup[{number}]", step
+
+
 def check_recipe(project, recipe):
     """Refuse a recipe the unit could not run, before the build rather than as a traceback inside the unit."""
     install = recipe.get("install")
-    if install and not {"unless", "run"} <= install.keys():
-        raise Refusal(f"the {project} recipe's install needs `unless` and `run` ({CONFIG})")
-    serve = recipe.get("serve")
-    if not (isinstance(serve, list) and serve):
-        raise Refusal(f"the {project} recipe needs a `serve` command list ({CONFIG})")
+    if "install" in recipe and not (isinstance(install, dict) and isinstance(install.get("unless"), str)):
+        raise Refusal(f"the {project} recipe's install must be an object with an `unless` path and a `run` command ({CONFIG})")
+    for field, value in commands_in(recipe):
+        if not (isinstance(value, list) and value and all(isinstance(word, str) for word in value)):
+            raise Refusal(f"the {project} recipe's {field} must be a command: a non-empty list of strings ({CONFIG})")
 
 
 # --- State --------------------------------------------------------------------
@@ -302,7 +314,7 @@ def start(args):
         stop_unit(name)
         port = allocate_port(config, name, records)
         record = {"name": name, "project": project, "worktree": str(worktree), "dir": str(directory), "port": port,
-                  "recipe": recipe}
+                  "launch": uuid.uuid4().hex, "recipe": recipe}
         write_state(record)
         launch(record, config)
     wait_ready(record, recipe.get("ready_seconds", 180))
@@ -319,10 +331,22 @@ def wait_ready(record, seconds):
             return
         time.sleep(READY_POLL_SECONDS)
     subprocess.run(["journalctl", "--user", "-u", unit(record["name"]), "-n", "40", "--no-pager"])
-    with locked():  # a failed start leaves no unit behind to hold a port and a slot
+    outcome = "the unit is stopped" if abandon(record) else "a newer start or stop already replaced it"
+    raise Refusal(f"{unit(record['name'])} did not answer on {url}; its journal is above, and {outcome}")
+
+
+def abandon(record):
+    """Stop and forget the unit this start launched, so a failed start holds no port or slot; False if another command took over."""
+    with locked():
+        try:
+            current = json.loads(state_path(record["name"]).read_text())["launch"]
+        except FileNotFoundError:
+            return False
+        if current != record["launch"]:
+            return False
         stop_unit(record["name"])
         forget(record["name"])
-    raise Refusal(f"{unit(record['name'])} did not answer on {url}; its journal is above, and the unit is stopped")
+    return True
 
 
 def listens_in_unit(port, name):
