@@ -3,7 +3,9 @@ import importlib.machinery
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -244,45 +246,45 @@ class Robustness(Temp):
             groups.pop("/proc/12/cgroup")  # exited since ss listed it
             self.assertFalse(pw.listens_in_unit(4400, "a"))
 
-    def test_a_copy_that_fails_midway_leaves_no_file_and_is_retried(self):
+    def test_a_copy_in_flight_or_torn_leaves_nothing_git_could_publish(self):
         main, worktree = self.root / "main", self.root / "wt"
         main.mkdir()
-        worktree.mkdir()
+        git("init", "-q", str(worktree))
         (main / ".dev.vars").write_text("SECRET=main\n")
         real = pw.shutil.copyfileobj
+        seen = []
 
-        def torn(source, out):
-            out.write(b"SEC")
+        def spying(source, out, fail=False):
+            real(source, out)
             out.flush()
-            raise OSError("killed")
+            for args in (["status", "--porcelain"], ["add", "-A", "--dry-run"]):
+                seen.append(subprocess.run(["git", "-C", str(worktree), *args], capture_output=True, text=True, check=True).stdout)
+            if fail:
+                raise OSError("killed")
 
+        torn = lambda source, out: spying(source, out, fail=True)
         with mock.patch.object(pw.shutil, "copyfileobj", torn), self.assertRaises(OSError):
             pw.copy_from_main(RECIPE, worktree, main)
-        self.assertEqual(list(worktree.iterdir()), [])
-        self.assertEqual(list(pw.STATE.glob(".copy-*")), [])
-        with mock.patch.object(pw.shutil, "copyfileobj", real):
+        self.assertEqual([p.name for p in worktree.iterdir()], [".git"])
+        with mock.patch.object(pw.shutil, "copyfileobj", spying):
             pw.copy_from_main(RECIPE, worktree, main)
-        self.assertEqual([p.name for p in worktree.iterdir()], [".dev.vars"])
+        self.assertEqual(seen, [""] * 4)
+        self.assertEqual(sorted(p.name for p in worktree.iterdir()), [".dev.vars", ".git"])
         self.assertEqual((worktree / ".dev.vars").read_text(), "SECRET=main\n")
         self.assertEqual((worktree / ".dev.vars").stat().st_mode & 0o777, 0o600)
 
-    def test_the_worktree_holds_nothing_while_a_copy_is_in_flight(self):
-        main, worktree = self.root / "main", self.root / "wt"
+    @unittest.skipUnless(os.path.isdir("/dev/shm") and os.stat("/dev/shm").st_dev != os.stat(tempfile.gettempdir()).st_dev,
+                         "needs /dev/shm on another filesystem than the temp dir")
+    def test_a_worktree_on_another_filesystem_gets_the_copy(self):
+        main = self.root / "main"
         main.mkdir()
-        worktree.mkdir()
         (main / ".dev.vars").write_text("SECRET=main\n")
-        real = pw.shutil.copyfileobj
-        inside = []
-
-        def spying(source, out):
-            real(source, out)
-            out.flush()
-            inside.extend(worktree.iterdir())
-
-        with mock.patch.object(pw.shutil, "copyfileobj", spying):
-            pw.copy_from_main(RECIPE, worktree, main)
-        self.assertEqual(inside, [])
+        worktree = Path(tempfile.mkdtemp(dir="/dev/shm", prefix="preview-worktree-test-"))
+        self.addCleanup(shutil.rmtree, worktree, True)
+        pw.copy_from_main(RECIPE, worktree, main)
         self.assertEqual([p.name for p in worktree.iterdir()], [".dev.vars"])
+        self.assertEqual((worktree / ".dev.vars").read_text(), "SECRET=main\n")
+        self.assertEqual((worktree / ".dev.vars").stat().st_mode & 0o777, 0o600)
 
     def test_a_reader_never_sees_a_partly_written_record(self):
         self.record("a", 4400)

@@ -224,17 +224,18 @@ def copy_from_main(recipe, worktree, main):
 
 
 def copy_new(source, target):
-    """Publish a complete 0600 copy of source as target, unless it exists; the worktree never holds a partial file."""
-    STATE.mkdir(parents=True, exist_ok=True)
-    descriptor, temp = tempfile.mkstemp(dir=STATE, prefix=".copy-")  # outside the worktree: a crash leaves no secret in git's reach
+    """Publish a complete 0600 copy of source as target, unless it exists; staged in a git-ignored private dir beside it."""
+    stage = Path(tempfile.mkdtemp(dir=target.parent, prefix=".preview-copy-"))  # same filesystem; 0700
     try:
+        (stage / ".gitignore").write_text("*\n")  # first: git sees an empty directory, even after a crash
+        descriptor = os.open(stage / "copy", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "wb") as out, open(source, "rb") as original:
             shutil.copyfileobj(original, out)
-        os.link(temp, target)  # fails, rather than replaces, when target exists; EXDEV propagates
+        os.link(stage / "copy", target)  # fails, rather than replaces, when target exists
     except FileExistsError:
         pass
     finally:
-        os.unlink(temp)
+        shutil.rmtree(stage, ignore_errors=True)
 
 
 def run_step(argv, cwd):
