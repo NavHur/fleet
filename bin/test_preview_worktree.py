@@ -68,13 +68,10 @@ class Identify(Temp):
         with self.assertRaisesRegex(pw.Refusal, "main checkout"):
             pw.identify(main)
 
-    def test_a_directory_outside_git_is_refused(self):
-        with self.assertRaisesRegex(pw.Refusal, "not a git repository"):
-            pw.identify(self.root)
-
     def test_a_refusal_keeps_gits_own_reason(self):
-        with self.assertRaisesRegex(pw.Refusal, "cannot change to"):
-            pw.identify(self.root / "missing")
+        for path, reason in ((self.root, "not a git repository"), (self.root / "missing", "cannot change to")):
+            with self.subTest(reason=reason), self.assertRaisesRegex(pw.Refusal, reason):
+                pw.identify(path)
 
 
 class Ports(Temp):
@@ -186,7 +183,7 @@ class Robustness(Temp):
         stop_unit.assert_called_once_with("a")
         self.assertEqual(pw.read_states(), [])
 
-    def test_a_start_that_gives_up_leaves_a_newer_start_running(self):
+    def test_a_start_that_gives_up_spares_a_newer_start(self):
         record = self.record("a", 4400)
         pw.write_state({**record, "launch": "newer"})
         with mock.patch.object(pw, "active", lambda name: False), mock.patch.object(pw, "stop_unit") as stop_unit, \
@@ -198,12 +195,15 @@ class Robustness(Temp):
 
     def test_a_recipe_the_unit_could_not_run_is_refused_before_the_build(self):
         bad = ({}, {"serve": []}, {"serve": "server"}, {"serve": [1]}, {**RECIPE, "build": "npm build"},
-               {**RECIPE, "setup": ["migrate"]}, {**RECIPE, "setup": None}, {**RECIPE, "setup": "migrate"}, {**RECIPE, "install": ["bun", "install"]},
+               {**RECIPE, "setup": ["migrate"]}, {**RECIPE, "install": ["bun", "install"]},
                {**RECIPE, "install": {"run": ["bun", "install"]}},
                {**RECIPE, "install": {"unless": "node_modules", "run": "bun install"}})
         for recipe in bad:
             with self.subTest(recipe=recipe), self.assertRaisesRegex(pw.Refusal, "recipe"):
                 pw.recipe_for({"projects": {"shop": recipe}}, "shop")
+        for setup in (None, "migrate"):
+            with self.subTest(setup=setup), self.assertRaisesRegex(pw.Refusal, "setup must be a list"):
+                pw.check_recipe("shop", {**RECIPE, "setup": setup})
         self.assertIs(pw.recipe_for({"projects": {"shop": RECIPE}}, "shop"), RECIPE)
 
     def test_an_answer_from_another_service_is_not_readiness_of_an_inactive_unit(self):
