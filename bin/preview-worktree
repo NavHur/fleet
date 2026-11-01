@@ -97,14 +97,21 @@ def recipe_for(config, project):
     return recipe
 
 
-def commands_in(recipe):
+def setup_steps(project, recipe):
+    steps = recipe.get("setup", [])
+    if not isinstance(steps, list):
+        raise Refusal(f"the {project} recipe's setup must be a list of commands ({CONFIG})")
+    return steps
+
+
+def commands_in(project, recipe):
     """(field, value) for each command a recipe holds; its install, when present, is already known to be an object."""
     yield "serve", recipe.get("serve")
     if recipe.get("build"):
         yield "build", recipe["build"]
     if "install" in recipe:
         yield "install.run", recipe["install"].get("run")
-    for number, step in enumerate(recipe.get("setup", [])):
+    for number, step in enumerate(setup_steps(project, recipe)):
         yield f"setup[{number}]", step
 
 
@@ -113,7 +120,7 @@ def check_recipe(project, recipe):
     install = recipe.get("install")
     if "install" in recipe and not (isinstance(install, dict) and isinstance(install.get("unless"), str)):
         raise Refusal(f"the {project} recipe's install must be an object with an `unless` path and a `run` command ({CONFIG})")
-    for field, value in commands_in(recipe):
+    for field, value in commands_in(project, recipe):
         if not (isinstance(value, list) and value and all(isinstance(word, str) for word in value)):
             raise Refusal(f"the {project} recipe's {field} must be a command: a non-empty list of strings ({CONFIG})")
 

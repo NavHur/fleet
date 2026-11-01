@@ -198,7 +198,7 @@ class Robustness(Temp):
 
     def test_a_recipe_the_unit_could_not_run_is_refused_before_the_build(self):
         bad = ({}, {"serve": []}, {"serve": "server"}, {"serve": [1]}, {**RECIPE, "build": "npm build"},
-               {**RECIPE, "setup": ["migrate"]}, {**RECIPE, "install": ["bun", "install"]},
+               {**RECIPE, "setup": ["migrate"]}, {**RECIPE, "setup": None}, {**RECIPE, "setup": "migrate"}, {**RECIPE, "install": ["bun", "install"]},
                {**RECIPE, "install": {"run": ["bun", "install"]}},
                {**RECIPE, "install": {"unless": "node_modules", "run": "bun install"}})
         for recipe in bad:
