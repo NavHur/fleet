@@ -49,5 +49,31 @@ class LoginPath(unittest.TestCase):
         self.assertEqual(self.npx_after_login("dash"), "none")
 
 
+class RustupCargo(unittest.TestCase):
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.home)
+        self.cargo_bin = self.home / ".cargo" / "bin"
+
+    def path_after_login(self, path: str = SYSTEM_PATH) -> str:
+        result = subprocess.run(
+            ["sh", "-c", f'. "{LOGIN_PATH}"; printf %s "$PATH"'],
+            env={"HOME": str(self.home), "PATH": path},
+            capture_output=True, text=True, check=True)
+        return result.stdout
+
+    def test_rustups_cargo_goes_first(self):
+        executable(self.cargo_bin / "cargo", "echo cargo")
+        self.assertEqual(self.path_after_login(), f"{self.cargo_bin}:{SYSTEM_PATH}")
+
+    def test_cargo_already_on_path_is_not_added_twice(self):
+        executable(self.cargo_bin / "cargo", "echo cargo")
+        path = f"/usr/bin:{self.cargo_bin}:/bin"
+        self.assertEqual(self.path_after_login(path), path)
+
+    def test_a_host_without_rustup_keeps_its_path(self):
+        self.assertEqual(self.path_after_login(), SYSTEM_PATH)
+
+
 if __name__ == "__main__":
     unittest.main()

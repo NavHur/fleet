@@ -16,4 +16,12 @@ if [ -n "${BASH_VERSION:-}${ZSH_VERSION:-}" ] && ! command -v npx >/dev/null 2>&
   export NVM_DIR
   . "$NVM_DIR/nvm.sh"
 fi
+# rustup installs cargo into ~/.cargo/bin and, when told not to edit profiles
+# (--no-modify-path), leaves PATH to us. Add it once, ahead of any system Rust.
+if [ -x "$HOME/.cargo/bin/cargo" ]; then
+  case ":$PATH:" in
+    *":$HOME/.cargo/bin:"*) ;;
+    *) PATH="$HOME/.cargo/bin:$PATH" ;;
+  esac
+fi
 export PATH
