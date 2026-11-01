@@ -34,3 +34,9 @@ added. The served origin is `http://localhost:PORT`, which recipes pass to the
 app (`AUTH_ORIGIN` for LeetWiz). Worktree previews get no public hostname;
 that needs a tunnel route per preview or a wildcard, which is a Cloudflare
 change.
+
+Cleanup after `git worktree remove` is lazy. The preview keeps running, with
+its memory ceiling, until the next `start` or `prune` stops it, or its
+lifetime ends it. A preview whose worktree is gone does not count against the
+limit, so it never blocks a new one. A watcher or timer would stop it sooner
+at the cost of another process or unit per host.
