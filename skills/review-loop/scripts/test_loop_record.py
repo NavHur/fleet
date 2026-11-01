@@ -7,6 +7,7 @@ import json
 import os
 import unittest
 
+import loop_record
 from loop_fixture import LoopCase
 
 FAKE_GH = """\
@@ -121,6 +122,16 @@ class RecordTests(LoopCase):
         self.assertFalse((archived / "scratch.md").exists())
         self.assertEqual((archived / "ledger.md").read_text(), (self.loop / "ledger.md").read_text())
         self.assertEqual([p.name for p in archived.parent.iterdir()], ["pr-7-p2"])
+
+    def test_a_failed_archive_swap_keeps_the_previous_archive(self):
+        archive = self.root / "archive"
+        final = archive / "pr-7-p2"
+        final.mkdir(parents=True)
+        (final / "ledger.md").write_text("previous\n")
+        with self.assertRaises(FileNotFoundError):
+            loop_record.replace_archive(archive / ".pr-7-p2-new-gone", final)
+        self.assertEqual((final / "ledger.md").read_text(), "previous\n")
+        self.assertEqual([p.name for p in archive.iterdir()], ["pr-7-p2"])
 
     def test_start_refuses_two_specs_with_the_same_file_name(self):
         first, second = self.root / "a" / "spec.md", self.root / "b" / "spec.md"

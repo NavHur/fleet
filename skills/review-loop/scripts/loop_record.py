@@ -142,17 +142,30 @@ def usage_record(sessions, loop):
 
 
 def archive_ledger(loop):
-    """Make ARCHIVE/<loop> an exact copy of the ledger; a crash mid-copy leaves the old archive in place."""
+    """Make ARCHIVE/<loop> an exact copy of the ledger; at every step the old or the new copy is on disk."""
     ARCHIVE.mkdir(parents=True, exist_ok=True)
-    staged = Path(tempfile.mkdtemp(dir=ARCHIVE, prefix=f".{loop.name}-"))
+    staged = Path(tempfile.mkdtemp(dir=ARCHIVE, prefix=f".{loop.name}-new-"))
     try:
         shutil.copytree(loop, staged, dirs_exist_ok=True)
-        final = ARCHIVE / loop.name
-        shutil.rmtree(final, ignore_errors=True)
-        staged.rename(final)
     except BaseException:
         shutil.rmtree(staged, ignore_errors=True)
         raise
+    replace_archive(staged, ARCHIVE / loop.name)
+
+
+def replace_archive(staged, final):
+    """Swap staged in for final: the old copy moves aside first and comes back if the swap fails."""
+    old = final.with_name(f".{final.name}-old")
+    shutil.rmtree(old, ignore_errors=True)
+    if final.exists():
+        final.rename(old)
+    try:
+        staged.rename(final)
+    except BaseException:
+        if old.exists():
+            old.rename(final)
+        raise
+    shutil.rmtree(old, ignore_errors=True)
 
 
 def finish(loop):
