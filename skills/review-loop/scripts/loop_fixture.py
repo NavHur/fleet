@@ -39,6 +39,7 @@ class LoopCase(unittest.TestCase):
         self.heads(1, self.first)
         (self.loop / "common.md").write_text("# Pass packet\n\nSpec: spec.md\n")
         (self.loop / "ledger.md").write_text("# Review loop: acme/app #7\n\n- Ruling: keep the retry.\n")
+        (self.loop / "run.json").write_text('{"started": "2026-10-30T00:00:00+00:00"}\n')
 
     def git(self, *args):
         return subprocess.check_output(["git", "-C", str(self.repo), *args], text=True).strip()

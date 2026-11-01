@@ -213,6 +213,7 @@ class LoopTests(LoopCase):
         self.heads(1, self.second)
         (self.loop / "common.md").write_text("# Pass packet\n")
         (self.loop / "ledger.md").write_text("# Review loop: acme/app #7, Opus pass\n")
+        (self.loop / "run.json").write_text("{}\n")
         self.run_loop("brief", self.loop, 1, "standards", "--model", "claude-opus-5-5 medium")
         self.write(1, "standards", {"findings": [finding(priority="P3", kind="violation", line=1, failure="",
                                                          title="A stale comment.")]})

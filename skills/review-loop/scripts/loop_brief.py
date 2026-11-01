@@ -198,6 +198,8 @@ def write_context(loop, n, files, checkout):
 
 
 def brief(loop, n, role, prs, delta, model, checkout):
+    if not (loop / "run.json").exists():
+        raise LoopError(f"run loop.py start {loop} before the briefs: it saves the spec and the run record")
     reviewer = new_reviewer(loop, n, role, prs, delta, model)
     scope = "\n".join(scope_line(loop, n, pr, reviewer) for pr in reviewer.prs)
     files = quoted_files(loop)

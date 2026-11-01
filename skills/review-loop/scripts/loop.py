@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """Reviewer briefs, findings checks, outcomes, and the PR comment for a review loop.
 
+  loop.py start LOOP --orchestrator TEXT --checkout DIR [--spec FILE ...]
   loop.py brief LOOP ROUND ROLE --model TEXT [--pr PR ...] [--delta] [--checkout DIR]
   loop.py check LOOP ROUND [--only NAME] [--checkout DIR]
   loop.py outcome LOOP ID STATUS [--commit SHA] [--note TEXT]
   loop.py render LOOP PR --checkout DIR [--earlier LOOP ...]
   loop.py publish LOOP --checkout DIR [--earlier LOOP ...] [--dry-run]
+  loop.py finish LOOP
 
 LOOP is the loop's directory (~/.cache/review-loop/<slug>) and ROUND a round
 number; round N lives in LOOP/rN with its heads.tsv
 (PR<TAB>LAYER<TAB>FORK<TAB>HEAD, bottom to top).
+
+start, once round 1's heads are pinned, writes LOOP/run.json (repo, host,
+orchestrator model, start time) and saves the spec into LOOP/spec/: each
+--spec file, else each numbered PR's body. brief refuses to run before it.
+finish, as the pass closes, writes LOOP/usage.json: the cost of each session
+the pass ran, from this machine's transcripts, by role.
 
 brief prints the task for one reviewer (ROLE is standards, spec, delta, or
 audit), registers it in rN/reviewers.tsv, and rewrites rN/context.md, the one
@@ -43,6 +51,7 @@ sys.path.insert(0, str(SKILL_DIR.parent / "stack" / "scripts"))
 
 from comment import render, unsettled  # noqa: E402
 from loop_brief import brief  # noqa: E402
+from loop_record import finish, start  # noqa: E402
 from stack_layers import GitHub, StackError  # noqa: E402
 from loop_state import (COVERAGE, ROLES, LoopError, all_findings, findings_path, heads, id_prefix, location, outcomes,
                         read_findings, reviewers, rounds)  # noqa: E402
@@ -238,6 +247,15 @@ EARLIER = "an earlier pass's loop on the same PRs, reported first in the same co
 def parser():
     root = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = root.add_subparsers(dest="command", required=True)
+    cmd = commands.add_parser("start")
+    cmd.add_argument("loop", type=Path)
+    cmd.add_argument("--orchestrator", required=True,
+                     help='the orchestrator model and effort, e.g. "claude-opus-5-5 medium"')
+    cmd.add_argument("--checkout", type=Path, required=True)
+    cmd.add_argument("--spec", type=Path, action="append", default=[],
+                     help="a spec file; repeatable (default: the PR bodies)")
+    cmd = commands.add_parser("finish")
+    cmd.add_argument("loop", type=Path)
     cmd = commands.add_parser("brief")
     cmd.add_argument("loop", type=Path)
     cmd.add_argument("round", type=int)
@@ -275,21 +293,41 @@ def passes(args):
     return [path.expanduser().resolve() for path in (*args.earlier, args.loop)]
 
 
-def run(args):
-    loop = args.loop.expanduser().resolve()
-    if args.command == "brief":
-        print(brief(loop, args.round, args.role, args.pr, args.delta, args.model, args.checkout))
-    elif args.command == "check":
-        failed, report = check(loop, args.round, args.only, args.checkout)
-        print(report)
-        return 1 if failed else 0
-    elif args.command == "outcome":
-        record_outcome(loop, args.id, args.status, args.commit, args.note)
-    elif args.command == "render":
-        print(render(passes(args), args.pr, GitHub.from_origin(root=args.checkout).slug))
-    else:
-        publish(passes(args), args.checkout, args.dry_run)
+def run_check(args, loop):
+    failed, report = check(loop, args.round, args.only, args.checkout)
+    print(report)
+    return 1 if failed else 0
+
+
+def run_outcome(args, loop):
+    record_outcome(loop, args.id, args.status, args.commit, args.note)
     return 0
+
+
+def run_publish(args, loop):
+    publish(passes(args), args.checkout, args.dry_run)
+    return 0
+
+
+def printed(text):
+    print(text)
+    return 0
+
+
+# Each command's runner: (args, resolved loop) -> exit code.
+COMMANDS = {
+    "start": lambda a, loop: printed(start(loop, a.orchestrator, GitHub.from_origin(root=a.checkout), a.spec)),
+    "finish": lambda a, loop: printed(finish(loop)),
+    "brief": lambda a, loop: printed(brief(loop, a.round, a.role, a.pr, a.delta, a.model, a.checkout)),
+    "check": run_check,
+    "outcome": run_outcome,
+    "render": lambda a, loop: printed(render(passes(a), a.pr, GitHub.from_origin(root=a.checkout).slug)),
+    "publish": run_publish,
+}
+
+
+def run(args):
+    return COMMANDS[args.command](args, args.loop.expanduser().resolve())
 
 
 def main(argv):

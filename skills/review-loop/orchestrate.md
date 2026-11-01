@@ -32,6 +32,9 @@ reached:
   of the files they name, so quote what a reviewer must know. Update it at
   the end of every step that changes it.
 - `common.md`: the pass's packet (step 2).
+- `run.json`, `spec/`, `usage.json`: the run record, the spec as reviewed,
+  and what the pass's sessions cost, from `loop.py start` and `finish`. They
+  let a later replay measure a pass; never edit them by hand.
 - `outcomes.jsonl`: written only by `loop.py outcome`. A finding with an
   outcome is **settled**. `loop.py brief` quotes every ruling to each later
   round's reviewers, and pass 1's to pass 2's.
@@ -73,8 +76,16 @@ Done when every PR is whole, delta, or skipped (no delta).
 
 ### 2. Dispatch reviewers
 
-In round 1, write `common.md` with what holds for the whole pass: the spec
-path, the standards sources, operational constraints, and the lines of
+In round 1, first record the run, with the brief's `Orchestrator` setting:
+
+```bash
+loop.py start "$LOOP" --orchestrator "MODEL EFFORT" --checkout "$checkout" [--spec FILE ...]
+```
+
+With no `--spec` it saves each PR's body; for a spec in a file, an issue, or
+the brief, save its text to a file and pass that. `brief` refuses to run until
+`start` has. Then write `common.md` with what holds for the whole pass: the
+spec, as `$LOOP/spec/` (the copy, not the live PR body), the standards sources, operational constraints, and the lines of
 `~/.config/principles.md` that match the diff, copied verbatim. `loop.py
 brief` adds the round's checkout, heads, reviewers, rulings, and settled
 findings itself.
@@ -167,6 +178,9 @@ leave it and why), recommendation first, and record the answers as rulings. A
 ruling that changes code reopens step 4 for one more delta round, outside the
 cap. Done when no finding is open or awaiting a decision; `publish` refuses
 otherwise.
+
+Run `loop.py finish "$LOOP"` as the last step before each pass's report (pass
+2's comes in step 6) and put the cost line it prints in the report.
 
 After pass 1, write pass 2's ledger with only pass 1's target, settings,
 spec, and standing decisions, and an empty `outcomes.jsonl`; pass 2's round 1
