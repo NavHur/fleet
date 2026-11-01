@@ -12,14 +12,14 @@ Work in a folder of your own: other agents on the host capture too, and `pr-asse
 shots_dir=$(mktemp -d) && mkdir "$shots_dir/before" "$shots_dir/after"
 ```
 
-- **Web app**: run it (the project's dev or preview command, or its run skill) and capture with T3's preview tools. They drive a headless browser on this machine, so they reach its `127.0.0.1` and need no one at the T3 app:
+- **Web app**: serve the head's production build the way `~/.config/host-validation.md` says for this machine (on devbox, `preview-worktree start` in the PR's worktree, which prints the port), or with the project's run skill, and capture with T3's preview tools. They drive a headless browser on this machine, so they reach its `127.0.0.1` and need no one at the T3 app:
   1. `preview_open` the page with `open=false` and `reuseExistingTab=false`; keep the returned `tabId` for every later call. For a fresh session, pass `profileId: "incognito"`; for one that is already signed in, pass that profile's id from the list `preview_open` and `preview_status` return.
   2. Sign in when the app needs it. With a cookie, such as the `Cookie:` line a preview's `signin` command prints, open the app's origin first, set it with `preview_evaluate` (`document.cookie = "NAME=VALUE; Path=/; Secure; SameSite=Lax"`; `Secure` works on `127.0.0.1` and `localhost`), then `preview_navigate` to the page.
   3. Size the tab with `preview_resize` (`freeform`): desktop 1440×900, then phone 390×844 when the layout changes at that width.
   4. Reach the changed state: `preview_act` clicks, types, or scrolls (dismiss notices, open collapsed sections), targeting a CSS `selector` such as `summary`, or `locator='aria-ref=<ref>'` from a `preview_snapshot`; `preview_wait_for` confirms the state, such as `details[open]`. A navigation resets the page, so redo this step after each one; a resize keeps it.
   5. `preview_snapshot` with `save=true` writes a PNG and returns its `screenshotPath`. Copy it into `$shots_dir/after` under a name that says what it shows, such as `settings-desktop.png`. Images may come out at 2x, or scaled down to 1280 wide for a wider tab; both are fine.
   6. `t3_preview_close` the tab when done.
-- **Before**: repeat against a deployed build of the base (production or its preview URL) when one exists. Otherwise add a worktree at the base (`git worktree add --detach "$shots_dir/base" origin/<base>`), run it on another port, capture into `$shots_dir/before` under the same names, then `git worktree remove "$shots_dir/base"`.
+- **Before**: repeat against a deployed build of the base (production or its preview URL) when one exists. Otherwise add a worktree at the base (`git worktree add --detach "$shots_dir/base" origin/<base>`), serve it the same way (on devbox, `preview-worktree start "$shots_dir/base"`, which gives it its own port), capture into `$shots_dir/before` under the same names, then stop it (`preview-worktree stop "$shots_dir/base"`) and `git worktree remove --force "$shots_dir/base"`.
 - **Anything else** (Godot, native, mobile): use the project's own capture route: a capture script or skill in the repo, or T3's `device_screenshot`.
 - **New UI with no before**: capture the after only and say so.
 
