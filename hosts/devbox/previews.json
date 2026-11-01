@@ -1,0 +1,16 @@
+{
+ "ports": [4400, 4419],
+ "limit": 3,
+ "hours": 8,
+ "projects": {
+  "leetwiz": {
+   "copy": [".dev.vars"],
+   "install": {"unless": "node_modules", "run": ["bun", "install", "--frozen-lockfile"]},
+   "build": ["npm", "run", "build"],
+   "setup": [["node_modules/.bin/wrangler", "d1", "migrations", "apply", "DB", "--env", "preview", "--local"]],
+   "serve": ["node_modules/.bin/wrangler", "dev", "--env", "preview", "--ip", "127.0.0.1", "--port", "{port}",
+             "--local", "--show-interactive-dev-session=false", "--var", "AUTH_ORIGIN:{origin}"],
+   "memory": "1500M"
+  }
+ }
+}
