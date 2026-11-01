@@ -111,6 +111,15 @@ print(os.path.expanduser(json.load(open(sys.argv[1])).get("checkout", "")))' "$F
   fi
 fi
 
+# The PATH a login shell gets once the profiles below source this file, so the
+# first run on a host already finds nvm's npx.
+# shellcheck source=config/login-path.sh
+. "$FLEET/config/login-path.sh"
+if [ "$APPLY" = 1 ] && ! command -v npx >/dev/null; then
+  echo "npx is not on PATH ($PATH). Install node, or put it on the login PATH, then re-run." >&2
+  exit 1
+fi
+
 AGENTS_DIR="$HOME/.agents/skills"
 CLAUDE_DIR="$HOME/.claude/skills"
 # Folders the skills CLI no longer installs into globally; same-named copies
@@ -244,14 +253,19 @@ case "${SHELL:-}" in
     config/agent-shell.zsh ;;
 esac
 
-# macOS login shells (`bash -lc`, `zsh -l`) run path_helper, which puts /usr/bin
-# ahead of ~/.local/bin: bash 3.2 and Homebrew's gh would win over fleet's.
+# Login shells get login-path.sh: on macOS path_helper puts /usr/bin ahead of
+# ~/.local/bin, and on Linux nvm loads only in interactive shells.
 if [ "$(uname)" = Darwin ]; then
-  for profile in "$HOME/.bash_profile" "$HOME/.zprofile"; do
-    ensure_source "$profile" \
-      '[ -r ~/.config/fleet/login-path.sh ] && . ~/.config/fleet/login-path.sh  # fleet bin/sync' config/login-path.sh
-  done
+  profiles="$HOME/.bash_profile $HOME/.zprofile"
+else
+  # A login bash reads only the first of these that exists.
+  profiles="$HOME/.profile"
+  for f in "$HOME/.bash_login" "$HOME/.bash_profile"; do [ -e "$f" ] && profiles=$f; done
 fi
+for profile in $profiles; do
+  ensure_source "$profile" \
+    '[ -r ~/.config/fleet/login-path.sh ] && . ~/.config/fleet/login-path.sh  # fleet bin/sync' config/login-path.sh
+done
 
 # Shared policy plus this machine's section, as one file agents can read.
 validation="$HOME/.config/host-validation.md"

@@ -1,5 +1,5 @@
 {
-  "hostnames": ["ip-172-26-13-6"],
+  "hostnames": ["ip-172-26-10-182"],
   "checkout": "~/code/fleet",
   "ssh": "workbox",
   "slots": 6,
