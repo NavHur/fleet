@@ -154,8 +154,13 @@ def archive_ledger(loop):
 
 
 def replace_archive(staged, final):
-    """Swap staged in for final: the old copy moves aside first and comes back if the swap fails."""
+    """Swap staged in for final: the old copy moves aside first and comes back if the swap fails.
+
+    The last installed archive is always at final or old, so a retry after a crash mid-swap restores it first.
+    """
     old = final.with_name(f".{final.name}-old")
+    if old.exists() and not final.exists():
+        old.rename(final)
     shutil.rmtree(old, ignore_errors=True)
     if final.exists():
         final.rename(old)

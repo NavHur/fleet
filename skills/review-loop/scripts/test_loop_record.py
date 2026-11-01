@@ -133,6 +133,16 @@ class RecordTests(LoopCase):
         self.assertEqual((final / "ledger.md").read_text(), "previous\n")
         self.assertEqual([p.name for p in archive.iterdir()], ["pr-7-p2"])
 
+    def test_a_retry_after_a_crash_mid_swap_keeps_the_previous_archive(self):
+        archive = self.root / "archive"
+        aside = archive / ".pr-7-p2-old"
+        aside.mkdir(parents=True)
+        (aside / "ledger.md").write_text("previous\n")
+        with self.assertRaises(FileNotFoundError):
+            loop_record.replace_archive(archive / ".pr-7-p2-new-gone", archive / "pr-7-p2")
+        self.assertEqual((archive / "pr-7-p2" / "ledger.md").read_text(), "previous\n")
+        self.assertEqual([p.name for p in archive.iterdir()], ["pr-7-p2"])
+
     def test_start_refuses_two_specs_with_the_same_file_name(self):
         first, second = self.root / "a" / "spec.md", self.root / "b" / "spec.md"
         for path in (first, second):
