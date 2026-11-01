@@ -35,7 +35,10 @@ import time
 import urllib.error
 import urllib.request
 
-CONFIG = Path(os.environ.get("PREVIEW_WORKTREE_CONFIG") or Path.home() / ".config" / "fleet" / "previews.json")
+sys.path.insert(0, str(Path(os.path.realpath(__file__)).parent.parent / "lib" / "host-check"))
+import hostconf  # noqa: E402
+
+CONFIG = Path(hostconf.previews_path())  # the path the guard checks to offer this tool
 STATE = Path(os.environ.get("PREVIEW_WORKTREE_DIR") or Path.home() / ".cache" / "worktree-previews")
 SELF = os.path.realpath(__file__)
 UNIT_PREFIX = "wtpreview-"
@@ -60,7 +63,7 @@ def load_config():
 def git(path, *args):
     result = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True)
     if result.returncode != 0:
-        raise Refusal(f"{path} is not inside a Git worktree")
+        raise Refusal(f"git {args[0]} failed in {path}: {result.stderr.strip()}")
     return result.stdout.strip()
 
 
@@ -89,7 +92,18 @@ def recipe_for(config, project):
     if recipe is None:
         known = ", ".join(sorted(config.get("projects", {}))) or "none"
         raise Refusal(f"no preview recipe for {project} (known: {known}); add one to fleet's previews.json")
+    check_recipe(project, recipe)
     return recipe
+
+
+def check_recipe(project, recipe):
+    """Refuse a recipe the unit could not run, before the build rather than as a traceback inside the unit."""
+    install = recipe.get("install")
+    if install and not {"unless", "run"} <= install.keys():
+        raise Refusal(f"the {project} recipe's install needs `unless` and `run` ({CONFIG})")
+    serve = recipe.get("serve")
+    if not (isinstance(serve, list) and serve):
+        raise Refusal(f"the {project} recipe needs a `serve` command list ({CONFIG})")
 
 
 # --- State --------------------------------------------------------------------
@@ -151,7 +165,7 @@ def stop_unit(name):
             fail(result, args)
 
 
-def launch(record, recipe, config):
+def launch(record, config):
     hours = config.get("hours", 8)
     command = [
         "systemd-run", "--user", "--quiet", "--collect", "--expand-environment=no",
@@ -159,7 +173,7 @@ def launch(record, recipe, config):
         f"--description=Worktree preview of {record['worktree']}",
         f"--setenv=PATH={os.environ.get('PATH', '/usr/bin:/bin')}", f"--setenv=HOME={Path.home()}",
         f"--setenv=PREVIEW_WORKTREE_DIR={STATE}",
-        f"--property=MemoryMax={recipe.get('memory', '1500M')}", f"--property=RuntimeMaxSec={hours}h",
+        f"--property=MemoryMax={record['recipe'].get('memory', '1500M')}", f"--property=RuntimeMaxSec={hours}h",
         sys.executable, SELF, "_serve", record["name"],
     ]
     subprocess.run(command, check=True)
@@ -290,7 +304,7 @@ def start(args):
         record = {"name": name, "project": project, "worktree": str(worktree), "dir": str(directory), "port": port,
                   "recipe": recipe}
         write_state(record)
-        launch(record, recipe, config)
+        launch(record, config)
     wait_ready(record, recipe.get("ready_seconds", 180))
 
 
@@ -305,7 +319,10 @@ def wait_ready(record, seconds):
             return
         time.sleep(READY_POLL_SECONDS)
     subprocess.run(["journalctl", "--user", "-u", unit(record["name"]), "-n", "40", "--no-pager"])
-    raise Refusal(f"{unit(record['name'])} did not answer on {url}; its journal is above")
+    with locked():  # a failed start leaves no unit behind to hold a port and a slot
+        stop_unit(record["name"])
+        forget(record["name"])
+    raise Refusal(f"{unit(record['name'])} did not answer on {url}; its journal is above, and the unit is stopped")
 
 
 def listens_in_unit(port, name):

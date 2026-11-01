@@ -69,8 +69,12 @@ class Identify(Temp):
             pw.identify(main)
 
     def test_a_directory_outside_git_is_refused(self):
-        with self.assertRaisesRegex(pw.Refusal, "not inside a Git worktree"):
+        with self.assertRaisesRegex(pw.Refusal, "not a git repository"):
             pw.identify(self.root)
+
+    def test_a_refusal_keeps_gits_own_reason(self):
+        with self.assertRaisesRegex(pw.Refusal, "cannot change to"):
+            pw.identify(self.root / "missing")
 
 
 class Ports(Temp):
@@ -173,10 +177,26 @@ class Robustness(Temp):
         with mock.patch.object(pw, "port_free", lambda port: port != 4400):
             self.assertEqual(pw.allocate_port({"ports": [4400, 4402]}, "a", records), 4401)
 
+    def test_a_unit_that_never_answers_is_stopped_and_forgotten(self):
+        record = self.record("a", 4400)
+        with mock.patch.object(pw, "active", lambda name: False), mock.patch.object(pw, "stop_unit") as stop_unit, \
+                mock.patch.object(pw.subprocess, "run"):
+            with self.assertRaisesRegex(pw.Refusal, "unit is stopped"):
+                pw.wait_ready(record, 5)
+        stop_unit.assert_called_once_with("a")
+        self.assertEqual(pw.read_states(), [])
+
+    def test_a_recipe_the_unit_could_not_run_is_refused_before_the_build(self):
+        for recipe in ({}, {"serve": []}, {"serve": "server"}, {**RECIPE, "install": {"run": ["bun", "install"]}}):
+            with self.subTest(recipe=recipe), self.assertRaisesRegex(pw.Refusal, "recipe"):
+                pw.recipe_for({"projects": {"shop": recipe}}, "shop")
+        self.assertIs(pw.recipe_for({"projects": {"shop": RECIPE}}, "shop"), RECIPE)
+
     def test_an_answer_from_another_service_is_not_readiness_of_an_inactive_unit(self):
         record = self.record("a", 4400)
         with mock.patch.object(pw, "active", lambda name: False), mock.patch.object(pw, "responds", lambda url: True), \
-                mock.patch.object(pw, "report") as report, mock.patch.object(pw.subprocess, "run"):
+                mock.patch.object(pw, "report") as report, mock.patch.object(pw.subprocess, "run"), \
+                mock.patch.object(pw, "stop_unit"):
             with self.assertRaisesRegex(pw.Refusal, "did not answer"):
                 pw.wait_ready(record, 5)
         report.assert_not_called()
@@ -187,7 +207,8 @@ class Robustness(Temp):
         with mock.patch.object(pw, "active", lambda name: True), mock.patch.object(pw, "responds", lambda url: True), \
                 mock.patch.object(pw, "listens_in_unit", listener), mock.patch.object(pw.time, "sleep"), \
                 mock.patch.object(pw.time, "monotonic", side_effect=[0, 1, 2, 100]), \
-                mock.patch.object(pw, "report") as report, mock.patch.object(pw.subprocess, "run"):
+                mock.patch.object(pw, "report") as report, mock.patch.object(pw.subprocess, "run"), \
+                mock.patch.object(pw, "stop_unit"):
             yield self.record("a", 4400), report
 
     def test_an_answer_from_a_process_outside_the_unit_is_not_readiness(self):
