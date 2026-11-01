@@ -83,6 +83,16 @@ class RecordTests(LoopCase):
         self.assertEqual(code, 0, out)
         self.assertEqual([p.name for p in (self.loop / "spec").iterdir()], ["issue.md"])
 
+    def test_start_takes_several_spec_files_after_one_flag(self):
+        # Pass 2 runs start --spec "$PASS1"/spec/*, which a stack expands to one file per layer.
+        first, second = self.root / "pr-7.md", self.root / "pr-8.md"
+        first.write_text("Seven.\n")
+        second.write_text("Eight.\n")
+        code, out = self.run_record("start", self.loop, "--orchestrator", "a", "--checkout", self.repo,
+                                    "--spec", first, second)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(sorted(p.name for p in (self.loop / "spec").iterdir()), ["pr-7.md", "pr-8.md"])
+
     def test_finish_costs_this_pass_sessions_by_role(self):
         (self.loop / "run.json").write_text('{"started": "2026-10-30T00:00:00+00:00"}\n')
         loop = "~/.cache/review-loop"

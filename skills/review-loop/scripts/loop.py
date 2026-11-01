@@ -253,8 +253,8 @@ def parser():
     cmd.add_argument("--orchestrator", required=True,
                      help='the orchestrator model and effort, e.g. "claude-opus-5-5 medium"')
     cmd.add_argument("--checkout", type=Path, required=True)
-    cmd.add_argument("--spec", type=Path, action="append", default=[],
-                     help="a spec file; repeatable (default: the PR bodies)")
+    cmd.add_argument("--spec", type=Path, nargs="+", action="extend", default=[],
+                     help="spec files, after one flag or several (default: the PR bodies)")
     cmd = commands.add_parser("finish")
     cmd.add_argument("loop", type=Path)
     cmd = commands.add_parser("brief")
