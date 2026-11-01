@@ -15,8 +15,9 @@ machine.
   unwrapped.
 - Targeted tests and browser-driven scripts (axe gates, smoke runs, visual or
   screenshot captures, e2e, `playwright test`) go through the queue too. A
-  server you start in the background for later runs stays outside it, because
-  a queued job holds its worktree lock until it exits.
+  server those runs target stays outside it, because a queued job holds its
+  worktree lock until it exits: where the last section gives a route for
+  serving a worktree's build, use it, then queue the runs against its URL.
 - One job runs per Git worktree at a time, and a wrapped pipeline stays in its
   worktree. Builds and whole test suites are heavy and wait for their own
   slots; target tests at files or directories while iterating.

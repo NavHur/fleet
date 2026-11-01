@@ -5,6 +5,7 @@
 .local/bin/pr-assets                    lib/pr-assets/pr_assets.py
 .local/bin/host-check                   bin/host-check
 .local/bin/bg-job                       bin/bg-job
+.local/bin/preview-worktree             bin/preview-worktree
 .local/bin/idle-compact                 bin/idle-compact
 .local/bin/actions-runners              bin/actions-runners
 .local/bin/file-size                    lib/file-size/file_size.py
@@ -12,6 +13,7 @@
 .local/lib/host-check                   lib/host-check
 .config/fleet/host.json                 hosts/{host}/host.json
 .config/fleet/runners.json              hosts/{host}/runners.json
+.config/fleet/previews.json             hosts/{host}/previews.json
 .config/t3-orchestration.md             config/t3-orchestration.md
 .config/fleet/agent-shell.zsh           config/agent-shell.zsh
 .config/fleet/login-path.sh             config/login-path.sh

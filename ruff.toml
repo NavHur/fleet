@@ -3,7 +3,8 @@
 # /usr/bin/python3 (3.9), so syntax newer than that is an error.
 target-version = "py39"
 # Extensionless Python entry points.
-extend-include = ["bin/actions-runners", "bin/bg-job", "bin/host-check", "bin/idle-compact"]
+extend-include = ["bin/actions-runners", "bin/bg-job", "bin/host-check", "bin/idle-compact",
+                 "bin/preview-worktree"]
 
 [lint]
 select = ["F", "E9", "FA"]
