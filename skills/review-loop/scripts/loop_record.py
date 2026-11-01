@@ -142,8 +142,13 @@ def usage_record(sessions, loop):
 
 
 def archive_ledger(loop):
-    """Make ARCHIVE/<loop> an exact copy of the ledger; at every step the old or the new copy is on disk."""
+    """Make ARCHIVE/<loop> an exact copy of the ledger; at every step the old or the new copy is on disk.
+
+    A staged copy a killed finish left behind is removed first.
+    """
     ARCHIVE.mkdir(parents=True, exist_ok=True)
+    for abandoned in ARCHIVE.glob(f".{loop.name}-new-*"):
+        shutil.rmtree(abandoned, ignore_errors=True)
     staged = Path(tempfile.mkdtemp(dir=ARCHIVE, prefix=f".{loop.name}-new-"))
     try:
         shutil.copytree(loop, staged, dirs_exist_ok=True)
@@ -176,7 +181,7 @@ def replace_archive(staged, final):
 def finish(loop):
     """Write usage.json, stamp run.json finished, and archive the ledger; running it again refreshes all three."""
     run = read_json(loop / "run.json")
-    since = run["started"][:10] if "started" in run else DEFAULT_SINCE
+    since = run.get("started", DEFAULT_SINCE)
     usage = usage_record(pass_sessions(loop, since), loop)
     write_json(loop / "usage.json", usage)
     write_json(loop / "run.json", {**run, "finished": usage["at"]})

@@ -102,7 +102,7 @@ class RecordTests(LoopCase):
         self.assertEqual(out, "3 sessions, $3.50 (orchestrator $3.00, reviewer $0.50, worker $0.00); "
                               f"unpriced: work-2\narchived in {archived}\n")
         self.assertEqual((self.state / "transcripts-args").read_text(),
-                         "list --since 2026-10-30 --prompt review-loop/pr\\-7-p\\d+(?![\\w-]) --json")
+                         "list --since 2026-10-30T00:00:00+00:00 --prompt review-loop/pr\\-7-p\\d+(?![\\w-]) --json")
         usage = json.loads((self.loop / "usage.json").read_text())
         self.assertEqual([(s["id"], s["role"]) for s in usage["sessions"]],
                          [("orch-2", "orchestrator"), ("rev-2", "reviewer"), ("work-2", "worker")])
@@ -122,6 +122,24 @@ class RecordTests(LoopCase):
         self.assertFalse((archived / "scratch.md").exists())
         self.assertEqual((archived / "ledger.md").read_text(), (self.loop / "ledger.md").read_text())
         self.assertEqual([p.name for p in archived.parent.iterdir()], ["pr-7-p2"])
+
+    def test_finish_looks_back_to_the_start_instant_not_its_date(self):
+        # A bare date reads as local midnight, which west of UTC falls after a pass started at 01:00Z.
+        (self.loop / "run.json").write_text('{"started": "2026-10-30T01:00:00+00:00"}\n')
+        (self.state / "sessions.json").write_text("[]")
+        code, out = self.run_record("finish", self.loop)
+        self.assertEqual(code, 0, out)
+        self.assertEqual((self.state / "transcripts-args").read_text().split()[:3],
+                         ["list", "--since", "2026-10-30T01:00:00+00:00"])
+
+    def test_finish_removes_a_staged_copy_a_killed_finish_left(self):
+        (self.state / "sessions.json").write_text("[]")
+        archive = self.root / "home" / ".local" / "share" / "review-loop-archive"
+        (archive / ".pr-7-p2-new-killed").mkdir(parents=True)
+        (archive / ".pr-7-p2-new-killed" / "ledger.md").write_text("half\n")
+        code, out = self.run_record("finish", self.loop)
+        self.assertEqual(code, 0, out)
+        self.assertEqual([p.name for p in archive.iterdir()], ["pr-7-p2"])
 
     def test_a_failed_archive_swap_keeps_the_previous_archive(self):
         archive = self.root / "archive"
