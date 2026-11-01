@@ -5,7 +5,7 @@ Run from this directory: python3 -m unittest test_loop_brief
 
 import unittest
 
-from loop_fixture import SKILL_DIR, LoopCase
+from loop_fixture import SKILL_DIR, LoopCase, finding
 
 RULES = SKILL_DIR.parent / "pedro-best-practices" / "references"
 
@@ -113,6 +113,26 @@ class BriefTests(LoopCase):
         self.assertIn("## Settled findings\n\nThe last outcome", context)
         self.assertTrue(context.endswith("\n\nNone yet.\n"), "pass 1's other verdicts stay out of pass 2")
 
+
+    def test_two_panels_of_one_role_keep_separate_files_and_ids(self):
+        for panel, model in (("terra", "gpt-6.1-terra medium"), ("muse", "muse-spark-1.3 medium")):
+            code, out = self.run_loop("brief", self.loop, 1, "audit", "--model", model, "--panel", panel)
+            self.assertEqual(code, 0, out)
+        self.assertIn(f"{self.loop.resolve()}/r1/audit-7-muse.json, numbering their IDs R1-MUSE-PBP7-1", out)
+        self.assertEqual((self.loop / "r1" / "reviewers.tsv").read_text(),
+                         "audit-7-terra\taudit\twhole\t7\tgpt-6.1-terra medium\tterra\n"
+                         "audit-7-muse\taudit\twhole\t7\tmuse-spark-1.3 medium\tmuse\n")
+        coverage = [{"check": "Cognitive complexity (limit 8)", "status": "clean"}]
+        self.write(1, "audit-7-terra", {"findings": [finding(id="R1-TERRA-PBP7-1")], "coverage": coverage})
+        self.write(1, "audit-7-muse", {"findings": [finding(id="R1-MUSE-PBP7-1")], "coverage": coverage})
+        code, out = self.run_loop("check", self.loop, 1, "--checkout", self.repo)
+        self.assertEqual(code, 0, out)
+        self.assertIn("2 findings from 2 of 2 reviewers", out)
+
+    def test_a_panel_name_is_a_short_lowercase_word(self):
+        code, out = self.run_loop("brief", self.loop, 1, "standards", "--model", "m", "--panel", "Muse Spark")
+        self.assertEqual(code, 2)
+        self.assertIn("a panel is a short lowercase name", out)
 
 if __name__ == "__main__":
     unittest.main()

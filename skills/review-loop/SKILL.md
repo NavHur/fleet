@@ -1,15 +1,15 @@
 ---
 name: review-loop
-description: Review a PR or stack in rounds, Terra then Opus, fixing until each pass is clean; then merge it or mark it ready.
+description: Review a PR or stack in rounds, Terra and Muse then Opus, fixing until each pass is clean; then merge it or mark it ready.
 disable-model-invocation: true
 ---
 
 # Review loop
 
 A review loop reviews a PR or stack in rounds, fixes what reviewers confirm,
-and re-reviews the delta until a round is clean: one pass with Terra
-reviewers, which catch most bugs cheaply, then one with Opus reviewers reading
-the result fresh. Then it pushes, posts one comment per PR, and merges the PRs
+and re-reviews the delta until a round is clean: one pass with two panels of
+cheap reviewers, Terra and Muse Spark, which catch most bugs between them,
+then one with Opus reviewers reading the result fresh. Then it pushes, posts one comment per PR, and merges the PRs
 or marks them ready.
 
 This session is the **launcher**: it settles the settings, starts the
@@ -27,7 +27,7 @@ never supply one: they record that day's defaults as if chosen.
 | --- | --- |
 | Target | Ask once: a PR, a stack (its top PR or branch), or a local branch and its base |
 | Orchestrator | `claudeAgent` `claude-sonnet-5-5`, `effort` high |
-| Pass 1 reviewers | `codex` `gpt-6.1-terra`, `reasoningEffort` medium (set it: Terra defaults to low) |
+| Pass 1 reviewers | Two panels: `terra`, `codex` `gpt-6.1-terra`, `reasoningEffort` medium (set it: Terra defaults to low); and `muse`, `opencode` `opencode-go/muse-spark-1.3-contributor`, `variant` medium |
 | Pass 2 reviewers | `claudeAgent` `claude-opus-5-5`, `effort` medium |
 | Workers | `claudeAgent` `claude-sonnet-5-5`, `effort` medium |
 | Round cap | 5 per pass, the first round included |
@@ -87,7 +87,7 @@ Checkout: <path>
 Pass: <1 | 2>
 Orchestrator: <provider model option, the target of this task>
 Ledgers: ~/.cache/review-loop/<slug>-p1 and -p2; resume either if it exists
-Pass 1 reviewers: <provider model option>
+Pass 1 reviewers: <panel: provider model option; one per panel>
 Pass 2 reviewers: <provider model option>
 Workers: <provider model option>
 Round cap: <N> per pass. Push: <yes | stop locally and report>. Finish: <merge | ready | none>
