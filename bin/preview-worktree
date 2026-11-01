@@ -1,0 +1,343 @@
+#!/usr/bin/env python3
+"""Serve one Git worktree's production build on loopback, for an agent to browse.
+
+  preview-worktree start [PATH] [--no-build]   build through host-check, serve, print the URL
+  preview-worktree stop [PATH|NAME]            stop a worktree's preview
+  preview-worktree status                      every preview: state, URL, worktree
+  preview-worktree prune                       forget previews whose worktree or unit is gone
+
+PATH defaults to the current directory. The project is the main checkout's
+directory name, and its recipe (install, build, setup, serve) comes from
+~/.config/fleet/previews.json (hosts/NAME/previews.json in fleet). Each preview
+is a transient systemd user service, wtpreview-NAME, with a port from the
+configured range that it keeps across restarts, a memory ceiling, and a
+lifetime, so a forgotten preview stops itself. `start` is idempotent: it
+rebuilds and restarts the same preview on the same port. The main checkout is
+refused; it has its own supervised service.
+
+Open the printed URL in the T3 browser as an environment port
+(preview_open target {kind: "environment-port", port: PORT}). The served
+origin is http://localhost:PORT, which recipes pass to the app as {origin}.
+"""
+import contextlib
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+CONFIG = Path(os.environ.get("PREVIEW_WORKTREE_CONFIG") or Path.home() / ".config" / "fleet" / "previews.json")
+STATE = Path(os.environ.get("PREVIEW_WORKTREE_DIR") or Path.home() / ".cache" / "worktree-previews")
+SELF = os.path.realpath(__file__)
+UNIT_PREFIX = "wtpreview-"
+READY_POLL_SECONDS = 2
+
+
+class Refusal(Exception):
+    """Bad input or a state the caller can fix: printed, exit 2."""
+
+
+def say(message):
+    print(f"preview-worktree: {message}", file=sys.stderr)
+
+
+def load_config():
+    try:
+        return json.loads(CONFIG.read_text())
+    except FileNotFoundError:
+        raise Refusal(f"no preview recipes on this host ({CONFIG}); add hosts/HOST/previews.json in fleet")
+
+
+def git(path, *args):
+    result = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Refusal(f"{path} is not inside a Git worktree")
+    return result.stdout.strip()
+
+
+def identify(path):
+    """(project, worktree, main checkout) for a path inside a linked worktree."""
+    worktree = Path(git(path, "rev-parse", "--show-toplevel"))
+    common = Path(git(path, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+    main = common.parent
+    if worktree == main:
+        raise Refusal(f"{worktree} is the main checkout; restart its supervised preview service instead")
+    return main.name, worktree, main
+
+
+def preview_name(project, worktree):
+    """project-dirname-hash: readable, and distinct for two worktrees with one directory name (`base`)."""
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", f"{project}-{worktree.name}").strip("-")[:72]
+    return f"{slug}-{hashlib.sha256(str(worktree).encode()).hexdigest()[:6]}"
+
+
+def unit(name):
+    return UNIT_PREFIX + name
+
+
+def recipe_for(config, project):
+    recipe = config.get("projects", {}).get(project)
+    if recipe is None:
+        known = ", ".join(sorted(config.get("projects", {}))) or "none"
+        raise Refusal(f"no preview recipe for {project} (known: {known}); add one to fleet's previews.json")
+    return recipe
+
+
+# --- State --------------------------------------------------------------------
+
+
+def state_path(name):
+    return STATE / f"{name}.json"
+
+
+def read_states():
+    return [json.loads(path.read_text()) for path in sorted(STATE.glob("*.json"))]
+
+
+def write_state(record):
+    STATE.mkdir(parents=True, exist_ok=True)
+    state_path(record["name"]).write_text(json.dumps(record, indent=1) + "\n")
+
+
+def forget(name):
+    state_path(name).unlink(missing_ok=True)
+
+
+@contextlib.contextmanager
+def locked():
+    """One allocator at a time, so two agents never take the same port."""
+    STATE.mkdir(parents=True, exist_ok=True)
+    with open(STATE / ".lock", "w") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+
+
+# --- systemd ------------------------------------------------------------------
+
+
+def systemctl(*args):
+    return subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True)
+
+
+def active(name):
+    return systemctl("is-active", "--quiet", unit(name)).returncode == 0
+
+
+def stop_unit(name):
+    systemctl("stop", unit(name))
+    systemctl("reset-failed", unit(name))
+
+
+def launch(record, recipe, config):
+    hours = config.get("hours", 8)
+    command = [
+        "systemd-run", "--user", "--quiet", "--collect", "--expand-environment=no",
+        f"--unit={unit(record['name'])}", f"--working-directory={record['dir']}",
+        f"--description=Worktree preview of {record['worktree']}",
+        f"--setenv=PATH={os.environ.get('PATH', '/usr/bin:/bin')}", f"--setenv=HOME={Path.home()}",
+        f"--setenv=PREVIEW_WORKTREE_DIR={STATE}",
+        f"--property=MemoryMax={recipe.get('memory', '1500M')}", f"--property=RuntimeMaxSec={hours}h",
+        sys.executable, SELF, "_serve", record["name"],
+    ]
+    subprocess.run(command, check=True)
+
+
+# --- Ports --------------------------------------------------------------------
+
+
+def port_free(port):
+    with socket.socket() as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def allocate_port(config, name, records):
+    """The preview's previous port, else the first free one in range that no other preview holds."""
+    own = next((r["port"] for r in records if r["name"] == name), None)
+    if own is not None:
+        return own
+    taken = {r["port"] for r in records}
+    low, high = config.get("ports", [4400, 4419])
+    for port in range(low, high + 1):
+        if port not in taken and port_free(port):
+            return port
+    raise Refusal(f"no free port in {low}-{high}; stop a preview (preview-worktree status)")
+
+
+# --- Commands -----------------------------------------------------------------
+
+
+def stale(record):
+    return not Path(record["worktree"]).is_dir() or not active(record["name"])
+
+
+def prune(keep=None):
+    """Forget every preview, but keep, whose worktree was removed or whose unit stopped."""
+    removed = []
+    for record in read_states():
+        if record["name"] != keep and stale(record):
+            stop_unit(record["name"])
+            forget(record["name"])
+            removed.append(record["name"])
+    return removed
+
+
+def check_limit(config, name, records):
+    others = [r["name"] for r in records if r["name"] != name]
+    limit = config.get("limit", 3)
+    if len(others) >= limit:
+        raise Refusal(f"{limit} previews already run ({', '.join(others)}); stop one first")
+
+
+def copy_from_main(recipe, worktree, main):
+    """Untracked local files the build or server reads (.dev.vars), copied once, never overwritten."""
+    for relative in recipe.get("copy", []):
+        source, target = main / relative, worktree / relative
+        if source.exists() and not target.exists():
+            shutil.copy2(source, target)
+            target.chmod(0o600)
+
+
+def run_step(argv, cwd):
+    result = subprocess.run(argv, cwd=cwd)
+    if result.returncode != 0:
+        raise Refusal(f"`{' '.join(argv)}` exited {result.returncode} in {cwd}")
+
+
+def build(recipe, directory):
+    install = recipe.get("install")
+    if install and not (directory / install["unless"]).exists():
+        run_step(install["run"], directory)
+    if not recipe.get("build"):
+        return
+    queued = os.environ.get("HOST_CHECK_ACTIVE") == "1"
+    run_step(recipe["build"] if queued else ["host-check", *recipe["build"]], directory)
+
+
+def start(args):
+    no_build = "--no-build" in args
+    paths = [a for a in args if a != "--no-build"]
+    project, worktree, main = identify(Path(paths[0] if paths else ".").resolve())
+    config = load_config()
+    recipe = recipe_for(config, project)
+    name = preview_name(project, worktree)
+    directory = worktree / recipe.get("dir", ".")
+    check_limit(config, name, [r for r in read_states() if not stale(r)])
+    copy_from_main(recipe, worktree, main)
+    if not no_build:
+        build(recipe, directory)
+    with locked():
+        prune(keep=name)
+        records = read_states()
+        check_limit(config, name, records)
+        stop_unit(name)
+        port = allocate_port(config, name, records)
+        record = {"name": name, "project": project, "worktree": str(worktree), "dir": str(directory), "port": port,
+                  "recipe": recipe}
+        write_state(record)
+        launch(record, recipe, config)
+    wait_ready(record, recipe.get("ready_seconds", 180))
+
+
+def wait_ready(record, seconds):
+    url = f"http://127.0.0.1:{record['port']}/"
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if responds(url):
+            report(record)
+            return
+        if not active(record["name"]):
+            break
+        time.sleep(READY_POLL_SECONDS)
+    subprocess.run(["journalctl", "--user", "-u", unit(record["name"]), "-n", "40", "--no-pager"])
+    raise Refusal(f"{unit(record['name'])} did not answer on {url}; its journal is above")
+
+
+def responds(url):
+    try:
+        urllib.request.urlopen(url, timeout=5)
+    except urllib.error.HTTPError:
+        return True  # any HTTP answer means the server is up
+    except (urllib.error.URLError, OSError):
+        return False
+    return True
+
+
+def report(record):
+    port = record["port"]
+    print(f"{record['name']}: http://localhost:{port}/ (unit {unit(record['name'])})")
+    print(f"  T3 browser: preview_open target {{kind: environment-port, port: {port}}}")
+    print(f"  logs: journalctl --user -u {unit(record['name'])}; stop: preview-worktree stop {record['name']}")
+
+
+def resolve_name(argument):
+    if argument and state_path(argument).exists():
+        return argument
+    project, worktree, _ = identify(Path(argument or ".").resolve())
+    return preview_name(project, worktree)
+
+
+def stop(args):
+    name = resolve_name(args[0] if args else None)
+    with locked():
+        stop_unit(name)
+        forget(name)
+    print(f"stopped {name}")
+
+
+def status(_args):
+    records = read_states()
+    if not records:
+        print("no worktree previews")
+    for record in records:
+        state = "active" if active(record["name"]) else "stopped"
+        print(f"{record['name']}: {state}, http://localhost:{record['port']}/, worktree {record['worktree']}")
+
+
+def prune_command(_args):
+    with locked():
+        removed = prune()
+    print("\n".join(f"pruned {name}" for name in removed) or "nothing to prune")
+
+
+def serve(args):
+    """The unit itself: run the recipe's setup steps, then exec its server with the port filled in."""
+    record = json.loads(state_path(args[0]).read_text())
+    recipe = record["recipe"]  # as of `start`, so a recipe edit waits for the next start
+    values = {"port": str(record["port"]), "origin": f"http://localhost:{record['port']}"}
+    for step in recipe.get("setup", []):
+        run_step(step, record["dir"])
+    argv = [word.format(**values) for word in recipe["serve"]]
+    os.execvp(argv[0], argv)
+
+
+COMMANDS = {"start": start, "stop": stop, "status": status, "prune": prune_command, "_serve": serve}
+
+
+def main(argv):
+    command = COMMANDS.get(argv[0] if argv else "")
+    if command is None:
+        print(__doc__.split("\n\n")[1])
+        return 0 if argv[:1] in (["-h"], ["--help"]) else 2
+    try:
+        command(argv[1:])
+    except Refusal as refusal:
+        say(str(refusal))
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
