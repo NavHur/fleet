@@ -101,13 +101,53 @@ class RecordTests(LoopCase):
         self.assertEqual(out, "3 sessions, $3.50 (orchestrator $3.00, reviewer $0.50, worker $0.00); "
                               f"unpriced: work-2\narchived in {archived}\n")
         self.assertEqual((self.state / "transcripts-args").read_text(),
-                         "list --since 2026-10-30 --prompt review-loop/pr\\-7 --json")
+                         "list --since 2026-10-30 --prompt review-loop/pr\\-7-p\\d+(?![\\w-]) --json")
         usage = json.loads((self.loop / "usage.json").read_text())
         self.assertEqual([(s["id"], s["role"]) for s in usage["sessions"]],
                          [("orch-2", "orchestrator"), ("rev-2", "reviewer"), ("work-2", "worker")])
         self.assertEqual(json.loads((self.loop / "run.json").read_text())["finished"], usage["at"])
         self.assertEqual((archived / "usage.json").read_text(), (self.loop / "usage.json").read_text())
         self.assertEqual((archived / "ledger.md").read_text(), (self.loop / "ledger.md").read_text())
+
+    def test_a_second_finish_drops_files_removed_from_the_ledger(self):
+        (self.state / "sessions.json").write_text("[]")
+        (self.loop / "scratch.md").write_text("temporary\n")
+        self.run_record("finish", self.loop)
+        archived = self.root / "home" / ".local" / "share" / "review-loop-archive" / "pr-7-p2"
+        self.assertTrue((archived / "scratch.md").exists())
+        (self.loop / "scratch.md").unlink()
+        code, out = self.run_record("finish", self.loop)
+        self.assertEqual(code, 0, out)
+        self.assertFalse((archived / "scratch.md").exists())
+        self.assertEqual((archived / "ledger.md").read_text(), (self.loop / "ledger.md").read_text())
+        self.assertEqual([p.name for p in archived.parent.iterdir()], ["pr-7-p2"])
+
+    def test_start_refuses_two_specs_with_the_same_file_name(self):
+        first, second = self.root / "a" / "spec.md", self.root / "b" / "spec.md"
+        for path in (first, second):
+            path.parent.mkdir()
+            path.write_text(f"{path.parent.name}\n")
+        code, out = self.run_record("start", self.loop, "--orchestrator", "a", "--checkout", self.repo,
+                                    "--spec", first, "--spec", second)
+        self.assertEqual(code, 2)
+        self.assertIn(str(first), out)
+        self.assertIn(str(second), out)
+        self.assertFalse((self.loop / "spec" / "spec.md").exists())
+
+    def test_finish_leaves_out_an_orchestrator_of_a_loop_with_a_longer_number(self):
+        (self.loop / "run.json").write_text('{"started": "2026-10-30T00:00:00+00:00"}\n')
+        loop = "~/.cache/review-loop"
+        sessions = [
+            session("orch-7", f"You are the orchestrator of a review loop.\nLedgers: {loop}/pr-7-p1 and -p2\n"
+                              "Pass: 2\n", 3.0),
+            session("orch-70", f"You are the orchestrator of a review loop.\nLedgers: {loop}/pr-70-p1 and -p2\n"
+                               "Pass: 2\n", 8.0),
+        ]
+        (self.state / "sessions.json").write_text(json.dumps(sessions))
+        code, out = self.run_record("finish", self.loop)
+        self.assertEqual(code, 0, out)
+        usage = json.loads((self.loop / "usage.json").read_text())
+        self.assertEqual([s["id"] for s in usage["sessions"]], ["orch-7"])
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ import re
 import shutil
 import socket
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -42,10 +43,22 @@ def write_json(path, data):
 # start
 
 
-def copy_specs(out, sources):
+def check_specs(sources):
+    """Refuse a spec that is not a file, or two that would save under one name."""
+    by_name = {}
     for source in sources:
         if not source.is_file():
             raise LoopError(f"spec {source} is not a file")
+        by_name.setdefault(source.name, []).append(source)
+    clashes = [paths for paths in by_name.values() if len(paths) > 1]
+    if clashes:
+        raise LoopError(f"specs share the file name {clashes[0][0].name}: "
+                        f"{', '.join(map(str, clashes[0]))}; rename one")
+
+
+def copy_specs(out, sources):
+    check_specs(sources)
+    for source in sources:
         target = out / source.name
         if not target.exists():
             shutil.copy(source, target)
@@ -78,10 +91,20 @@ def start(loop, orchestrator, github, specs):
 # finish
 
 
+def loop_prompt_pattern(loop):
+    """Regex for a prompt naming one of this loop's passes: pr-7 matches pr-7-p1 but not pr-70-p1."""
+    slug = LOOP_NAME.fullmatch(loop.name)
+    if not slug:
+        return rf"review-loop/{re.escape(loop.name)}(?![\w-])"
+    return rf"review-loop/{re.escape(slug.group(1))}-p\d+(?![\w-])"
+
+
 def session_role(prompt, loop):
     """The session's part in this pass (orchestrator, reviewer, or worker), or None when it belongs elsewhere."""
     match = LOOP_NAME.fullmatch(loop.name)
     if ORCHESTRATOR in prompt:
+        if not re.search(loop_prompt_pattern(loop), prompt):
+            return None
         brief_pass = PASS.search(prompt)
         mine = not match or not brief_pass or brief_pass.group(1) == match.group(2)
         return "orchestrator" if mine else None
@@ -96,8 +119,7 @@ def transcripts_command():
 
 
 def pass_sessions(loop, since):
-    slug = LOOP_NAME.fullmatch(loop.name)
-    pattern = f"review-loop/{re.escape(slug.group(1) if slug else loop.name)}"
+    pattern = loop_prompt_pattern(loop)
     result = subprocess.run([transcripts_command(), "list", "--since", since, "--prompt", pattern, "--json"],
                             capture_output=True, text=True)
     if result.returncode != 0:
@@ -119,6 +141,20 @@ def usage_record(sessions, loop):
     return {"at": now(), "usd_by_role": by_role, "unpriced": unpriced, "sessions": rows}
 
 
+def archive_ledger(loop):
+    """Make ARCHIVE/<loop> an exact copy of the ledger; a crash mid-copy leaves the old archive in place."""
+    ARCHIVE.mkdir(parents=True, exist_ok=True)
+    staged = Path(tempfile.mkdtemp(dir=ARCHIVE, prefix=f".{loop.name}-"))
+    try:
+        shutil.copytree(loop, staged, dirs_exist_ok=True)
+        final = ARCHIVE / loop.name
+        shutil.rmtree(final, ignore_errors=True)
+        staged.rename(final)
+    except BaseException:
+        shutil.rmtree(staged, ignore_errors=True)
+        raise
+
+
 def finish(loop):
     """Write usage.json, stamp run.json finished, and archive the ledger; running it again refreshes all three."""
     run = read_json(loop / "run.json")
@@ -126,7 +162,7 @@ def finish(loop):
     usage = usage_record(pass_sessions(loop, since), loop)
     write_json(loop / "usage.json", usage)
     write_json(loop / "run.json", {**run, "finished": usage["at"]})
-    shutil.copytree(loop, ARCHIVE / loop.name, dirs_exist_ok=True)
+    archive_ledger(loop)
     total = sum(usage["usd_by_role"].values())
     roles = ", ".join(f"{role} ${usd:.2f}" for role, usd in sorted(usage["usd_by_role"].items()))
     gaps = f"; unpriced: {', '.join(usage['unpriced'])}" if usage["unpriced"] else ""
