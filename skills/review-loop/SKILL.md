@@ -85,6 +85,7 @@ You are the orchestrator of a review loop. Read <SKILL_DIR>/orchestrate.md in fu
 Target: <repo>, <PR, or stack PRs bottom to top>, branches <...>, base <...>
 Checkout: <path>
 Pass: <1 | 2>
+Orchestrator: <provider model option, the target of this task>
 Ledgers: ~/.cache/review-loop/<slug>-p1 and -p2; resume either if it exists
 Pass 1 reviewers: <provider model option>
 Pass 2 reviewers: <provider model option>

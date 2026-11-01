@@ -1,10 +1,11 @@
 {
-  "$comment": "Keys bin/sync writes into ~/.claude/settings.json on every host, replacing each key's whole value; hosts/<host>/claude-settings.json replaces keys for one host. Other settings stay as they are. The skill keys keep the skill listing in every Claude session, subagents included, short. claude.ai connectors stay on so workbox keeps the claude.ai Linear connector; deniedMcpServers drops the connectors each host doesn't use. The Mac reaches Linear through a local-scope `linear` server on ~/dca and its repos. env merges per variable, so each machine's ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN for the CLIProxyAPI gateway stay; modelSettings merges per model. Haiku bills a request at 5x once its prompt passes 100K tokens, and Claude Code compacts 15K to 25K below autoCompactWindow (a 100K window compacted Haiku at 75K to 85K), so 125K compacts it near 100K. Behind a gateway Claude Code turns tool search off, which puts every MCP tool schema (about 58K tokens with T3's) in each prompt; ENABLE_TOOL_SEARCH=true turns it back on, and the gateway passes it through.",
+  "$comment": "Keys bin/sync writes into ~/.claude/settings.json on every host, replacing each key's whole value; hosts/<host>/claude-settings.json replaces keys for one host. Other settings stay as they are. The skill keys keep the skill listing in every Claude session, subagents included, short. claude.ai connectors stay on so workbox keeps the claude.ai Linear connector; deniedMcpServers drops the connectors each host doesn't use. The Mac reaches Linear through a local-scope `linear` server on ~/dca and its repos. env merges per variable, so each machine's ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN for the CLIProxyAPI gateway stay; modelSettings merges per model. Haiku bills a request at 5x once its prompt passes 100K tokens, and Claude Code compacts 15K to 25K below autoCompactWindow (a 100K window compacted Haiku at 75K to 85K), so 125K compacts it near 100K. cleanupPeriodDays keeps transcripts ten years instead of the default 30 days: they hold the token spend behind every cost measurement, review-loop replays included. Behind a gateway Claude Code turns tool search off, which puts every MCP tool schema (about 58K tokens with T3's) in each prompt; ENABLE_TOOL_SEARCH=true turns it back on, and the gateway passes it through.",
   "attribution": {
     "commit": "",
     "pr": "",
     "sessionUrl": false
   },
+  "cleanupPeriodDays": 3650,
   "env": {
     "ENABLE_TOOL_SEARCH": "true"
   },
