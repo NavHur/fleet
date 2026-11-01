@@ -246,6 +246,19 @@ class Robustness(Temp):
             groups.pop("/proc/12/cgroup")  # exited since ss listed it
             self.assertFalse(pw.listens_in_unit(4400, "a"))
 
+    def test_a_failed_staging_cleanup_raises(self):
+        main, worktree = self.root / "main", self.root / "wt"
+        main.mkdir()
+        worktree.mkdir()
+        (main / ".dev.vars").write_text("S=1\n")
+
+        def stuck(path, ignore_errors=False):
+            if not ignore_errors:
+                raise OSError(f"stuck {path}")
+
+        with mock.patch.object(pw.shutil, "rmtree", stuck), self.assertRaisesRegex(OSError, "preview-copy"):
+            pw.copy_from_main(RECIPE, worktree, main)
+
     def test_a_copy_in_flight_or_torn_leaves_nothing_git_could_publish(self):
         main, worktree = self.root / "main", self.root / "wt"
         main.mkdir()
@@ -254,15 +267,16 @@ class Robustness(Temp):
         real = pw.shutil.copyfileobj
         seen = []
 
-        def spying(source, out, fail=False):
+        def spying(source, out):
             real(source, out)
             out.flush()
             for args in (["status", "--porcelain"], ["add", "-A", "--dry-run"]):
                 seen.append(subprocess.run(["git", "-C", str(worktree), *args], capture_output=True, text=True, check=True).stdout)
-            if fail:
-                raise OSError("killed")
 
-        torn = lambda source, out: spying(source, out, fail=True)
+        def torn(source, out):
+            spying(source, out)
+            raise OSError("killed")
+
         with mock.patch.object(pw.shutil, "copyfileobj", torn), self.assertRaises(OSError):
             pw.copy_from_main(RECIPE, worktree, main)
         self.assertEqual([p.name for p in worktree.iterdir()], [".git"])

@@ -235,7 +235,7 @@ def copy_new(source, target):
     except FileExistsError:
         pass
     finally:
-        shutil.rmtree(stage, ignore_errors=True)
+        shutil.rmtree(stage)  # a failed removal must surface: the stage holds secrets
 
 
 def run_step(argv, cwd):
