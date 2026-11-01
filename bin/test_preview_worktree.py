@@ -179,6 +179,65 @@ class Robustness(Temp):
                 pw.wait_ready(record, 5)
         report.assert_not_called()
 
+    def wait_with(self, listens):
+        record = self.record("a", 4400)
+        with mock.patch.object(pw, "active", lambda name: True), mock.patch.object(pw, "responds", lambda url: True), \
+                mock.patch.object(pw, "listens_in_unit", lambda port, name: listens), mock.patch.object(pw.time, "sleep"), \
+                mock.patch.object(pw.time, "monotonic", side_effect=[0, 1, 2, 100]), \
+                mock.patch.object(pw, "report") as report, mock.patch.object(pw.subprocess, "run"):
+            if listens:
+                pw.wait_ready(record, 5)
+            else:
+                with self.assertRaisesRegex(pw.Refusal, "did not answer"):
+                    pw.wait_ready(record, 5)
+        return report
+
+    def test_an_answer_from_a_process_outside_the_unit_is_not_readiness(self):
+        self.wait_with(False).assert_not_called()
+
+    def test_an_answer_from_the_units_own_listener_is_readiness(self):
+        self.wait_with(True).assert_called_once()
+
+    def test_listens_in_unit_matches_the_listener_cgroup(self):
+        line = 'LISTEN 0      4096   127.0.0.1:4400 0.0.0.0:* users:(("workerd",pid=11,fd=12),("x",pid=12,fd=3))\n'
+        groups = {
+            "/proc/11/cgroup": "0::/user.slice/other-wtpreview-a.service\n",
+            "/proc/12/cgroup": "0::/user.slice/user@1000.service/app.slice/wtpreview-a.service\n",
+        }
+
+        def read(path):
+            if str(path) not in groups:
+                raise FileNotFoundError(path)
+            return groups[str(path)]
+
+        with mock.patch.object(pw.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, line, "")), \
+                mock.patch.object(Path, "read_text", read):
+            self.assertTrue(pw.listens_in_unit(4400, "a"))
+            self.assertFalse(pw.listens_in_unit(4400, "b"))
+            groups.pop("/proc/12/cgroup")  # exited since ss listed it
+            self.assertFalse(pw.listens_in_unit(4400, "a"))
+
+    def test_a_copy_that_fails_midway_leaves_no_file_and_is_retried(self):
+        main, worktree = self.root / "main", self.root / "wt"
+        main.mkdir()
+        worktree.mkdir()
+        (main / ".dev.vars").write_text("SECRET=main\n")
+        real = pw.shutil.copyfileobj
+
+        def torn(source, out):
+            out.write(b"SEC")
+            out.flush()
+            raise OSError("killed")
+
+        with mock.patch.object(pw.shutil, "copyfileobj", torn), self.assertRaises(OSError):
+            pw.copy_from_main(RECIPE, worktree, main)
+        self.assertEqual(list(worktree.iterdir()), [])
+        with mock.patch.object(pw.shutil, "copyfileobj", real):
+            pw.copy_from_main(RECIPE, worktree, main)
+        self.assertEqual([p.name for p in worktree.iterdir()], [".dev.vars"])
+        self.assertEqual((worktree / ".dev.vars").read_text(), "SECRET=main\n")
+        self.assertEqual((worktree / ".dev.vars").stat().st_mode & 0o777, 0o600)
+
     def test_a_reader_never_sees_a_partly_written_record(self):
         self.record("a", 4400)
         seen = []
