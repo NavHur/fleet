@@ -13,7 +13,7 @@ run lib/file-size test_file_size test_commit_guard test_command_chain
 run lib/ci-cache test_ci_cache
 run lib/pr-assets test_pr_assets
 run lib/transcripts test_transcripts
-run lib/fleet test_opencode_servers test_hooks test_post_install test_binaries test_sync_all test_zfs
+run lib/fleet test_opencode_servers test_hooks test_post_install test_binaries test_sync_all test_zfs test_login_path
 run skills/pedro-best-practices/tests test_complexity test_complexity_parity test_long_comments
 run skills/review-loop/scripts test_loop test_loop_brief test_loop_record test_delta test_publish
 run skills/pre-commit/scripts test_ci_covers
