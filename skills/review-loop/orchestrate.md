@@ -85,8 +85,10 @@ loop.py start "$LOOP" --orchestrator "MODEL EFFORT" --checkout "$checkout" [--sp
 
 With no `--spec` it saves each PR's body; for a spec in a file, an issue, or
 the brief, save its text to a file and pass that. `brief` refuses to run until
-`start` has. Then write `common.md` with what holds for the whole pass: the
-spec, as `$LOOP/spec/` (the copy, not the live PR body), the standards sources, operational constraints, and the lines of
+`start` has. In pass 2, pass `--spec "$PASS1"/spec/*`, so both passes review
+the text pass 1 saved. Then write `common.md` with what holds for the whole
+pass: the spec, as `$LOOP/spec/` (the copy, not the live PR body), the
+standards sources, operational constraints, and the lines of
 `~/.config/principles.md` that match the diff, copied verbatim. `loop.py
 brief` adds the round's checkout, heads, reviewers, rulings, and settled
 findings itself.
