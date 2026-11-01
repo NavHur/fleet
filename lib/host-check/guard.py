@@ -36,13 +36,24 @@ REASON = (
 )
 DEV_REASON = (
     "Development servers are not allowed on this host: they compile on demand and burn CPU the "
-    "host does not have. Build once and serve production: host-check pnpm build, then next start. "
+    "host does not have. {route} "
     "Gate scripts that boot a dev server (a11y-pages.ts, smoke-local.ts) need A11Y_BASE_URL "
     f"pointing at a production server. See {hostconf.HOST_VALIDATION} for this host's preview workflow."
 )
+# Where to look at a branch instead: the worktree preview command on hosts with recipes for it.
+PREVIEW_ROUTE = (
+    "To browse a worktree, run preview-worktree start in it: it builds through host-check and serves "
+    "that build on a loopback port for the T3 browser."
+)
+SERVE_ROUTE = "Build once and serve production: host-check pnpm build, then next start."
 DEV_TASK = re.compile(r"^dev([:.-].*)?$")
 # Gate scripts that boot `next dev` themselves unless given a server.
 DEV_BOOTING_SCRIPTS = {"a11y-pages.ts", "smoke-local.ts"}
+
+
+def dev_reason():
+    route = PREVIEW_ROUTE if os.path.exists(hostconf.previews_path()) else SERVE_ROUTE
+    return DEV_REASON.format(route=route)
 
 
 def command_starts_dev(leaf):
@@ -142,7 +153,7 @@ def decision(payload):
     if merge_method.refuses(command, [leaf.words for leaf in found]):
         return True, merge_method.REASON
     if hostconf.load()["deny_dev_servers"] and any(command_starts_dev(leaf) for leaf in found if not leaf.opaque):
-        return True, DEV_REASON
+        return True, dev_reason()
     if leaves_need_queue(found):
         return True, REASON
     # A script's or package script's own leaf is the commands after it.

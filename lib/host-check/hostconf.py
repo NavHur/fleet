@@ -21,6 +21,11 @@ HOST_CHECK = os.path.expanduser("~/.local/bin/host-check")
 HOST_VALIDATION = os.path.expanduser("~/.config/host-validation.md")
 
 
+def previews_path():
+    """The worktree preview recipes bin/preview-worktree reads; only hosts that serve previews have one."""
+    return os.environ.get("PREVIEW_WORKTREE_CONFIG") or os.path.expanduser("~/.config/fleet/previews.json")
+
+
 def path():
     return os.environ.get("HOST_CHECK_CONFIG") or os.path.expanduser("~/.config/fleet/host.json")
 

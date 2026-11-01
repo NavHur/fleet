@@ -128,6 +128,8 @@ class GuardTests(Fixtures):
             "cat <<eslint\nhello\neslint", "cat <<'tsc'\nx\ntsc", "cat <<<\"it's\"",
             # Digits ending a word are not a descriptor.
             "echo a1<<EOF\nx\nEOF", "echo 2>&1<<EOF\nx\nEOF",
+            # It queues its own build.
+            "preview-worktree start", "preview-worktree stop",
         ]:
             with self.subTest(command=command):
                 self.assertFalse(needs_queue(command))
@@ -200,6 +202,19 @@ class GuardTests(Fixtures):
             with self.subTest(deny=deny):
                 self.assertEqual(decision, "deny" if deny else None)
 
+    def test_dev_server_refusal_names_the_preview_route_where_the_host_has_one(self):
+        config = Path(self.temp.name) / "host-deny.json"
+        config.write_text(json.dumps({"deny_dev_servers": True}))
+        recipes = Path(self.temp.name) / "previews.json"
+        recipes.write_text("{}")
+        for previews, expected in [(recipes, "preview-worktree start"), (Path(self.temp.name) / "none.json", "next start")]:
+            env = dict(os.environ, HOST_CHECK_CONFIG=str(config), PREVIEW_WORKTREE_CONFIG=str(previews))
+            result = subprocess.run(["/usr/bin/python3", str(ROOT / "guard.py"), "claude"], env=env, text=True,
+                                    input=json.dumps({"tool_input": {"command": "npx wrangler dev"}}),
+                                    capture_output=True, check=True)
+            with self.subTest(previews=previews.name):
+                self.assertIn(expected, json.loads(result.stdout)["hookSpecificOutput"]["permissionDecisionReason"])
+
 
 class DevServerTests(unittest.TestCase):
     def test_dev_servers(self):
@@ -209,6 +224,8 @@ class DevServerTests(unittest.TestCase):
             ("tsx scripts/a11y-pages.ts", True), ("pnpm exec tsx scripts/smoke-local.ts", True),
             ("A11Y_BASE_URL=http://localhost:3050 tsx scripts/a11y-pages.ts", False),
             ("bg-job start web -- pnpm dev", True), ("bg-job status web", False),
+            ("npx wrangler dev --port 8791", True), ("preview-worktree start", False),
+            ("preview-worktree start --no-build", False),
             ("next start", False), ("vite build", False), ("pnpm build", False), ("prisma migrate dev", False),
             ("echo ok # it's set\nnext dev", True), ("# next dev\necho ok", False), ("pnpm build # then next dev", False),
         ]:
