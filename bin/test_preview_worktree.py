@@ -246,17 +246,22 @@ class Robustness(Temp):
             groups.pop("/proc/12/cgroup")  # exited since ss listed it
             self.assertFalse(pw.listens_in_unit(4400, "a"))
 
+    @unittest.skipIf(os.geteuid() == 0, "root can remove files from a read-only directory")
     def test_a_failed_staging_cleanup_raises(self):
         main, worktree = self.root / "main", self.root / "wt"
         main.mkdir()
         worktree.mkdir()
         (main / ".dev.vars").write_text("S=1\n")
+        real = pw.shutil.copyfileobj
 
-        def stuck(path, ignore_errors=False):
-            if not ignore_errors:
-                raise OSError(f"stuck {path}")
+        def lock_stage(source, out):
+            real(source, out)
+            (stage,) = worktree.glob(".preview-copy-*")
+            stage.chmod(0o500)  # the real rmtree can no longer unlink inside it
+            self.addCleanup(shutil.rmtree, stage, True)
+            self.addCleanup(stage.chmod, 0o700)
 
-        with mock.patch.object(pw.shutil, "rmtree", stuck), self.assertRaisesRegex(OSError, "preview-copy"):
+        with mock.patch.object(pw.shutil, "copyfileobj", lock_stage), self.assertRaisesRegex(OSError, "preview-copy"):
             pw.copy_from_main(RECIPE, worktree, main)
 
     def test_a_copy_in_flight_or_torn_leaves_nothing_git_could_publish(self):
