@@ -104,7 +104,9 @@ def read_states():
 
 def write_state(record):
     STATE.mkdir(parents=True, exist_ok=True)
-    state_path(record["name"]).write_text(json.dumps(record, indent=1) + "\n")
+    staging = STATE / f"{record['name']}.json.tmp"  # not matched by the *.json glob
+    staging.write_text(json.dumps(record, indent=1) + "\n")
+    os.replace(staging, state_path(record["name"]))  # readers see the old record or the new, never a part
 
 
 def forget(name):
@@ -127,13 +129,25 @@ def systemctl(*args):
     return subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True)
 
 
+def fail(result, args):
+    raise Refusal(f"systemctl --user {' '.join(args)} failed ({result.returncode}): {result.stderr.strip()}")
+
+
 def active(name):
-    return systemctl("is-active", "--quiet", unit(name)).returncode == 0
+    """is-active exits 0 when active and 3 or 4 when inactive, failed, or unknown; anything else is no answer."""
+    args = ("is-active", unit(name))
+    result = systemctl(*args)
+    if result.returncode not in (0, 3, 4):
+        fail(result, args)
+    return result.returncode == 0
 
 
 def stop_unit(name):
-    systemctl("stop", unit(name))
-    systemctl("reset-failed", unit(name))
+    """Stop the unit; one systemd no longer has loaded is already stopped, any other failure is a Refusal."""
+    for args in (("stop", unit(name)), ("reset-failed", unit(name))):
+        result = systemctl(*args)
+        if result.returncode != 0 and "not loaded" not in result.stderr:
+            fail(result, args)
 
 
 def launch(record, recipe, config):
@@ -164,11 +178,11 @@ def port_free(port):
 
 
 def allocate_port(config, name, records):
-    """The preview's previous port, else the first free one in range that no other preview holds."""
+    """The preview's previous port if still free, else the first free one in range that no other preview holds."""
     own = next((r["port"] for r in records if r["name"] == name), None)
-    if own is not None:
+    if own is not None and port_free(own):
         return own
-    taken = {r["port"] for r in records}
+    taken = {r["port"] for r in records if r["name"] != name}
     low, high = config.get("ports", [4400, 4419])
     for port in range(low, high + 1):
         if port not in taken and port_free(port):
@@ -204,10 +218,18 @@ def check_limit(config, name, records):
 def copy_from_main(recipe, worktree, main):
     """Untracked local files the build or server reads (.dev.vars), copied once, never overwritten."""
     for relative in recipe.get("copy", []):
-        source, target = main / relative, worktree / relative
-        if source.exists() and not target.exists():
-            shutil.copy2(source, target)
-            target.chmod(0o600)
+        if (main / relative).exists():
+            copy_new(main / relative, worktree / relative)
+
+
+def copy_new(source, target):
+    """Create target 0600 with source's contents, unless it exists; O_EXCL makes that one atomic step."""
+    try:
+        descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return
+    with os.fdopen(descriptor, "wb") as out, open(source, "rb") as original:
+        shutil.copyfileobj(original, out)
 
 
 def run_step(argv, cwd):
@@ -226,10 +248,25 @@ def build(recipe, directory):
     run_step(recipe["build"] if queued else ["host-check", *recipe["build"]], directory)
 
 
+USAGE = {
+    "start": "preview-worktree start [PATH] [--no-build]",
+    "stop": "preview-worktree stop [PATH|NAME]",
+}
+
+
+def one_argument(command, args, flags):
+    """The single positional argument, or None; a second one or an unknown option is a Refusal."""
+    positional = [a for a in args if not a.startswith("-")]
+    unknown = [a for a in args if a.startswith("-") and a not in flags]
+    if unknown or len(positional) > 1:
+        raise Refusal(f"usage: {USAGE[command]}")
+    return positional[0] if positional else None
+
+
 def start(args):
     no_build = "--no-build" in args
-    paths = [a for a in args if a != "--no-build"]
-    project, worktree, main = identify(Path(paths[0] if paths else ".").resolve())
+    path = one_argument("start", args, ("--no-build",))
+    project, worktree, main = identify(Path(path or ".").resolve())
     config = load_config()
     recipe = recipe_for(config, project)
     name = preview_name(project, worktree)
@@ -255,11 +292,11 @@ def wait_ready(record, seconds):
     url = f"http://127.0.0.1:{record['port']}/"
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
+        if not active(record["name"]):  # an answer from a unit that is not running is another service's
+            break
         if responds(url):
             report(record)
             return
-        if not active(record["name"]):
-            break
         time.sleep(READY_POLL_SECONDS)
     subprocess.run(["journalctl", "--user", "-u", unit(record["name"]), "-n", "40", "--no-pager"])
     raise Refusal(f"{unit(record['name'])} did not answer on {url}; its journal is above")
@@ -282,15 +319,19 @@ def report(record):
     print(f"  logs: journalctl --user -u {unit(record['name'])}; stop: preview-worktree stop {record['name']}")
 
 
+NAME_SHAPE = re.compile(r"^[A-Za-z0-9_-]+-[0-9a-f]{6}$")  # what preview_name produces
+
+
 def resolve_name(argument):
-    if argument and state_path(argument).exists():
+    """An existing path is a worktree; otherwise something shaped like a preview name is one, recorded or not."""
+    if argument and not Path(argument).exists() and NAME_SHAPE.match(argument):
         return argument
     project, worktree, _ = identify(Path(argument or ".").resolve())
     return preview_name(project, worktree)
 
 
 def stop(args):
-    name = resolve_name(args[0] if args else None)
+    name = resolve_name(one_argument("stop", args, ()))
     with locked():
         stop_unit(name)
         forget(name)

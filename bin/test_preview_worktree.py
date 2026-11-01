@@ -159,5 +159,90 @@ class Main(Temp):
         self.assertIn("no preview recipe for shop (known: leetwiz)", stderr.getvalue())
 
 
+def completed(code, stderr=""):
+    return subprocess.CompletedProcess([], code, "", stderr)
+
+
+class Robustness(Temp):
+    NAME = "shop-feature-abc123"
+
+    def test_a_retained_port_something_else_took_is_replaced(self):
+        records = [self.record("a", 4400)]
+        with mock.patch.object(pw, "port_free", lambda port: port != 4400):
+            self.assertEqual(pw.allocate_port({"ports": [4400, 4402]}, "a", records), 4401)
+
+    def test_an_answer_from_another_service_is_not_readiness_of_an_inactive_unit(self):
+        record = self.record("a", 4400)
+        with mock.patch.object(pw, "active", lambda name: False), mock.patch.object(pw, "responds", lambda url: True), \
+                mock.patch.object(pw, "report") as report, mock.patch.object(pw.subprocess, "run"):
+            with self.assertRaisesRegex(pw.Refusal, "did not answer"):
+                pw.wait_ready(record, 5)
+        report.assert_not_called()
+
+    def test_a_reader_never_sees_a_partly_written_record(self):
+        self.record("a", 4400)
+        seen = []
+        real = Path.write_text
+
+        def torn(path, text, *args, **kwargs):
+            real(path, text[:5])
+            seen.append(pw.read_states())
+            return real(path, text)
+
+        with mock.patch.object(Path, "write_text", torn):
+            self.record("a", 4401)
+        self.assertEqual([r["port"] for r in seen[0]], [4400])
+        self.assertEqual([r["port"] for r in pw.read_states()], [4401])
+
+    def test_a_file_created_between_the_check_and_the_copy_is_not_overwritten(self):
+        main, worktree = self.root / "main", self.root / "wt"
+        main.mkdir()
+        worktree.mkdir()
+        (main / ".dev.vars").write_text("SECRET=main\n")
+        (worktree / ".dev.vars").write_text("SECRET=branch\n")
+        with mock.patch.object(Path, "exists", lambda path: path == main / ".dev.vars"):
+            pw.copy_from_main(RECIPE, worktree, main)
+        self.assertEqual((worktree / ".dev.vars").read_text(), "SECRET=branch\n")
+
+    def test_stopping_a_preview_twice_succeeds(self):
+        self.record(self.NAME, 4400)
+        results = iter([completed(0), completed(0), completed(5, "Unit x not loaded."), completed(1, "Unit x not loaded.")])
+        out = io.StringIO()
+        with mock.patch.object(pw, "systemctl", lambda *args: next(results)), contextlib.redirect_stdout(out):
+            self.assertEqual(pw.main(["stop", self.NAME]), 0)
+            self.assertEqual(pw.main(["stop", self.NAME]), 0)
+        self.assertEqual(out.getvalue(), f"stopped {self.NAME}\n" * 2)
+        self.assertEqual(pw.read_states(), [])
+
+    def test_systemd_being_unreachable_is_not_an_inactive_unit(self):
+        self.record("a", 4400)
+        down = completed(1, "Failed to connect to bus")
+        with mock.patch.object(pw, "systemctl", lambda *args: down):
+            with self.assertRaisesRegex(pw.Refusal, "Failed to connect to bus"):
+                pw.prune()
+            with self.assertRaisesRegex(pw.Refusal, "Failed to connect to bus"):
+                pw.status([])
+        self.assertEqual([r["name"] for r in pw.read_states()], ["a"])
+
+    def test_is_active_reads_inactive_and_unknown_units_as_stopped(self):
+        for code, expected in [(0, True), (3, False), (4, False)]:
+            with self.subTest(code=code), mock.patch.object(pw, "systemctl", lambda *args: completed(code)):
+                self.assertIs(pw.active("a"), expected)
+
+    def test_a_failed_stop_keeps_the_record(self):
+        self.record(self.NAME, 4400)
+        with mock.patch.object(pw, "systemctl", lambda *args: completed(1, "Access denied")):
+            with self.assertRaisesRegex(pw.Refusal, "Access denied"):
+                pw.stop([self.NAME])
+        self.assertEqual([r["name"] for r in pw.read_states()], [self.NAME])
+
+    def test_extra_arguments_and_unknown_options_are_refused(self):
+        for argv in (["start", "a", "b"], ["start", "--bogus"], ["stop", "a", "b"], ["stop", "--no-build"]):
+            stderr = io.StringIO()
+            with self.subTest(argv=argv), contextlib.redirect_stderr(stderr):
+                self.assertEqual(pw.main(argv), 2)
+            self.assertIn("usage: preview-worktree", stderr.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
