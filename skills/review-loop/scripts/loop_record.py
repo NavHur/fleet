@@ -2,7 +2,8 @@
 
 start writes LOOP/run.json (repo, host, orchestrator, start time) and saves the spec into LOOP/spec/, so a
 later replay reads the spec as it stood. finish writes LOOP/usage.json, the cost of every session this pass
-ran, from this machine's transcripts while they still exist, and stamps run.json finished.
+ran, from this machine's transcripts while they still exist, stamps run.json finished, and copies the ledger
+into ARCHIVE on this machine, out of ~/.cache, so the record outlives a cache cleanup.
 """
 from __future__ import annotations
 
@@ -20,6 +21,8 @@ ORCHESTRATOR = "You are the orchestrator of a review loop"
 REVIEWER = re.compile(r"You are the \S+ reviewer in round \d+ of a review loop")
 PASS = re.compile(r"^Pass: (\d+)", re.MULTILINE)
 LOOP_NAME = re.compile(r"(.+)-p(\d+)")
+# Where finish keeps a copy of each finished ledger; each machine keeps its own.
+ARCHIVE = Path.home() / ".local" / "share" / "review-loop-archive"
 # Without a start time, how far back finish looks for the pass's sessions.
 DEFAULT_SINCE = "30d"
 
@@ -117,13 +120,15 @@ def usage_record(sessions, loop):
 
 
 def finish(loop):
-    """Write usage.json and stamp run.json finished; running it again refreshes both."""
+    """Write usage.json, stamp run.json finished, and archive the ledger; running it again refreshes all three."""
     run = read_json(loop / "run.json")
     since = run["started"][:10] if "started" in run else DEFAULT_SINCE
     usage = usage_record(pass_sessions(loop, since), loop)
     write_json(loop / "usage.json", usage)
     write_json(loop / "run.json", {**run, "finished": usage["at"]})
+    shutil.copytree(loop, ARCHIVE / loop.name, dirs_exist_ok=True)
     total = sum(usage["usd_by_role"].values())
     roles = ", ".join(f"{role} ${usd:.2f}" for role, usd in sorted(usage["usd_by_role"].items()))
     gaps = f"; unpriced: {', '.join(usage['unpriced'])}" if usage["unpriced"] else ""
-    return f"{len(usage['sessions'])} sessions, ${total:.2f} ({roles or 'none found'}){gaps}"
+    cost = f"{len(usage['sessions'])} sessions, ${total:.2f} ({roles or 'none found'}){gaps}"
+    return f"{cost}\narchived in {ARCHIVE / loop.name}"

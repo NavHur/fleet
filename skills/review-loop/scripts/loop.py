@@ -17,7 +17,8 @@ start, once round 1's heads are pinned, writes LOOP/run.json (repo, host,
 orchestrator model, start time) and saves the spec into LOOP/spec/: each
 --spec file, else each numbered PR's body. brief refuses to run before it.
 finish, as the pass closes, writes LOOP/usage.json: the cost of each session
-the pass ran, from this machine's transcripts, by role.
+the pass ran, from this machine's transcripts, by role, then copies the
+ledger to ~/.local/share/review-loop-archive/ on this machine.
 
 brief prints the task for one reviewer (ROLE is standards, spec, delta, or
 audit), registers it in rN/reviewers.tsv, and rewrites rN/context.md, the one

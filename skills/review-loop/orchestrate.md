@@ -34,7 +34,8 @@ reached:
 - `common.md`: the pass's packet (step 2).
 - `run.json`, `spec/`, `usage.json`: the run record, the spec as reviewed,
   and what the pass's sessions cost, from `loop.py start` and `finish`. They
-  let a later replay measure a pass; never edit them by hand.
+  let a later replay measure a pass; never edit them by hand. `finish` also
+  copies the ledger to `~/.local/share/review-loop-archive/` on this machine.
 - `outcomes.jsonl`: written only by `loop.py outcome`. A finding with an
   outcome is **settled**. `loop.py brief` quotes every ruling to each later
   round's reviewers, and pass 1's to pass 2's.

@@ -44,7 +44,8 @@ class RecordTests(LoopCase):
         for name, text in (("gh", FAKE_GH), ("transcripts", FAKE_TRANSCRIPTS)):
             (self.bin / name).write_text(text)
             (self.bin / name).chmod(0o755)
-        self.env = {**os.environ, "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}", "FAKE_STATE": str(self.state)}
+        self.env = {**os.environ, "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}", "FAKE_STATE": str(self.state),
+                    "HOME": str(self.root / "home")}
 
     def run_record(self, *args):
         return self.run_loop(*args, env=self.env)
@@ -96,14 +97,17 @@ class RecordTests(LoopCase):
         (self.state / "sessions.json").write_text(json.dumps(sessions))
         code, out = self.run_record("finish", self.loop)
         self.assertEqual(code, 0, out)
+        archived = self.root / "home" / ".local" / "share" / "review-loop-archive" / "pr-7-p2"
         self.assertEqual(out, "3 sessions, $3.50 (orchestrator $3.00, reviewer $0.50, worker $0.00); "
-                              "unpriced: work-2\n")
+                              f"unpriced: work-2\narchived in {archived}\n")
         self.assertEqual((self.state / "transcripts-args").read_text(),
                          "list --since 2026-10-30 --prompt review-loop/pr\\-7 --json")
         usage = json.loads((self.loop / "usage.json").read_text())
         self.assertEqual([(s["id"], s["role"]) for s in usage["sessions"]],
                          [("orch-2", "orchestrator"), ("rev-2", "reviewer"), ("work-2", "worker")])
         self.assertEqual(json.loads((self.loop / "run.json").read_text())["finished"], usage["at"])
+        self.assertEqual((archived / "usage.json").read_text(), (self.loop / "usage.json").read_text())
+        self.assertEqual((archived / "ledger.md").read_text(), (self.loop / "ledger.md").read_text())
 
 
 if __name__ == "__main__":
