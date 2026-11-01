@@ -26,7 +26,7 @@ never supply one: they record that day's defaults as if chosen.
 | Setting | Default |
 | --- | --- |
 | Target | Ask once: a PR, a stack (its top PR or branch), or a local branch and its base |
-| Orchestrator | `claudeAgent` `claude-opus-5-5`, `effort` medium |
+| Orchestrator | `claudeAgent` `claude-sonnet-5-5`, `effort` high |
 | Pass 1 reviewers | `codex` `gpt-6.1-terra`, `reasoningEffort` medium (set it: Terra defaults to low) |
 | Pass 2 reviewers | `claudeAgent` `claude-opus-5-5`, `effort` medium |
 | Workers | `claudeAgent` `claude-sonnet-5-5`, `effort` medium |
@@ -47,7 +47,7 @@ report any that is not.
    - `title`: `Review loop: <repo> #<PR>, pass <N>`
    - `mode`: `async`, `role`: `review`, `clientRequestId`:
      `review-loop-<slug>-p<N>`, reused by any retry of this launch
-   - `target`, the orchestrator setting: `{"providerInstanceId": "claudeAgent", "model": "claude-opus-5-5", "options": {"effort": "medium"}}`
+   - `target`, the orchestrator setting: `{"providerInstanceId": "claudeAgent", "model": "claude-sonnet-5-5", "options": {"effort": "high"}}`
    - `task`: the brief below, with `Pass: <N>`
 
    The child shares this session's workspace; the brief's `Checkout` line
