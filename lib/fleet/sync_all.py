@@ -4,7 +4,8 @@
 
 Each hosts/<name>/host.json names the machine's fleet `checkout` and, for a
 machine reached over SSH, its `ssh` host. SELF, this machine, runs its
-checkout's bin/sync directly; the others run theirs over SSH in a login bash,
+checkout's bin/sync directly; the machines its host.json `reaches` lists run
+theirs over SSH in a login bash,
 which puts node and npx on PATH. Each machine's whole output goes to
 ~/.cache/fleet/sync/<name>.log and stdout gets one line per machine. Exits 1
 when any machine failed or could not be reached.
@@ -37,7 +38,7 @@ def machines(fleet: Path) -> dict[str, dict]:
     return {conf.parent.name: json.loads(conf.read_text()) for conf in sorted((fleet / "hosts").glob("*/host.json"))}
 
 
-def command(name: str, conf: dict, self_name: str, apply: bool) -> list[str] | None:
+def command(name: str, conf: dict, self_name: str, reaches: list[str], apply: bool) -> list[str] | None:
     """How to run bin/sync on that machine from this one, or None when it cannot be reached."""
     checkout = conf.get("checkout")
     if not checkout:
@@ -45,7 +46,7 @@ def command(name: str, conf: dict, self_name: str, apply: bool) -> list[str] | N
     flags = ["--apply"] if apply else []
     if name == self_name:
         return [str(Path(checkout).expanduser() / "bin" / "sync"), *flags]
-    if "ssh" not in conf:
+    if "ssh" not in conf or name not in reaches:
         return None
     # The checkout's ~ expands on the far side.
     return [*SSH, conf["ssh"], "bash -lc " + shlex.quote(" ".join([f"cd {checkout} &&", "bin/sync", *flags]))]
@@ -79,7 +80,9 @@ def summary(code: int, output: str) -> tuple[str, str]:
 
 def main(argv: list[str]) -> int:
     fleet, self_name, apply = Path(argv[0]), argv[1], "--apply" in argv[2:]
-    plans = {name: command(name, conf, self_name, apply) for name, conf in machines(fleet).items()}
+    confs = machines(fleet)
+    reaches = confs[self_name].get("reaches", [])
+    plans = {name: command(name, conf, self_name, reaches, apply) for name, conf in confs.items()}
     reachable = {name: argv for name, argv in plans.items() if argv}
     with ThreadPoolExecutor(max_workers=max(len(reachable), 1)) as pool:
         results = dict(zip(reachable, pool.map(run, reachable.values())))
@@ -87,7 +90,7 @@ def main(argv: list[str]) -> int:
     failed = False
     for name in plans:
         if name not in results:
-            say("skipped", f"{name}: host.json has no checkout, or no ssh host")
+            say("skipped", f"{name}: not in {self_name}'s reaches, or host.json has no checkout or ssh host")
             continue
         code, output = results[name]
         (LOGS / f"{name}.log").write_text(ANSI.sub("", output))

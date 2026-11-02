@@ -11,6 +11,14 @@ usage() { sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 host=$1; shift
 case $1 in open | projects | thread) ;; *) usage ;; esac
 
+# Only hosts this machine's host.json lists under "reaches"; the tailnet policy
+# (hosts/tailnet-policy.hujson) blocks the rest anyway.
+conf=${FLEET_HOST_CONF:-$HOME/.config/fleet/host.json}
+if ! python3 -c 'import json,sys; sys.exit(sys.argv[2] not in json.load(open(sys.argv[1]))["reaches"])' "$conf" "$host" 2>/dev/null; then
+  echo "t3-remote: $(hostname -s) does not reach $host (\"reaches\" in $conf)" >&2
+  exit 77
+fi
+
 # Runs on the host. It uses the binary of the running `t3 serve`, so the CLI
 # matches the server version, and falls back to the newest runtime. The CLI
 # has no project listing, so project ids come from the server's database,
