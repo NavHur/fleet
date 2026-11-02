@@ -7,31 +7,58 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      # A pull request runs the suites its changes touch; a push to main runs them all.
+      BASE: ${{ github.event.pull_request.base.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: pnpm/action-setup@v4
+      - id: plan
+        run: python3 lib/changed-tests/changed_tests.py plan ${BASE:+--changed "$BASE"} | tee -a "$GITHUB_OUTPUT"
+      # The pedro-best-practices analyzers, set up only when its suite runs: oxlint (its tests skip
+      # without node_modules) and pbp-complexity from this checkout. bin/sync also pins a
+      # pbp-complexity release; PBP_COMPLEXITY keeps the tests on this checkout's build.
+      - if: contains(steps.plan.outputs.suites, 'skills/pedro-best-practices/tests')
+        uses: pnpm/action-setup@v4
         with:
           version: 10
-      # The skill's oxlint tests skip without its node_modules.
-      - run: pnpm install --frozen-lockfile
+      - if: contains(steps.plan.outputs.suites, 'skills/pedro-best-practices/tests')
+        run: pnpm install --frozen-lockfile
         working-directory: skills/pedro-best-practices
-      # The pedro-best-practices analyzers: pbp-complexity from this checkout, godot-guard as bin/sync pins it.
-      # bin/sync also pins a pbp-complexity release; PBP_COMPLEXITY keeps the tests on this checkout's build.
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked -p pbp-complexity
+      - if: contains(steps.plan.outputs.suites, 'skills/pedro-best-practices/tests')
+        uses: Swatinem/rust-cache@v2
+      - if: contains(steps.plan.outputs.suites, 'skills/pedro-best-practices/tests')
+        run: cargo build --release --locked -p pbp-complexity
+      # ruff, and godot-guard as bin/sync pins it.
       - run: python3 lib/fleet/binaries.py binaries.json "$RUNNER_TEMP/backup" --apply
       - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: ruff check
       # ci_covers.py parses workflows with PyYAML.
       - run: python3 -m pip install pyyaml
-      - run: bin/test
+      - run: bin/test ${BASE:+--changed "$BASE"}
         env:
           PBP_COMPLEXITY: ${{ github.workspace }}/target/release/pbp-complexity
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.plan.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: plan
+        run: python3 lib/changed-tests/changed_tests.py plan ${BASE:+--changed "$BASE"} | tee -a "$GITHUB_OUTPUT"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
   rust:
     name: Rust
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
