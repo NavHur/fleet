@@ -27,7 +27,7 @@ never supply one: they record that day's defaults as if chosen.
 | --- | --- |
 | Target | Ask once: a PR, a stack (its top PR or branch), or a local branch and its base |
 | Orchestrator | `claudeAgent` `claude-sonnet-5-5`, `effort` high |
-| Pass 1 reviewers | Two panels: `terra`, `codex` `gpt-6.1-terra`, `reasoningEffort` medium (set it: Terra defaults to low); and `muse`, `opencode` `opencode-go/muse-spark-1.3-contributor`, `variant` medium |
+| Pass 1 reviewers | Two panels: `terra`, `codex` `gpt-6.1-terra`, `reasoningEffort` high (set it: Terra defaults to low); and `muse`, `opencode` `opencode-go/muse-spark-1.3-contributor`, `variant` xhigh |
 | Pass 2 reviewers | `claudeAgent` `claude-opus-5-5`, `effort` medium |
 | Workers | `claudeAgent` `claude-sonnet-5-5`, `effort` medium |
 | Round cap | 5 per pass, the first round included |
