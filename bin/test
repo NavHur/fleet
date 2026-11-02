@@ -1,22 +1,5 @@
 #!/usr/bin/env bash
-# Run every unittest suite in the repo, the same way CI does.
+# Run the unittest suites the same way CI does: every one, or with --changed BASE only
+# those the changes since BASE's merge base touch. lib/changed-tests lists the suites.
 set -euo pipefail
-cd "$(dirname "$0")/.."
-status=0
-run() {
-  echo "== $1"
-  (cd "$1" && shift && python3 -m unittest "$@") || status=1
-}
-run lib/host-check test_walk test_queue_judges test_guard test_commit_guard test_merge_method test_scheduler test_bg_job
-run bin test_idle_compact test_actions_runners test_preview_worktree
-run lib/file-size test_file_size test_commit_guard test_command_chain
-run lib/ci-cache test_ci_cache
-run lib/pr-assets test_pr_assets
-run lib/transcripts test_transcripts
-run lib/fleet test_opencode_servers test_hooks test_post_install test_binaries test_sync_all test_zfs test_login_path
-run skills/pedro-best-practices/tests test_complexity test_complexity_parity test_long_comments
-run skills/review-loop/scripts test_loop test_loop_brief test_loop_record test_delta test_publish
-run skills/pre-commit/scripts test_ci_covers
-run hosts/workbox/claude-hooks test_merge_guard test_migration_guard test_agent_cli_guard
-run skills/stack/scripts test_diff_budget test_restack test_build_layers test_fix_layers test_stack_layers test_stack_fixture test_refresh_stack test_layer_gates test_import_graph test_check_manifests
-exit $status
+exec python3 "$(dirname "$0")/../lib/changed-tests/changed_tests.py" run "$@"
