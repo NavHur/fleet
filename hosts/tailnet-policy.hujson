@@ -1,0 +1,59 @@
+// Tailnet policy for tail1e3110.ts.net. Apply it through the Tailscale API
+// (POST /api/v2/tailnet/-/acl); the admin console holds the live copy.
+//
+// Access flows downhill only: Pedro's own devices (the Mac, the phone) reach
+// every host, homebox reaches devbox, and devbox and workbox initiate nothing.
+// Grants are stateful, so replies still flow back over an allowed connection.
+// The cloud boxes (devbox at Servarica, workbox on Lightsail) never get a route
+// back to homebox or the Mac, and homebox never reaches workbox.
+// hosts/<name>/host.json "reaches" lists the same edges for fleet's tools.
+{
+	"tagOwners": {
+		"tag:homebox": ["autogroup:admin"],
+		"tag:devbox":  ["autogroup:admin"],
+		"tag:workbox": ["autogroup:admin"],
+	},
+
+	"grants": [
+		// Pedro's own devices reach everything, each other included.
+		{"src": ["autogroup:member"], "dst": ["*"], "ip": ["*"]},
+
+		// homebox reaches devbox's SSH and its T3 server (tailscale serve on 443).
+		{"src": ["tag:homebox"], "dst": ["tag:devbox"], "ip": ["tcp:22", "tcp:443"]},
+	],
+
+	// Tailscale SSH stays on Pedro's own devices; the servers run OpenSSH.
+	"ssh": [
+		{
+			"action": "check",
+			"src":    ["autogroup:member"],
+			"dst":    ["autogroup:self"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+	],
+
+	"nodeAttrs": [
+		{"target": ["autogroup:member"], "attr": ["funnel"]},
+	],
+
+	// Checked on every save: a change that opens a backward path is refused.
+	"tests": [
+		{
+			"src":    "tag:homebox",
+			"accept": ["tag:devbox:22", "tag:devbox:443"],
+			"deny":   ["tag:workbox:22", "tag:workbox:443", "100.114.172.63:22", "100.114.172.63:443"],
+		},
+		{
+			"src":  "tag:devbox",
+			"deny": ["tag:homebox:22", "tag:homebox:443", "tag:workbox:22", "100.114.172.63:22", "100.114.172.63:443"],
+		},
+		{
+			"src":  "tag:workbox",
+			"deny": ["tag:homebox:22", "tag:homebox:443", "tag:devbox:22", "100.114.172.63:22", "100.114.172.63:443"],
+		},
+		{
+			"src":    "navhpedro@gmail.com",
+			"accept": ["tag:homebox:22", "tag:devbox:22", "tag:workbox:22", "tag:homebox:443"],
+		},
+	],
+}
