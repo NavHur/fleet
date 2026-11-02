@@ -1,5 +1,6 @@
 # fleet's gate: the checks CI runs. The pre-commit skill reads these targets;
 # `make check` runs all but format. Run it through host-check.
+# BASE=origin/main limits the Python suites to those the changes since BASE touch.
 SCRIPTS := bin/sync bin/test skills/t3-remote/scripts/t3-remote $(shell git ls-files '*.sh')
 
 .PHONY: check format lint typecheck test
@@ -19,5 +20,5 @@ typecheck:
 	cargo check --locked --all-targets
 
 test:
-	bin/test
+	bin/test $(if $(BASE),--changed $(BASE))
 	cargo test --locked
