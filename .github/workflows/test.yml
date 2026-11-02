@@ -1,10 +1,11 @@
-name: test
+name: Test
 on:
   push:
     branches: [main]
   pull_request:
 jobs:
   test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +31,7 @@ jobs:
         env:
           PBP_COMPLEXITY: ${{ github.workspace }}/target/release/pbp-complexity
   rust:
+    name: Rust
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,7 +41,7 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
   file-size:
-    name: max 5k tokens per file
+    name: Max 5k tokens per file
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

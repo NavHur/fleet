@@ -98,14 +98,14 @@ Agents read a whole file before editing it, so files stay under 20,000 bytes, ab
 - **CI in personal repositories.** `.github/actions/file-size` checks a pull request against its base and a push against the commit it replaced. Fleet runs it in `test.yml`; another repository adds this workflow, a private repository on its devbox runner, `runs-on: [self-hosted, devbox]` (see Actions runners):
 
 ```yaml
-name: file size
+name: File size
 on:
   pull_request:
   push:
     branches: [main]
 jobs:
   file-size:
-    name: max 5k tokens per file
+    name: Max 5k tokens per file
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
