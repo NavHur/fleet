@@ -24,11 +24,11 @@ class SyncAll(unittest.TestCase):
         patcher = mock.patch.object(sync_all, "LOGS", self.logs)
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.host("mac", checkout="~/dev/fleet")
+        self.host("mac", checkout="~/dev/fleet", reaches=["workbox"])
         self.host("workbox", checkout="~/code/fleet", ssh="workbox")
         self.ran = []
 
-    def host(self, name: str, **conf: str) -> None:
+    def host(self, name: str, **conf: object) -> None:
         (self.fleet / "hosts" / name).mkdir(parents=True)
         (self.fleet / "hosts" / name / "host.json").write_text(json.dumps({"hostnames": [name], **conf}))
 
@@ -69,8 +69,15 @@ class SyncAll(unittest.TestCase):
     def test_a_machine_without_an_ssh_host_is_skipped_from_elsewhere(self):
         code, out = self.sync({"workbox": (0, DONE)}, self_name="workbox")
         self.assertEqual(code, 0)
-        self.assertIn("  skipped    mac: host.json has no checkout, or no ssh host", out)
+        self.assertIn("  skipped    mac: not in workbox's reaches, or host.json has no checkout or ssh host", out)
         self.assertEqual(self.ran, [[str(Path("~/code/fleet").expanduser() / "bin/sync")]])
+
+    def test_a_machine_outside_this_ones_reaches_is_skipped(self):
+        self.host("devbox", checkout="~/src/fleet", ssh="devbox")
+        code, out = self.sync({"mac": (0, DONE), "workbox": (0, DONE)})
+        self.assertEqual(code, 0)
+        self.assertIn("  skipped    devbox: not in mac's reaches", out)
+        self.assertNotIn("devbox", [argv[-2] for argv in self.ran if argv[0] == "ssh"])
 
 
 if __name__ == "__main__":

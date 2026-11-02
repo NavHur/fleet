@@ -1,6 +1,7 @@
 {
   "hostnames": ["homebox"],
   "checkout": "~/src/fleet",
+  "reaches": ["devbox"],
   "ssh": "homebox",
   "slots": 6,
   "heavy_slots": 2,

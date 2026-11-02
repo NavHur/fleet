@@ -1,6 +1,7 @@
 {
   "hostnames": ["ip-172-26-10-182"],
   "checkout": "~/code/fleet",
+  "reaches": [],
   "ssh": "workbox",
   "slots": 6,
   "heavy_slots": 3,

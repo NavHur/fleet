@@ -5,7 +5,7 @@ description: "Read or message T3 threads on another machine (devbox, homebox, wo
 
 # T3 threads on another host
 
-The `t3-code` MCP tools reach only the server on this machine. Every other host runs its own T3 server bound to `127.0.0.1`, so Tailscale alone cannot reach it; SSH plus that host's `t3` CLI can. Hosts are SSH aliases: from the Mac, `workbox`, `devbox`, and `homebox`.
+The `t3-code` MCP tools reach only the server on this machine. Every other host runs its own T3 server bound to `127.0.0.1`, so Tailscale alone cannot reach it; SSH plus that host's `t3` CLI can. Hosts are SSH aliases, and each machine reaches only the hosts its `~/.config/fleet/host.json` lists under `reaches`: the Mac reaches `workbox`, `devbox`, and `homebox`; homebox reaches `devbox`; devbox and workbox reach nothing. The helper refuses any other host, and the tailnet policy blocks it too. Tell the user when a thread lives on a host this machine cannot reach.
 
 Run everything through the helper, which picks the binary of the host's running `t3 serve` so the CLI matches the server:
 
